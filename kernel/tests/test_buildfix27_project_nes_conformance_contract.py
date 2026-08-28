@@ -9,7 +9,7 @@ core=text('apps/project-nes/src/project_nes_core.h')
 app=text('apps/project-nes/src/project_nes.c')
 test=text('apps/project-nes/tests/host_conformance_test.c')
 make=text('apps/project-nes/Makefile')
-report=text('docs/history/reports/PROJECT_NES_TITAN_PORT_REPORT.md')
+report=text('PROJECT_NES_TITAN_PORT_REPORT.md')
 req('ProjectNesCoreRomInfo' in core and 'ProjectNesCore_ProbeRom' in core and 'probe_rom' in core,
     'provider-neutral ROM metadata probe boundary missing')
 req('PROJECT_NES_CORE_ROM_INES1' in core and 'PROJECT_NES_CORE_ROM_NES2' in core,

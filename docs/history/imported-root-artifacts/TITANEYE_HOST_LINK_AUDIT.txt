@@ -1,0 +1,8 @@
+TitanEYE host link audit: OK
+sources=222
+text=1554164
+data=234528
+bss=4276728
+total=6065420
+undefined=_GLOBAL_OFFSET_TABLE_,__isoc23_strtoull,abs,atoi,ceilf,cos,cosf,fabsf,floorf,lround,memcmp,memcpy,memmove,memset,powf,qsort,sin,sinf,snprintf,sqrt,sqrtf,strcat,strchr,strcmp,strcpy,strlen,strncmp,strncpy,strstr,strtod,strtof,strtol,strtoul,strtoull,vsnprintf
+note=structural host audit; R5900 and hardware validation still required

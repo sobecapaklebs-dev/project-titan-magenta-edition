@@ -1,0 +1,16 @@
+Files /tmp/bf30_r2_original/Project-Titan-BuildFix30-FINAL-FMCB-PREHARDWARE-R2/BUILDFIX30_AUTONOMOUS_BOOT_CHAIN.md and /mnt/data/bf30_installer_fix/Project-Titan-BuildFix30-FINAL-FMCB-PREHARDWARE-R2/BUILDFIX30_AUTONOMOUS_BOOT_CHAIN.md differ
+Files /tmp/bf30_r2_original/Project-Titan-BuildFix30-FINAL-FMCB-PREHARDWARE-R2/BUILDFIX30_AUTONOMOUS_INSTALLER.md and /mnt/data/bf30_installer_fix/Project-Titan-BuildFix30-FINAL-FMCB-PREHARDWARE-R2/BUILDFIX30_AUTONOMOUS_INSTALLER.md differ
+Files /tmp/bf30_r2_original/Project-Titan-BuildFix30-FINAL-FMCB-PREHARDWARE-R2/BUILDFIX30_AUTONOMOUS_TRANSACTION_RECOVERY.md and /mnt/data/bf30_installer_fix/Project-Titan-BuildFix30-FINAL-FMCB-PREHARDWARE-R2/BUILDFIX30_AUTONOMOUS_TRANSACTION_RECOVERY.md differ
+Only in /mnt/data/bf30_installer_fix/Project-Titan-BuildFix30-FINAL-FMCB-PREHARDWARE-R2: BUILDFIX30_CHECKPOINT_CP19_FMCB_INTEGRATED_INSTALLER.md
+Only in /mnt/data/bf30_installer_fix/Project-Titan-BuildFix30-FINAL-FMCB-PREHARDWARE-R2: BUILDFIX30_CP19_CHANGED_FILES.txt
+Only in /mnt/data/bf30_installer_fix/Project-Titan-BuildFix30-FINAL-FMCB-PREHARDWARE-R2: BUILDFIX30_CP19_VALIDATION.log
+Files /tmp/bf30_r2_original/Project-Titan-BuildFix30-FINAL-FMCB-PREHARDWARE-R2/BUILDFIX30_EXTERNAL_BUILD_README.md and /mnt/data/bf30_installer_fix/Project-Titan-BuildFix30-FINAL-FMCB-PREHARDWARE-R2/BUILDFIX30_EXTERNAL_BUILD_README.md differ
+Only in /mnt/data/bf30_installer_fix/Project-Titan-BuildFix30-FINAL-FMCB-PREHARDWARE-R2: BUILDFIX30_FINAL_R3_STATUS.md
+Files /tmp/bf30_r2_original/Project-Titan-BuildFix30-FINAL-FMCB-PREHARDWARE-R2/kernel/Makefile and /mnt/data/bf30_installer_fix/Project-Titan-BuildFix30-FINAL-FMCB-PREHARDWARE-R2/kernel/Makefile differ
+Only in /mnt/data/bf30_installer_fix/Project-Titan-BuildFix30-FINAL-FMCB-PREHARDWARE-R2/kernel/src/installer: titan_fmcb_backend.c
+Only in /mnt/data/bf30_installer_fix/Project-Titan-BuildFix30-FINAL-FMCB-PREHARDWARE-R2/kernel/src/installer: titan_fmcb_backend.h
+Files /tmp/bf30_r2_original/Project-Titan-BuildFix30-FINAL-FMCB-PREHARDWARE-R2/kernel/src/installer/titan_installer.c and /mnt/data/bf30_installer_fix/Project-Titan-BuildFix30-FINAL-FMCB-PREHARDWARE-R2/kernel/src/installer/titan_installer.c differ
+Files /tmp/bf30_r2_original/Project-Titan-BuildFix30-FINAL-FMCB-PREHARDWARE-R2/kernel/tests/test_buildfix30_fmcb_release_blocker_contract.py and /mnt/data/bf30_installer_fix/Project-Titan-BuildFix30-FINAL-FMCB-PREHARDWARE-R2/kernel/tests/test_buildfix30_fmcb_release_blocker_contract.py differ
+Only in /mnt/data/bf30_installer_fix/Project-Titan-BuildFix30-FINAL-FMCB-PREHARDWARE-R2/third_party/fmcb: integrated
+Files /tmp/bf30_r2_original/Project-Titan-BuildFix30-FINAL-FMCB-PREHARDWARE-R2/tools/build_titan_fmcb.py and /mnt/data/bf30_installer_fix/Project-Titan-BuildFix30-FINAL-FMCB-PREHARDWARE-R2/tools/build_titan_fmcb.py differ
+Files /tmp/bf30_r2_original/Project-Titan-BuildFix30-FINAL-FMCB-PREHARDWARE-R2/tools/build_titan_installer_media.py and /mnt/data/bf30_installer_fix/Project-Titan-BuildFix30-FINAL-FMCB-PREHARDWARE-R2/tools/build_titan_installer_media.py differ

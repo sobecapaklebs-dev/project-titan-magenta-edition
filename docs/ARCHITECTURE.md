@@ -1,89 +1,40 @@
-# Architecture Overview
+# Project Titan Magenta Edition architecture
 
-## 1. Platform layers
+Project Titan Magenta Edition is a PS2 system platform, not a collection of
+unrelated launchers. The maintained tree has four product components:
 
-Project Titan is organized as a set of platform layers rather than a single monolithic launcher.
+- **Titan Bootloader**: validates and hands off to the canonical root kernel.
+- **Titan Shell and Runtime** (`kernel/`): UI, profiles, VMC, library, audio,
+  renderer, applications, DEX diagnostics and service lifecycle.
+- **Titan Neutrino Engine**: the maintained Neutrino-derived ISO backend.
+- **Titan UL Engine**: the maintained Open PS2 Loader-derived UL backend.
 
-### Boot / installer layer
+The two engines retain their upstream licences, notices and authorship. The
+Titan name identifies the modified, integrated variants maintained by this
+project; it does not claim authorship of their upstream foundations.
 
-The boot chain is responsible for entering the Titan loader/kernel from supported PS2 boot environments. The initial public release supports the Semi-autonomous Matrix/Modbo DEV1 path through uppercase `mcX:/BOOT/BOOT.ELF`. Integrated Free McBoot autonomous-install source is retained as experimental work but is disabled from the initial release media.
+## Canonical deployment paths
 
-### Kernel and shell
-
-The kernel owns:
-
-- shell lifecycle and UI pages;
-- input routing;
-- storage and library services;
-- notifications and system state;
-- network / accessory service integration;
-- application launch boundaries;
-- theme/background rendering;
-- diagnostics and debug reporting.
-
-### Titan Runtime
-
-The Titan Runtime provides a native application model and lifecycle separate from conventional ELF launching. Native applications are packaged with metadata, entrypoint/module data and optional UI assets.
-
-### Storage and library
-
-The library scanner discovers supported game/application content and publishes a catalog to the shell. Storage operations should remain bounded and should not block the frame path.
-
-Package installation is intended to be transactional:
-
-```text
-validate -> stage -> verify -> commit -> publish
+```
+mass:/titan.elf
+mass:/kernel.elf
+mass:/neutrino/neutrino.elf
+mass:/TITAN/titan_ul_engine.elf
+mass:/TITAN/audio/
+mass:/TITAN/packages/
+mass:/TITAN/apps/TITLEID/
 ```
 
-Incomplete `.install-*` staging directories must never be treated as installed applications.
+`mass:/TITAN/kernel.elf` and `titan_ul_loader.elf` are legacy experimental
+names. The installer disables rather than silently overwrites those copies.
 
-### Rendering
+## Core contracts
 
-The shell renderer supports multiple display modes while keeping 480-line backgrounds as the primary application-background contract.
-
-Application artwork contract:
-
-```text
-background.rgb565  640x480 RGB565 primary
-                   512x256 RGB565 legacy fallback
-
-tile.rgb565        256x256 RGB565
-
-icon.rgb565         64x64 RGB565
-```
-
-When an application background is active, it replaces the normal wave/ribbon presentation for that surface rather than being composited as an unrelated extra layer.
-
-### pikaVR
-
-`pikaVR` is the Project Titan VRAM/resource-management work. Its scope includes residency, CLUT/format pressure, upload avoidance, cache behavior and telemetry.
-
-### VlombisCore
-
-`VlombisCore` is the umbrella name used for scheduling/platform work around storage, audio, network, caching and frame-budget behavior.
-
-### Game / application providers
-
-Project Titan integrates multiple content paths:
-
-- Titan Native applications;
-- Titan Native Game applications;
-- ELF applications;
-- ISO / Neutrino content;
-- UL / USBExtreme content.
-
-The shell should keep animation, metadata badges and launch presentation consistent across those providers.
-
-## 2. Design rules
-
-1. Real PS2 hardware is the final authority.
-2. Blocking filesystem/network work should not run in the frame-critical path.
-3. UI transitions should be shared rather than reimplemented per page.
-4. Background assets use 480-line primary content, with lower resolutions only as fallback.
-5. Native app packages must be transactionally installed before they are visible to the library.
-6. System text must go through the localization layer.
-7. Debug telemetry should be strong enough to identify the exact lifecycle/storage phase of a hardware failure.
-
-## 3. Public/private separation
-
-Private ports that depend on commercial game content should remain separate from the public source distribution. Public code should never contain commercial ROM data or packages that embed it.
+- External ELFs use the shared strict validator and the low-memory stage2.
+- Persistent files use temporary + verified backup publication.
+- Scanners build a candidate catalog and publish only a complete valid result.
+- Frame-facing services are cooperative and have bounded work per update.
+- TPKG applications are checksum-verified in a hidden USB staging directory,
+  validated as MIPS ELF, then renamed into the application catalog atomically.
+- 720p uses one PSM16 surface anchored immediately after VSync; it does not
+  pretend to provide double buffering that does not fit the current VRAM map.

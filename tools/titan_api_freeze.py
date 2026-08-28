@@ -6,9 +6,6 @@ from pathlib import Path
 PUBLIC = (
     'kernel/include/titan_app_sdk.h',
     'kernel/include/titan_game_sdk.h',
-    'sdk/titan-app/include/titan_app_sdk.h',
-    'sdk/titan-app/ABI_REFERENCE.md',
-    'sdk/titan-game/ABI_REFERENCE.md',
     'docs/reference/THEME_AUTHORING_V4.md',
     'docs/reference/TITAN_THEME_DYNAMIC_LIFECYCLE.md',
 )

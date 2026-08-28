@@ -1,0 +1,164 @@
+HISTORICAL REPORT — BuildFix17. Superseded for TGR renderer validation by
+BUILD_TGR_SM64_PS2_AUDIT_BUILDFIX21.md and docs/TGR_SM64_PS2_AUDIT.md.
+
+Project Titan Magenta Edition — BuildFix17 TGR + Ribbon integration
+Date: 2026-08-18
+Scope: ONLY the user-requested GoldenEye test APIs/runtime and Flow->Ribbon theme conversion.
+
+1. TITAN GAME RUNTIME (TGR) v1
+--------------------------------
+New public ABI:
+  kernel/include/titan_game_sdk.h
+New runtime service:
+  kernel/src/services/titan_game_runtime.[ch]
+GoldenEye bridge:
+  ports/goldeneye/titan_ge_platform.[ch]
+  ports/goldeneye/README.md
+
+Execution contract:
+  - Separate from Titan App/.tmod ABI.
+  - Game session parks the normal storage worker via a dedicated game-exclusive lane.
+  - Stops Titan menu music during the game session and resumes it after restoration.
+  - Game-owned 640x448 display mode, double framebuffer + dedicated Z16.
+  - Rebuilds the previous shell video layout on exit.
+  - Rebinds existing VU1 Ribbon video resources after the GS VRAM rebuild without allocating a second packet set.
+  - Game heap: default 12 MiB, clamped 4..16 MiB, alignment 16..4096, 256 tracked allocations.
+  - Input ABI exposes four logical pad slots. Current physical implementation polls PS2 ports 0 and 1; slots 2/3 are reserved for future multitap support.
+  - External audio uses Titan's existing 32 kHz stereo signed-16 PCM stream.
+  - Storage wrappers use TitanStorageIo 64-bit offsets/sizes.
+  - MVP transform + indexed colored triangles are functional in the v1 bring-up backend.
+  - PSM16 texture upload is functional.
+  - IMPORTANT: textured triangle sampling is deliberately NOT advertised yet. Supplying a non-zero texture handle to indexed-triangle drawing returns -2. This is fail-closed until the GoldenEye GBI -> VU1/GS translator is implemented and hardware-validated.
+
+Public feature bits currently advertised:
+  TITAN_GAME_FEATURE_Z16
+  TITAN_GAME_FEATURE_COLORED_TRIANGLES
+  TITAN_GAME_FEATURE_TEXTURE_UPLOAD_P16
+  TITAN_GAME_FEATURE_FOUR_PAD_ABI
+NOT advertised:
+  TITAN_GAME_FEATURE_TEXTURED_TRIANGLES
+
+2. INPUT / STORAGE / VIDEO EXTENSIONS
+-------------------------------------
+Input:
+  - TITAN_INPUT_MAX_PADS = 4
+  - TitanInput_GetPadState(index)
+  - TitanInput_GetConnectedPadCount()
+  - TitanInput_GetPadCapacity()
+  - Existing shell active-pad behavior remains available.
+
+Storage scheduler:
+  - TitanStorageScheduler_SetTitanGameExclusiveMode()
+  - TitanStorageScheduler_IsTitanGameWorkerParked()
+
+Video:
+  - TitanVideo_BeginGameMode()/EndGameMode()
+  - TitanVideo_GetGameZBufferAddress()
+  - TitanVideo_GetGameTextureBytesFree()
+  - TitanVideo_DrawGameTrianglePhysical()
+  - TitanVideo_GameUploadTexturePsm16()
+  - GS PSMZ16 is supported by centralized VRAM sizing.
+
+VU1 restore:
+  - TitanWaveVu1_RebindVideoResources()
+  - Reuses the preallocated texture upload packet during shell restoration.
+
+3. GOLDENEYE PORT BRIDGE STATUS
+-------------------------------
+The Titan-facing bridge is ready to attach to a GoldenEye source tree and exposes:
+  - session attachment/API discovery
+  - four-pad polling
+  - frame begin/MVP/indexed-triangle/end
+  - PCM audio submission
+
+This source package does NOT contain the GoldenEye/MGB64 game source, so the game itself is not cross-compiled here. The next renderer step is the GoldenEye-specific display-list/material translator to the TGR/VU1/GS backend.
+
+4. FLOW -> RIBBON REFERENCE CONVERSION
+---------------------------------------
+Physical source directories renamed:
+  themes/ribbon-scarlet
+  themes/ribbon-wine
+  themes/ribbon-cyan
+  themes/ribbon-twilight
+
+Visible theme names:
+  Ribbon Scarlet
+  Ribbon Vinho
+  Ribbon Ciano
+  Ribbon Crepusculo
+
+Stable installed IDs intentionally retained for compatibility with existing persistent selections/packages:
+  SCARLETFLOW
+  FLOWWINE
+  FLOWCYAN
+  FLOWTWILIGHT
+
+All four built-ins now use:
+  background_engine=ribbon3d-v1
+  reference_ribbon=1
+  particle_alpha=0
+
+Reference-video behavior model:
+  - one broad continuous sheet/ribbon crossing and overshooting the screen
+  - slow multi-second motion
+  - local folds travel through the sheet instead of moving a snake-like head
+  - apparent thickness collapses as local twist turns edge-on
+  - large lateral/vertical folds can create tall curtain-like arcs at the screen edges
+  - no particle field
+  - 8 continuous rows / 7 strips in the current spline tessellation
+
+Common calibrated Ribbon parameters:
+  ribbon_speed_milli=60
+  ribbon_center_y_milli=220000
+  ribbon_thickness_milli=330000
+  ribbon_fold_amplitude_milli=60000
+  ribbon_fold_frequency_milli=82000
+  ribbon_twist_amplitude_milli=220000
+  ribbon_span_milli=1450
+  ribbon_drift_x_milli=90000
+  ribbon_drift_y_milli=70000
+  flow_speed_milli=220
+  flow_frequency_milli=540
+  flow_amplitude_milli=340
+  flow_noise_milli=35
+  flow_fresnel_milli=1140
+  flow_horizontal_boost_milli=1020
+  flow_vertical_shift=3
+  vu1_speed_milli=220
+  vu1_frequency_milli=680
+  vu1_amplitude_milli=2400
+
+The user-requested constraint was obeyed: the reference video's COLOR was NOT copied. Each existing Titan palette was preserved.
+
+5. TARGETED HOST VALIDATION
+---------------------------
+PASS:
+  titan-game-runtime: OK (ASan + UBSan)
+  titan-game-runtime-contract: OK
+  goldeneye adapter syntax: OK (-Wall -Wextra -Werror)
+  ribbon-reference-contract: OK; four palettes preserved
+  xmb-spline-contract: OK; 8 rows, 7 strips, 65 samples, 910 vertices
+  theme-engine-contract: OK
+  network-theme-integration contract: PASS
+  build25-flow-themes-power-autoreboot-capability-contract: OK on Build36
+  build35-scene-v2-backcompat-contract: OK under Theme API v3
+  build36-complex-theme-api-v3-contract: OK
+  vu1-wave-no-internal-edges: OK
+  renderer-native-480i-720p-double-buffer-contract: OK
+  snake-flow-capability-contract: OK; legacy snake retained, Ribbon v7 active
+  buildfix28-reference-flow-contract: OK
+
+Renderer contract still reports the canonical shell VRAM high-water values:
+  legacy: 4,145,152 bytes reserved, 49,152 bytes free
+  native 720p: 4,194,304 bytes reserved, 0 bytes free
+Game mode does NOT reuse the 720p shell layout; it rebuilds a dedicated 640x448 + Z16 layout.
+
+Broad kernel/tests/run_host_tests.sh was also attempted, but the overall suite exceeded the execution time limit after multiple earlier tests had passed. No assertion failure was reported before that timeout. Therefore this report claims ONLY the targeted PASS set above.
+
+6. NOT YET CLAIMED
+------------------
+  - No R5900/IOP final cross-build was performed in this container.
+  - No PS2 hardware validation was performed here.
+  - Textured triangle rendering / GoldenEye material translation is not complete yet.
+  - Multitap slots 2/3 are ABI-ready but not physically opened yet.
+  - The actual GoldenEye/MGB64 source tree was not included in the user's BuildFix17 upload, so this package provides the Titan runtime + bridge, not a completed game ELF.

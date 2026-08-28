@@ -16,13 +16,19 @@ checks={
 }
 for f,t in checks.items():
     s=(r/f).read_text(); assert t in s,(f,t)
-app=(r/'kernel/include/titan_app_sdk.h').read_text(); game=(r/'kernel/include/titan_game_sdk.h').read_text()
+app=(r/'kernel/include/titan_app_sdk.h').read_text()
+game=(r/'kernel/include/titan_game_sdk.h').read_text()
 assert '#define TITAN_APP_API_VERSION 1u' in app
 assert '#define TITAN_GAME_API_VERSION 2u' in game
-for c in [r/'sdk/titan-app/include/titan_app_sdk.h',r/'apps/project-nes/include/titan_app_sdk.h',r/'apps/wlaunchelf/include/titan_app_sdk.h']:
+for c in [r/'apps/project-nes/include/titan_app_sdk.h',r/'apps/wlaunchelf/include/titan_app_sdk.h']:
     assert c.read_bytes()==(r/'kernel/include/titan_app_sdk.h').read_bytes(),c
-repo=(r/'kernel/src/services/titan_repository_protocol.h').read_text(); assert 'TITAN_REPOSITORY_PLATFORM_PS2 "ps2"' in repo and 'TITAN_REPOSITORY_ARCH_R5900 "mips-r5900"' in repo
-freeze=(r/'docs/reference/TITAN_API_FREEZE_V1.md').read_text(); assert 'raw CD/DVD' in freeze and 'HIGH, MID and ADVANCED' in freeze
+repo=(r/'kernel/src/services/titan_repository_protocol.h').read_text()
+assert 'TITAN_REPOSITORY_PLATFORM_PS2 "ps2"' in repo
+assert 'TITAN_REPOSITORY_ARCH_R5900 "mips-r5900"' in repo
+freeze=(r/'docs/reference/TITAN_API_FREEZE_V1.md').read_text()
+assert 'raw CD/DVD' in freeze and 'HIGH, MID and ADVANCED' in freeze
+policy=(r/'docs/reference/TITAN_STANDALONE_SDK.md').read_text()
+assert 'separately' in policy and '0.3.93-rc17' in policy
 print('titan-api-freeze-v1-contract: OK')
 print('titan-disc-sdk-ownership-contract: OK no raw optical API exported')
 print('titan-repository-protocol-v1-freeze-contract: OK')

@@ -3,8 +3,8 @@ from pathlib import Path
 import sys
 r=Path(sys.argv[1]).resolve()
 runner=(r/'kernel/tests/run_host_tests.sh').read_text(errors='replace')
-progress=(r/'docs/history/buildfix/BUILDFIX27_PROGRESS.md').read_text(errors='replace')
-status=(r/'docs/history/buildfix/BUILDFIX27_FINAL_SOURCE_STATUS.md').read_text(errors='replace')
+progress=(r/'BUILDFIX27_PROGRESS.md').read_text(errors='replace')
+status=(r/'BUILDFIX27_FINAL_SOURCE_STATUS.md').read_text(errors='replace')
 
 def req(x,m):
     if not x: raise SystemExit('buildfix27-host-readiness: FAIL: '+m)

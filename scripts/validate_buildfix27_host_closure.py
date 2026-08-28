@@ -18,7 +18,7 @@ def main():
     env=os.environ.copy(); env.setdefault('TERM','xterm')
     cp=subprocess.run(['bash','-c',pre+segment],cwd=root,env=env)
     if cp.returncode: fail('official BuildFix27 runner segment failed')
-    progress=(root/'docs/history/buildfix/BUILDFIX27_PROGRESS.md').read_text(errors='replace')
+    progress=(root/'BUILDFIX27_PROGRESS.md').read_text(errors='replace')
     if 'BLOCKED_EXTERNAL_MATERIALIZATION' not in progress: fail('FCEUmm blocker missing')
     if 'BLOCKED_EXTERNAL_BINARY' not in progress: fail('PFS IRX blocker missing')
     if 'R5900_TARGET: BLOCKED/NOT_EXECUTED' not in progress: fail('R5900 blocker missing')

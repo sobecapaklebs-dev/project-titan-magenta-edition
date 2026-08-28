@@ -1440,6 +1440,27 @@ static int TitanAppRuntime_AllocationSpanOwned(
     return 0;
 }
 
+static int TitanAppRuntime_GameThreadStackSpanOwned(
+    const void *pointer,
+    uint32_t bytes
+)
+{
+#if defined(__EE__) || defined(_EE)
+    if (g_app_runtime.runtime_class != TITAN_APP_RUNTIME_CLASS_GAME)
+        return 0;
+    return TitanAppRuntime_RangeContains(
+        g_app_runtime.game_thread_stack,
+        sizeof(g_app_runtime.game_thread_stack),
+        pointer,
+        bytes
+    );
+#else
+    (void)pointer;
+    (void)bytes;
+    return 0;
+#endif
+}
+
 static int TitanAppRuntime_ReadableSpan(const void *pointer, uint32_t bytes)
 {
     /* A loaded ET_REL module owns the complete packed runtime image, including
@@ -1449,6 +1470,7 @@ static int TitanAppRuntime_ReadableSpan(const void *pointer, uint32_t bytes)
      * Treat the complete image as read-only app memory while keeping writes
      * restricted to explicitly writable sections/heap allocations. */
     return TitanAppRuntime_AllocationSpanOwned(pointer, bytes) ||
+        TitanAppRuntime_GameThreadStackSpanOwned(pointer, bytes) ||
         TitanAppRuntime_RangeContains(
             g_app_runtime.module.image,
             g_app_runtime.module.image_size,
@@ -1470,6 +1492,19 @@ static uint32_t TitanAppRuntime_ReadableCapacity(const void *pointer, uint32_t c
 
     if (pointer == 0 || cap == 0u) return 0u;
     target = (uintptr_t)pointer;
+#if defined(__EE__) || defined(_EE)
+    /* P164_GAME_STACK_READABLE_CAPACITY */
+    if (g_app_runtime.runtime_class == TITAN_APP_RUNTIME_CLASS_GAME)
+    {
+        uintptr_t begin = (uintptr_t)g_app_runtime.game_thread_stack;
+        uintptr_t end = begin + (uintptr_t)sizeof(g_app_runtime.game_thread_stack);
+        if (end >= begin && target >= begin && target < end)
+        {
+            uintptr_t available = end - target;
+            return available < (uintptr_t)cap ? (uint32_t)available : cap;
+        }
+    }
+#endif
     for (index = 0u; index < TITAN_APP_RUNTIME_MAX_ALLOCATIONS; index++)
     {
         uintptr_t begin = (uintptr_t)g_app_runtime.allocations[index].pointer;
@@ -1525,7 +1560,8 @@ static int TitanAppRuntime_StringOwned(const char *text, uint32_t maximum)
 static int TitanAppRuntime_WritableSpan(void *pointer, uint32_t bytes)
 {
     return TitanAppRuntime_AllocationSpanOwned(pointer, bytes) ||
-        TitanAppRuntime_ModuleSpanOwned(pointer, bytes, 1);
+        TitanAppRuntime_ModuleSpanOwned(pointer, bytes, 1) ||
+        TitanAppRuntime_GameThreadStackSpanOwned(pointer, bytes);
 }
 
 static void *TitanAppRuntime_AllocDirect(uint32_t bytes)
@@ -3245,9 +3281,25 @@ static void TitanAppRuntime_UpdateLaunching(const TitanInputState *input)
 
     if (TitanAppRuntime_LaunchTimedOut())
     {
-        TitanAppRuntime_AbortLaunch(
-            "titan_app_init excedeu 15 segundos; sessao recuperada"
-        );
+        if (g_app_runtime.launch_phase == TITAN_APP_LAUNCH_WAIT_STORAGE)
+        {
+            TitanAppRuntime_AbortLaunch(
+                "handoff de storage do Titan App excedeu 15 segundos; sessao recuperada"
+            );
+        }
+        else if (g_app_runtime.launch_phase == TITAN_APP_LAUNCH_START_INIT ||
+                 g_app_runtime.launch_phase == TITAN_APP_LAUNCH_WAIT_INIT)
+        {
+            TitanAppRuntime_AbortLaunch(
+                "titan_app_init excedeu 15 segundos; sessao recuperada"
+            );
+        }
+        else
+        {
+            TitanAppRuntime_AbortLaunch(
+                "carregamento do Titan App excedeu 15 segundos; sessao recuperada"
+            );
+        }
         return;
     }
 
@@ -3259,6 +3311,17 @@ static void TitanAppRuntime_UpdateLaunching(const TitanInputState *input)
             {
                 g_app_runtime.launch_phase = TITAN_APP_LAUNCH_LOAD_MODULE;
             }
+#if defined(__EE__) || defined(_EE)
+            else
+            {
+                /* P164_NATIVE_STORAGE_HANDOFF_YIELD:
+                 * The storage worker runs at a deliberately low background
+                 * priority. While the shell waits for its exclusive-handoff
+                 * acknowledgement, explicitly leave the ready queue so the
+                 * worker can reach the park point deterministically. */
+                DelayThread(1000);
+            }
+#endif
             break;
 
         case TITAN_APP_LAUNCH_LOAD_MODULE:
@@ -3300,10 +3363,25 @@ static void TitanAppRuntime_UpdateLaunching(const TitanInputState *input)
                 return;
             }
             g_app_runtime.launch_phase = TITAN_APP_LAUNCH_WAIT_INIT;
+#if defined(__EE__) || defined(_EE)
+            /* P163_NATIVE_INIT_SCHEDULER_YIELD:
+             * The shell/main EE thread remains continuously runnable while the
+             * init worker is priority 80.  On the EE priority scheduler that
+             * can starve the lower-priority worker indefinitely.  Sleeping the
+             * shell for one millisecond here gives titan_app_init a deterministic
+             * scheduling window without moving module code onto the shell thread. */
+            DelayThread(1000);
+#endif
             break;
 
         case TITAN_APP_LAUNCH_WAIT_INIT:
             TitanAppRuntime_SetLaunchStatus("Inicializando aplicativo");
+#if defined(__EE__) || defined(_EE)
+            /* Keep yielding while init is pending.  This also covers future
+             * valid init handshakes that take more than one scheduler slice. */
+            if (!g_app_runtime.init_done)
+                DelayThread(1000);
+#endif
             if (g_app_runtime.init_done)
             {
                 TitanAppRuntime_StopInitThread(0);

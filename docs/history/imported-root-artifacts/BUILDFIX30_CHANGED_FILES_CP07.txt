@@ -1,0 +1,5 @@
+kernel/src/ui/titan_shell_scene.c
+kernel/tests/run_host_tests.sh
+kernel/tests/test_buildfix30_pup_power_contract.py
+BUILDFIX30_CHECKPOINT_CP07.md
+BUILDFIX30_CP07_VALIDATION.log

@@ -978,7 +978,7 @@ void TitanStorageScheduler_UpdateMainThread(void)
      * synchronous RPC boundaries, which prolongs both the install and the
      * pressure condition. Keep the hardware-proven 4 KiB quantum while the
      * package lane is exclusive; adaptive QoS remains in effect for updates. */
-    if (TitanPackageInstaller_IsActive())
+    if (TitanPackageInstaller_IsActive() || TitanSystemUpdate_IsActive())
         package_budget = TITAN_STORAGE_PACKAGE_BUDGET;
     else
         package_budget = TitanVlombisCore_GetRecommendedIoQuantum(

@@ -9,7 +9,7 @@ for token in ['TitanAppApi_InputGetState','TitanAppApi_InputGetDevice','reserved
 assert 'High' in d and 'Mid' in d and 'Advanced' in d
 assert 'no direct `pikaVR_*` public ABI' in p
 assert 'capability/evidence driven' in v
-copies=[r/'sdk/titan-app/include/titan_app_sdk.h',r/'apps/project-nes/include/titan_app_sdk.h',r/'apps/wlaunchelf/include/titan_app_sdk.h']
+copies=[r/'apps/project-nes/include/titan_app_sdk.h',r/'apps/wlaunchelf/include/titan_app_sdk.h']
 for c in copies: assert c.read_bytes()==(r/'kernel/include/titan_app_sdk.h').read_bytes(),c
 print('titan-api-pre-freeze-contract: OK')
 print('pikavr-api-pre-freeze-contract: OK')

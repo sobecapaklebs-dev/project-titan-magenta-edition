@@ -20,6 +20,6 @@ req('TITAN_APP_STORAGE_ENTRY_READ_ONLY' in wle,'VMC view must remain read-only')
 req('fileXio' not in wle and 'gsKit' not in wle and 'ExecPS2' not in wle,'native ownership regression')
 # Public copies must remain byte-identical.
 canon=(root/'kernel/include/titan_app_sdk.h').read_bytes()
-for rel in ['apps/wlaunchelf/include/titan_app_sdk.h','apps/project-nes/include/titan_app_sdk.h','sdk/titan-app/include/titan_app_sdk.h']:
+for rel in ['apps/wlaunchelf/include/titan_app_sdk.h','apps/project-nes/include/titan_app_sdk.h']:
     req((root/rel).read_bytes()==canon, rel+' diverged from canonical SDK')
 print('buildfix27-vmc-adapter-contract: OK read-only active-profile VMC inspection')

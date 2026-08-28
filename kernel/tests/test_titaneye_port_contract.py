@@ -69,15 +69,10 @@ for path in project.rglob("*"):
     if path.is_file():
         require(path.suffix.lower() not in {".z64", ".v64", ".n64"}, f"ROM leaked into public tree: {path}")
 
-for path in (
-    project / "docs/TITAN_GAME_SDK.md",
-    project / "sdk/titan-game/README.md",
-    project / "sdk/titan-game/ABI_REFERENCE.md",
-    project / "sdk/titan-game/PORTING_GUIDE.md",
-    project / "sdk/titan-game/examples/minimal_game.c",
-    project / "sdk/titan-game/examples/Makefile",
-):
-    require(path.is_file(), f"public SDK file missing: {path.relative_to(project)}")
+policy = (project / "docs/reference/TITAN_STANDALONE_SDK.md").read_text(encoding="utf-8")
+require("Titan Game Runtime (TGR) SDK" in policy, "standalone TGR SDK policy missing")
+require("0.3.93-rc17" in policy, "validated runtime baseline missing")
+require(not (project / "sdk/titan-game").exists(), "embedded Titan Game SDK must not remain in main tree")
 
 builder = (port / "tools/build_private_package.py").read_text(encoding="utf-8")
 require("KNOWN_US_SHA1" in builder and "abe01e4aeb033b6c0836819f549c791b26cfde83" in builder,

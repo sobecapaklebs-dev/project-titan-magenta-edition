@@ -156,9 +156,7 @@ python3 kernel/tools/titan_pkg.py build \
   --description "Port nativo TGR"
 ```
 
-`titan-game` é o único tipo que pode chamar `game_begin()`. Consulte
-`docs/TITAN_GAME_SDK.md`; ROMs e assets comerciais devem ser fornecidos pelo
-próprio usuário e nunca incluídos no SDK público.
+`titan-game` é o único tipo que pode chamar `game_begin()`. Consulte `docs/reference/TITAN_STANDALONE_SDK.md` para a distribuição separada do TGR SDK. ROMs e assets comerciais devem ser fornecidos pelo próprio usuário e nunca incluídos no SDK público.
 
 ### ELF v2 com tile própria
 
@@ -234,4 +232,4 @@ O fluxo da UI é:
 A extração é incremental e validada por CRC. Cancelamento ou falha remove o
 staging e não publica tile incompleta.
 
-Consulte `docs/TITAN_APP_SDK.md` para a ABI dos apps que rodam dentro da shell.
+Consulte `docs/reference/TITAN_STANDALONE_SDK.md` para a distribuição separada do Titan App SDK/TGR SDK.

@@ -2,7 +2,7 @@
 from pathlib import Path
 import sys
 project = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else Path(__file__).resolve().parents[2]
-doc = (project / 'docs/history/reports/TITAN_SAS_REFERENCE_AUDIT.md').read_text(encoding='utf-8')
+doc = (project / 'TITAN_SAS_REFERENCE_AUDIT.md').read_text(encoding='utf-8')
 required = [
     'https://www.psx-place.com/threads/sas-standard-information-structure.44785/',
     'https://www.psx-place.com/resources/osdmenu.1588/',

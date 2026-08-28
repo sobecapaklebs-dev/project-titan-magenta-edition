@@ -561,6 +561,7 @@ static void TitanSystemUpdate_VerifyPayloadStep(unsigned int byte_budget)
         TitanStorageIo_Close(g_update.input);
         g_update.input = -1;
         g_update.status.phase = TITAN_SYSTEM_UPDATE_EXTRACTING;
+        g_update.status.progress_percent = 25u;
         g_update.status.file_index = 0u;
         g_update.current_bytes = 0u;
         g_update.current_crc = 0xFFFFFFFFu;
@@ -618,6 +619,15 @@ static void TitanSystemUpdate_VerifyPayloadStep(unsigned int byte_budget)
         (unsigned int)got
     );
     g_update.verify_bytes += (unsigned int)got;
+    {
+        unsigned int verified = g_update.verify_bytes;
+        unsigned int i;
+        for (i = 0u; i < g_update.verify_file_index; i++)
+            verified += g_update.entries[i].size;
+        g_update.status.progress_percent = g_update.total_payload
+            ? (verified * 25u) / g_update.total_payload
+            : 0u;
+    }
     TitanSystemUpdate_Copy(
         g_update.status.message,
         sizeof(g_update.status.message),
@@ -650,6 +660,7 @@ static void TitanSystemUpdate_ExtractStep(unsigned int byte_budget)
         g_update.input = -1;
         g_update.staged_verify_index = 0u;
         g_update.status.phase = TITAN_SYSTEM_UPDATE_VERIFYING_STAGED;
+        g_update.status.progress_percent = 90u;
         TitanSystemUpdate_Copy(
             g_update.status.message,
             sizeof(g_update.status.message),
@@ -708,8 +719,8 @@ static void TitanSystemUpdate_ExtractStep(unsigned int byte_budget)
             g_update.transfer_offset = 0u;
         }
         g_update.status.progress_percent = g_update.total_payload
-            ? g_update.transferred * 100u / g_update.total_payload
-            : 0u;
+            ? 25u + (g_update.transferred * 65u / g_update.total_payload)
+            : 25u;
         return;
     }
 
@@ -811,6 +822,10 @@ static void TitanSystemUpdate_VerifyStagedStep(void)
         return;
     }
     g_update.staged_verify_index++;
+    if (g_update.selected.file_count != 0u)
+        g_update.status.progress_percent =
+            90u + (g_update.staged_verify_index * 5u /
+                   g_update.selected.file_count);
 }
 
 

@@ -3,7 +3,7 @@ from pathlib import Path
 import hashlib, json, subprocess, tempfile
 root=Path(__file__).resolve().parents[2]
 tool=root/'tools/titan_tins.py'
-boot=(root/'docs/history/buildfix/BUILD_USB_BDM_CORE_BUILDFIX6_WLE_ORDER.md').read_text(errors='replace')
+boot=(root/'BUILD_USB_BDM_CORE_BUILDFIX6_WLE_ORDER.md').read_text(errors='replace')
 installer=(root/'kernel/src/installer/titan_install_container.c').read_text(errors='replace')
 boot_main=(root/'bootloader/src/main.c').read_text(errors='replace')
 assert 'wLaunchELF' in boot and 'BuildFix6' in boot
