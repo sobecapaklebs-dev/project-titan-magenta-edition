@@ -1,0 +1,775 @@
+#include "titan_localization.h"
+#include "titan_storage_io.h"
+#include "titan_storage_paths.h"
+#include "titan_storage_scheduler.h"
+
+#include <stdio.h>
+#include <string.h>
+
+#define TITAN_LOCALIZATION_DIR TITAN_STORAGE_DEVICE_ROOT "/system"
+#define TITAN_LOCALIZATION_PATH TITAN_LOCALIZATION_DIR "/language.cfg"
+#define TITAN_LOCALIZATION_TEMP TITAN_LOCALIZATION_DIR "/language.cfg.tmp"
+#define TITAN_LOCALIZATION_BACKUP TITAN_LOCALIZATION_DIR "/language.cfg.bak"
+
+typedef struct TitanLocalizationState {
+    TitanLanguage language;
+    volatile int save_pending;
+} TitanLocalizationState;
+
+static TitanLocalizationState g_localization;
+
+static const char *const g_strings[TITAN_LANGUAGE_COUNT][TITAN_STR_COUNT] = {
+    {
+        "Settings", "Users and Profiles", "Saved Data", "Network", "Accessories", "Storage", "Video Output", "Themes", "System", "About Software", "★ Debug Settings",
+        "For health and safety information", "open Settings.", "Welcome to PlayStation 2", "Press X to continue", "Press the system button to continue",
+        "Folder / Press X to open", "System App / Press X to open", "Titan App / Press X to start", "Titan Native Game / Press X to start", "ELF Application / Press X to start",
+        "Titan Disc Engine / Press X to start", "PlayStation 2 game", "Titan UL Engine / Press X to start", "Titan-Neutrino Engine / Press X to start",
+        "Language", "Choose the language used by the Titan shell and system UI.", "Enabled", "Disabled", "Applied", "X Apply", "Built-in fallback", "Installed theme", "Animated scene", "System"
+    },
+    {
+        "Configurações", "Usuários e perfis", "Dados salvos", "Rede", "Acessórios", "Armazenamento", "Saída de vídeo", "Temas", "Sistema", "Sobre o software", "★ Configurações de depuração",
+        "Para informações sobre saúde e segurança", "acesse Configurações.", "Bem-vindo ao PlayStation 2", "Pressione X para continuar", "Pressione o botão do sistema para continuar",
+        "Pasta / Pressione X para abrir", "Aplicativo do sistema / Pressione X para abrir", "Aplicativo Titan / Pressione X para iniciar", "Jogo nativo Titan / Pressione X para iniciar", "Aplicativo ELF / Pressione X para iniciar",
+        "Titan Disc Engine / Pressione X para iniciar", "Jogo de PlayStation 2", "Titan UL Engine / Pressione X para iniciar", "Titan-Neutrino Engine / Pressione X para iniciar",
+        "Idioma", "Escolha o idioma usado pela shell e pela interface do sistema Titan.", "Ativado", "Desativado", "Aplicado", "X Aplicar", "Fallback integrado", "Tema instalado", "Cena animada", "Sistema"
+    },
+    {
+        "Ajustes", "Usuarios y perfiles", "Datos guardados", "Red", "Accesorios", "Almacenamiento", "Salida de vídeo", "Temas", "Sistema", "Acerca del software", "★ Ajustes de depuración",
+        "Para obtener información de salud y seguridad", "abre Ajustes.", "Bienvenido a PlayStation 2", "Pulsa X para continuar", "Pulsa el botón del sistema para continuar",
+        "Carpeta / Pulsa X para abrir", "Aplicación del sistema / Pulsa X para abrir", "Aplicación Titan / Pulsa X para iniciar", "Juego nativo Titan / Pulsa X para iniciar", "Aplicación ELF / Pulsa X para iniciar",
+        "Titan Disc Engine / Pulsa X para iniciar", "Juego de PlayStation 2", "Titan UL Engine / Pulsa X para iniciar", "Titan-Neutrino Engine / Pulsa X para iniciar",
+        "Idioma", "Elige el idioma de la shell y de la interfaz del sistema Titan.", "Activado", "Desactivado", "Aplicado", "X Aplicar", "Alternativa integrada", "Tema instalado", "Escena animada", "Sistema"
+    }
+};
+
+typedef struct TitanLocalizationCompatEntry {
+    const char *english;
+    const char *portuguese;
+    const char *spanish;
+} TitanLocalizationCompatEntry;
+
+static const TitanLocalizationCompatEntry g_compat_strings[] = {
+    { "Open", "Abrir", "Abrir" },
+    { "Start", "Iniciar", "Iniciar" },
+    { "Back", "Voltar", "Volver" },
+    { "Cancel", "Cancelar", "Cancelar" },
+    { "Delete", "Excluir", "Eliminar" },
+    { "Uninstall", "Desinstalar", "Desinstalar" },
+    { "Information", "Informações", "Información" },
+    { "Options", "Opções", "Opciones" },
+    { "Content", "Conteúdo", "Contenido" },
+    { "Select", "Selecionar", "Seleccionar" },
+    { "Select all", "Selecionar todos", "Seleccionar todo" },
+    { "Apply", "Aplicar", "Aplicar" },
+    { "Installed", "Instalado", "Instalado" },
+    { "Preparing", "Preparando", "Preparando" },
+    { "Searching", "Procurando", "Buscando" },
+    { "Available", "Disponível", "Disponible" },
+    { "Error", "Erro", "Error" },
+    { "Connected", "Conectado", "Conectado" },
+    { "Disconnected", "Desconectado", "Desconectado" },
+    { "Connecting...", "Conectando...", "Conectando..." },
+    { "Enabled", "Ativado", "Activado" },
+    { "Disabled", "Desativado", "Desactivado" },
+    { "Automatic", "Automático", "Automático" },
+    { "Not available", "Não disponível", "No disponible" },
+    { "Powered by:", "Desenvolvido por:", "Desarrollado por:" },
+    { "Starting game", "Iniciando jogo", "Iniciando juego" },
+    { "Starting disc", "Iniciando disco", "Iniciando disco" },
+    { "Starting application", "Iniciando aplicativo", "Iniciando aplicación" },
+    { "Failed to start game", "Falha ao iniciar jogo", "No se pudo iniciar el juego" },
+    { "Failed to start disc", "Falha ao iniciar disco", "No se pudo iniciar el disco" },
+    { "Failed to start application", "Falha ao iniciar aplicativo", "No se pudo iniciar la aplicación" },
+    { "Add user", "Adicionar usuário", "Añadir usuario" },
+    { "Profile", "Perfil", "Perfil" },
+    { "Edit profile", "Editar perfil", "Editar perfil" },
+    { "Create profile", "Criar perfil", "Crear perfil" },
+    { "Profile name", "Nome do perfil", "Nombre del perfil" },
+    { "Enter the profile name", "Digite o nome do perfil", "Introduce el nombre del perfil" },
+    { "Enter a name for the profile.", "Digite um nome para o perfil.", "Introduce un nombre para el perfil." },
+    { "A profile with this name already exists.", "Ja existe um perfil com esse nome.", "Ya existe un perfil con ese nombre." },
+    { "Profile saved", "Perfil salvo", "Perfil guardado" },
+    { "Data verified", "Dados verificados", "Datos verificados" },
+    { "Temporary profile", "Perfil temporário", "Perfil temporal" },
+    { "Profile updated", "Perfil atualizado", "Perfil actualizado" },
+    { "Failed to save", "Falha ao salvar", "Error al guardar" },
+    { "No active profile", "Nenhum perfil ativo", "Ningún perfil activo" },
+    { "Profile data", "Dados do perfil", "Datos del perfil" },
+    { "Profiles loaded", "Perfis carregados", "Perfiles cargados" },
+    { "Ready to save", "Pronto para salvar", "Listo para guardar" },
+    { "Protected data", "Dados protegidos", "Datos protegidos" },
+    { "Data preserved", "Dados preservados", "Datos preservados" },
+    { "Service unavailable", "Serviço indisponível", "Servicio no disponible" },
+    { "Invalid file", "Arquivo inválido", "Archivo no válido" },
+    { "Storage offline", "Armazenamento offline", "Almacenamiento sin conexión" },
+    { "Read/write error", "Erro de leitura/gravação", "Error de lectura/escritura" },
+    { "Storage busy", "Armazenamento ocupado", "Almacenamiento ocupado" },
+    { "Wait for the current operation before uninstalling", "Aguarde a operacao atual antes de desinstalar", "Espera a que termine la operación actual antes de desinstalar" },
+    { "Wait for the current storage operation and try again", "Aguarde a operação atual e tente novamente", "Espera a que termine la operación de almacenamiento y vuelve a intentarlo" },
+    { "Wait for the current storage operation", "Aguarde a operação de armazenamento atual", "Espera a que termine la operación de almacenamiento actual" },
+    { "Updating library", "Atualizando biblioteca", "Actualizando biblioteca" },
+    { "Searching for games and applications in storage", "Procurando jogos e aplicativos no armazenamento", "Buscando juegos y aplicaciones en el almacenamiento" },
+    { "Checking USB storage", "Verificando armazenamento USB", "Comprobando almacenamiento USB" },
+    { "Searching for games on USB storage", "Procurando jogos no armazenamento USB", "Buscando juegos en el almacenamiento USB" },
+    { "Checking USBExtreme catalog", "Verificando catálogo USBExtreme", "Comprobando catálogo USBExtreme" },
+    { "Identifying discovered games", "Identificando jogos encontrados", "Identificando juegos encontrados" },
+    { "Searching for ELF applications", "Procurando aplicativos ELF", "Buscando aplicaciones ELF" },
+    { "Finalizing library", "Finalizando biblioteca", "Finalizando biblioteca" },
+    { "Library capacity exceeded; previous catalog preserved", "Biblioteca excedeu o limite; catálogo anterior preservado", "La biblioteca excedió el límite; se conservó el catálogo anterior" },
+    { "USB read failure; previous catalog preserved", "Falha de leitura USB; catálogo anterior preservado", "Fallo de lectura USB; se conservó el catálogo anterior" },
+    { "USB storage not found; previous catalog preserved", "Armazenamento USB não encontrado; catálogo anterior preservado", "No se encontró el almacenamiento USB; se conservó el catálogo anterior" },
+    { "Failed to update the library", "Falha ao atualizar a biblioteca", "No se pudo actualizar la biblioteca" },
+    { "Analyzing the filesystem in the background", "Analisando o sistema de arquivos em segundo plano", "Analizando el sistema de archivos en segundo plano" },
+    { "PS2 filesystem created and verified", "Sistema de arquivos PS2 criado e verificado", "Sistema de archivos PS2 creado y verificado" },
+    { "VMC available", "VMC disponível", "VMC disponible" },
+    { "Format pending", "Formatação pendente", "Formateo pendiente" },
+    { "VMC unavailable", "VMC indisponível", "VMC no disponible" },
+    { "VMC failure", "Falha na VMC", "Fallo de VMC" },
+    { "Format profile VMC?", "Formatar VMC do perfil?", "¿Formatear la VMC del perfil?" },
+    { "A .bak copy will be kept in storage.", "Uma cópia .bak será mantida no armazenamento.", "Se conservará una copia .bak en el almacenamiento." },
+    { "Recreate profile VMC?", "Recriar VMC do perfil?", "¿Recrear la VMC del perfil?" },
+    { "Confirmation unavailable", "Confirmação indisponível", "Confirmación no disponible" },
+    { "Final confirmation", "Confirmação final", "Confirmación final" },
+    { "Formatting", "Formatação", "Formateando" },
+    { "Formatting completed", "Formatação concluída", "Formateo completado" },
+    { "Formatting cancelled", "Formatação cancelada", "Formateo cancelado" },
+    { "Failed to format", "Falha ao formatar", "Error al formatear" },
+    { "Incompatible device", "Dispositivo incompatível", "Dispositivo incompatible" },
+    { "Slot 1 completed", "Slot 1 concluído", "Ranura 1 completada" },
+    { "Slot 2 completed", "Slot 2 concluído", "Ranura 2 completada" },
+    { "Preparing to turn off the PS2...", "Preparando para desligar o PS2...", "Preparando para apagar la PS2..." },
+    { "Do not disconnect the power cable while the", "Do not disconnect the power cable while the", "No desconectes el cable de alimentación mientras el" },
+    { "PS2 indicator is lit or blinking.", "indicador do PS2 estiver aceso ou piscando.", "indicador de la PS2 esté encendido o parpadeando." },
+    { "PS2 game", "Jogo PS2", "Juego de PS2" },
+    { "LEFT/RIGHT Navigate    X Open    SELECT Options    O Back", "LEFT/RIGHT Navegar    X Abrir    SELECT Opcoes    O Voltar", "LEFT/RIGHT Navegar    X Abrir    SELECT Opciones    O Volver" },
+    { "X Confirm     O Cancel", "X Confirmar     O Cancelar", "X Confirmar     O Cancelar" },
+    { "X Mark/Confirm     O Cancel", "X Marcar/Confirmar     O Cancelar", "X Marcar/Confirmar     O Cancelar" },
+    { "Select content", "Selecionar conteudo", "Seleccionar contenido" },
+    { "Accessories", "Acessórios", "Accesorios" },
+    { "Connections, player assignment and Multitap", "Conexões, atribuição de jogadores e Multitap", "Conexiones, asignación de jugadores y Multitap" },
+    { "Wireless accessories", "Acessórios sem fio", "Accesorios inalámbricos" },
+    { "Connect and manage Bluetooth accessories only.", "Conecte e gerencie somente acessórios Bluetooth.", "Conecta y administra únicamente accesorios Bluetooth." },
+    { "Controller assignment", "Atribuição de controles", "Asignación de controles" },
+    { "Choose which devices are Player 1–4.", "Escolha quais dispositivos serão Jogador 1–4.", "Elige qué dispositivos serán Jugador 1–4." },
+    { "Configure the virtual Multitap used by PADEMU when launching games.", "Configura o Multitap virtual usado pelo PADEMU no lançamento de jogos.", "Configura el Multitap virtual que usa PADEMU al iniciar juegos." },
+    { "Bluetooth accessory", "Acessório Bluetooth", "Accesorio Bluetooth" },
+    { "Wireless controller", "Controle sem fio", "Control inalámbrico" },
+    { "Manage wireless accessories and view connected wired devices.", "Gerencie acessórios sem fio e veja dispositivos com fio conectados.", "Administra accesorios inalámbricos y consulta los dispositivos con cable conectados." },
+    { "Bluetooth has its own area; USB/SIO2 accessories appear only here.", "Bluetooth em uma área própria; acessórios USB/SIO2 aparecem somente aqui.", "Bluetooth tiene su propia sección; los accesorios USB/SIO2 aparecen solo aquí." },
+    { "Storage", "Armazenamento", "Almacenamiento" },
+    { "Titan space", "Espaço do Titan", "Espacio de Titan" },
+    { "Applications", "Aplicativos", "Aplicaciones" },
+    { "Titan native games", "Jogos nativos Titan", "Juegos nativos Titan" },
+    { "Themes", "Temas", "Temas" },
+    { "View Titan space and manage applications, native games and themes.", "Veja o espaço do Titan e gerencie aplicativos, jogos nativos e temas.", "Consulta el espacio de Titan y administra aplicaciones, juegos nativos y temas." },
+    { "Total use of the volume where Project Titan is installed.", "Uso total do volume onde o Project Titan está instalado.", "Uso total del volumen donde está instalado Project Titan." },
+    { "Applications installed by Titan and manageable content.", "Aplicativos instalados pelo Titan e conteúdo gerenciável.", "Aplicaciones instaladas por Titan y contenido administrable." },
+    { "Native games executed by Titan Runtime.", "Jogos nativos executados pelo Titan Runtime.", "Juegos nativos ejecutados por Titan Runtime." },
+    { "Installed themes; the active theme remains protected by Theme Service.", "Temas instalados; o tema ativo continua protegido pelo Theme Service.", "Temas instalados; el tema activo sigue protegido por Theme Service." },
+    { "Updating inventory in background...", "Atualizando inventário em background...", "Actualizando inventario en segundo plano..." },
+    { "Installed content and Titan storage usage", "Conteúdo instalado e uso do armazenamento Titan", "Contenido instalado y uso del almacenamiento de Titan" },
+    { "No content installed in this category.", "Nenhum conteúdo instalado nesta categoria.", "No hay contenido instalado en esta categoría." },
+    { "No installed content", "Nenhum conteúdo instalado", "No hay contenido instalado" },
+    { "Titan inventory found no manageable items in this category.", "O inventário do Titan não encontrou itens gerenciáveis nesta categoria.", "El inventario de Titan no encontró elementos administrables en esta categoría." },
+    { "X Options   O Back", "X Opções   O Voltar", "X Opciones   O Volver" },
+    { "Only Bluetooth accessories are shown in this area.", "Somente acessórios Bluetooth são exibidos nesta área.", "En esta sección solo se muestran accesorios Bluetooth." },
+    { "Connect accessory", "Conectar acessório", "Conectar accesorio" },
+    { "On entry, Titan starts Bluetooth discovery automatically.", "Ao entrar, o Titan inicia a busca Bluetooth automaticamente.", "Al entrar, Titan inicia automáticamente la búsqueda Bluetooth." },
+    { "Search and pair", "Buscar e parear", "Buscar y emparejar" },
+    { "Connected accessories", "Acessórios conectados", "Accesorios conectados" },
+    { "View registered accessories, connection state and device options.", "Veja acessórios registrados, estado da conexão e opções do dispositivo.", "Consulta accesorios registrados, estado de conexión y opciones del dispositivo." },
+    { "Initializing Bluetooth... discovery starts automatically when HCI is ready.", "Inicializando Bluetooth... a busca começa automaticamente quando o HCI estiver pronto.", "Inicializando Bluetooth... la búsqueda comienza automáticamente cuando HCI esté listo." },
+    { "Bluetooth discovery failed. The code below will also be recorded in Titan logs.", "A busca Bluetooth falhou. O código abaixo também será registrado nos logs do Titan.", "La búsqueda Bluetooth falló. El código también se registrará en los logs de Titan." },
+    { "Searching for accessories...  DualSense: hold Create + PS.", "Procurando acessórios...  DualSense: segure Create + PS.", "Buscando accesorios...  DualSense: mantén Create + PS." },
+    { "Bluetooth discovery. Select a found accessory to connect.", "Busca Bluetooth. Selecione um acessório encontrado para conectar.", "Búsqueda Bluetooth. Selecciona un accesorio encontrado para conectarlo." },
+    { "Initializing Bluetooth...", "Inicializando Bluetooth...", "Inicializando Bluetooth..." },
+    { "Preparing the dongle to start discovery.", "Preparando o dongle para iniciar a busca.", "Preparando el dongle para iniciar la búsqueda." },
+    { "Failed to start discovery", "Falha ao iniciar busca", "No se pudo iniciar la búsqueda" },
+    { "See the log for the exact HCI stage.", "Consulte o log para o estágio HCI exato.", "Consulta el log para ver la etapa HCI exacta." },
+    { "Searching for accessories...", "Procurando acessórios...", "Buscando accesorios..." },
+    { "Put the accessory in pairing mode.", "Coloque o acessório em modo de pareamento.", "Pon el accesorio en modo de emparejamiento." },
+    { "No accessories found", "Nenhum acessório encontrado", "No se encontraron accesorios" },
+    { "Discovery finished without finding devices.", "A busca terminou sem encontrar dispositivos.", "La búsqueda terminó sin encontrar dispositivos." },
+    { "Bluetooth accessories registered in Titan.", "Acessórios Bluetooth registrados no Titan.", "Accesorios Bluetooth registrados en Titan." },
+    { "No registered accessories", "Nenhum acessório registrado", "No hay accesorios registrados" },
+    { "Use Connect accessory to start the first pairing.", "Use Conectar acessório para iniciar o primeiro pareamento.", "Usa Conectar accesorio para iniciar el primer emparejamiento." },
+    { "Registered / disconnected", "Registrado / desconectado", "Registrado / desconectado" },
+    { "Titan chooses an available controller.", "O Titan escolhe um controle disponível.", "Titan elige un control disponible." },
+    { "Persistent preference / connected", "Preferência persistente / conectado", "Preferencia persistente / conectado" },
+    { "Persistent preference; temporary fallback allowed", "Preferência persistente; fallback temporário permitido", "Preferencia persistente; se permite alternativa temporal" },
+    { "Global configuration applied to the games' PADEMU handoff", "Configuração global aplicada ao handoff PADEMU dos jogos", "Configuración global aplicada al handoff PADEMU de los juegos" },
+    { "Enables four logical slots in the PADEMU backend.", "Habilita quatro slots lógicos no backend PADEMU.", "Habilita cuatro ranuras lógicas en el backend PADEMU." },
+    { "Choose the virtual PS2 port where Multitap will be presented.", "Escolha a porta PS2 virtual na qual o Multitap será apresentado.", "Elige el puerto virtual de PS2 donde se presentará Multitap." },
+    { "Connection: Bluetooth", "Conexão: Bluetooth", "Conexión: Bluetooth" },
+    { "Battery: Not available", "Bateria: Não disponível", "Batería: No disponible" },
+    { "Player: Not assigned", "Jogador: Não atribuído", "Jugador: No asignado" },
+    { "Firmware: Not available", "Firmware: Não disponível", "Firmware: No disponible" },
+    { "Type: Titan theme", "Tipo: Tema Titan", "Tipo: Tema Titan" },
+    { "Titan native game", "Jogo nativo Titan", "Juego nativo Titan" },
+    { "The active or protected theme cannot be deleted", "O tema ativo ou protegido não pode ser excluído", "El tema activo o protegido no se puede eliminar" },
+    { "Could not delete the theme", "Não foi possível excluir o tema", "No se pudo eliminar el tema" },
+    { "Theme deleted", "Tema excluído", "Tema eliminado" },
+    { "Delete content?", "Excluir conteúdo?", "¿Eliminar contenido?" },
+    { "The application/game and its installed files will be removed. Saves will not be deleted.", "O aplicativo/jogo e seus arquivos instalados serão removidos. Saves não serão apagados.", "Se eliminarán la aplicación/juego y sus archivos instalados. Las partidas guardadas no se eliminarán." },
+    { "This item cannot be removed by Package Service", "Este item não pode ser removido pelo Package Service", "Package Service no puede eliminar este elemento" },
+    { "Disconnect", "Desconectar", "Desconectar" },
+    { "Forget accessory", "Esquecer acessório", "Olvidar accesorio" },
+    { "Game data", "Dados de jogos", "Datos de juegos" },
+    { "Operation in progress", "Operação em andamento", "Operación en curso" },
+    { "Install theme", "Instalar tema", "Instalar tema" },
+    { "Preparing installation", "Preparando instalacao", "Preparando instalación" },
+    { "O Cancel installation", "O Cancelar instalacao", "O Cancelar instalación" },
+    { "O Back to packages", "O Voltar para pacotes", "O Volver a paquetes" },
+    { "No valid package found", "Nenhum pacote valido encontrado", "No se encontró ningún paquete válido" },
+    { "Copy .tthm files to mass:/TITAN/packages", "Copie arquivos .tthm para mass:/TITAN/packages", "Copia archivos .tthm a mass:/TITAN/packages" },
+    { "Copy .pkg or .tthm files to mass:/TITAN/packages", "Copie arquivos .pkg ou .tthm para mass:/TITAN/packages", "Copia archivos .pkg o .tthm a mass:/TITAN/packages" },
+    { "TRIANGLE Refresh    O Back", "TRIANGLE Atualizar    O Voltar", "TRIANGLE Actualizar    O Volver" },
+    { "TRIANGLE Refresh    SQUARE Uninstall    O Back", "TRIANGLE Atualizar    SQUARE Desinstalar    O Voltar", "TRIANGLE Actualizar    SQUARE Desinstalar    O Volver" },
+    { "X Install", "X Instalar", "X Instalar" },
+    { "Current version: %s / build %u", "Versao atual: %s / build %u", "Versión actual: %s / build %u" },
+    { "TRIANGLE Search again", "TRIANGLE Procurar novamente", "TRIANGLE Buscar de nuevo" },
+    { "Download game assets", "Baixar assets dos jogos", "Descargar recursos de juegos" },
+    { "Downloads only what is missing. All game icons come first; backgrounds afterward.", "Baixa somente o que estiver ausente. Icones de todos os jogos vêm primeiro; backgrounds depois.", "Descarga solo lo que falta. Primero los iconos de todos los juegos; después los fondos." },
+    { "Update existing assets", "Atualizar assets existentes", "Actualizar recursos existentes" },
+    { "Rebuilds each game's icon and background, one transfer at a time, atomically overwriting the cache.", "Refaz icon e background de cada jogo, uma transferência por vez, sobrescrevendo o cache atomico.", "Vuelve a crear el icono y el fondo de cada juego, una transferencia a la vez, sobrescribiendo la caché de forma atómica." },
+    { "Automatic download", "Download automático", "Descarga automática" },
+    { "Optional. Waits 30 s ONLINE + idle Home; any input pauses. Off by default.", "Opcional. Aguarda 30 s ONLINE + Home ociosa; qualquer input pausa. Desligado por padrão.", "Opcional. Espera 30 s ONLINE + Inicio inactivo; cualquier entrada pausa. Desactivado por defecto." },
+    { "Background", "Background", "Fondo" },
+    { "Icon", "Icone", "Icono" },
+    { "One transfer at a time; UI/input/audio have absolute priority.", "Uma transferência por vez; UI/input/audio têm prioridade absoluta.", "Una transferencia a la vez; UI/entrada/audio tienen prioridad absoluta." },
+    { "Stops the asset session; already published cache remains valid.", "Interrompe a sessão de assets; o cache já publicado permanece válido.", "Detiene la sesión de recursos; la caché ya publicada sigue siendo válida." },
+    { "Automatic search on detection", "Busca automática ao detectar", "Búsqueda automática al detectar" },
+    { "Cable connected", "Cabo conectado", "Cable conectado" },
+    { "Easy", "Fácil", "Fácil" },
+    { "Titan configures IP address, DHCP and DNS automatically.", "O Titan configura endereço IP, DHCP e DNS automaticamente.", "Titan configura automáticamente la dirección IP, DHCP y DNS." },
+    { "Advanced configuration", "Configuração avançada", "Configuración avanzada" },
+    { "Searching for nearby Wi-Fi networks...", "Procurando redes Wi-Fi próximas...", "Buscando redes Wi-Fi cercanas..." },
+    { "Obtain IP address", "Obter endereço IP", "Obtener dirección IP" },
+    { "Address acquisition through the selected interface.", "Aquisição de endereço pela interface selecionada.", "Obtención de dirección mediante la interfaz seleccionada." },
+    { "IP address", "Endereço IP", "Dirección IP" },
+    { "Current ps2ip address.", "Endereço atual do ps2ip.", "Dirección actual de ps2ip." },
+    { "Current IPv4 address.", "Endereço IPv4 atual.", "Dirección IPv4 actual." },
+    { "Cached network list available when detected.", "Lista de redes em cache disponível quando detectada.", "La lista de redes en caché está disponible cuando se detecta." },
+    { "Physical Ethernet link active.", "Link físico Ethernet ativo.", "Enlace físico Ethernet activo." },
+    { "Waiting for physical cable/link.", "Aguardando cabo/link físico.", "Esperando cable/enlace físico." },
+    { "The discovery is already busy; Titan will keep polling the state", "A busca já está ocupada; o Titan continuará consultando o estado", "La búsqueda ya está ocupada; Titan seguirá consultando el estado" },
+    { "Disconnecting accessory...", "Desconectando acessório...", "Desconectando accesorio..." },
+    { "Could not queue disconnection", "Não foi possível enfileirar a desconexão", "No se pudo poner en cola la desconexión" },
+    { "Accessory removed from paired list", "Acessório removido da lista de pareados", "Accesorio eliminado de la lista de emparejados" },
+    { "Could not forget the accessory now", "Não foi possível esquecer o acessório agora", "No se pudo olvidar el accesorio ahora" },
+    { "Delete theme?", "Excluir tema?", "¿Eliminar tema?" },
+    { "The installed theme will be removed from Titan storage.", "O tema instalado será removido do armazenamento Titan.", "El tema instalado se eliminará del almacenamiento de Titan." },
+    { "Finishing discovery; select again in a moment", "Concluindo a busca; selecione novamente em instantes", "Finalizando la búsqueda; vuelve a seleccionar en unos instantes" },
+    { "Connecting and registering accessory...", "Conectando e registrando acessório...", "Conectando y registrando accesorio..." },
+    { "Transport is busy; try again", "O transporte está ocupado; tente novamente", "El transporte está ocupado; inténtalo de nuevo" },
+    { "Asset operation cancelled", "Operação de assets cancelada", "Operación de recursos cancelada" },
+    { "Asset operation continues in background", "Operação de assets continua em segundo plano", "La operación de recursos continúa en segundo plano" },
+    { "Asset operation completed", "Operação de assets concluída", "Operación de recursos completada" },
+    { "Unknown installation failure", "Falha de instalacao desconhecida", "Fallo de instalación desconocido" },
+    { "Saved to mass:/TITAN/debug/titan-debug.txt", "Salvo em mass:/TITAN/debug/titan-debug.txt", "Guardado en mass:/TITAN/debug/titan-debug.txt" },
+    { "Saved to mass:/TITAN/logs/titan-last.txt", "Salvo em mass:/TITAN/logs/titan-last.txt", "Guardado en mass:/TITAN/logs/titan-last.txt" },
+    { "Failed to export diagnostics", "Falha ao exportar diagnostico", "No se pudieron exportar los diagnósticos" },
+    { "Previous boot saved to mass:/TITAN/logs/titan-previous.txt", "Boot anterior salvo em mass:/TITAN/logs/titan-previous.txt", "Arranque anterior guardado en mass:/TITAN/logs/titan-previous.txt" },
+    { "No previous session preserved", "Nenhuma sessao anterior preservada", "No se conservó ninguna sesión anterior" },
+    { "Exit the installer to resume storage access", "Saia do instalador para retomar o acesso ao armazenamento", "Sal del instalador para reanudar el acceso al almacenamiento" },
+    { "Package list updated", "Lista de pacotes atualizada", "Lista de paquetes actualizada" },
+    { "No package found", "Nenhum pacote encontrado", "No se encontró ningún paquete" },
+    { "No package selected", "Nenhum pacote selecionado", "No hay ningún paquete seleccionado" },
+    { "Installing package", "Instalando pacote", "Instalando paquete" },
+    { "Shutting down", "Desligando", "Apagando" },
+    { "Settings restored", "Configuracoes restauradas", "Ajustes restaurados" },
+    { "Tile order and visibility restored to defaults", "Ordem e visibilidade dos tiles voltaram ao padrao", "El orden y la visibilidad de los mosaicos volvieron a los valores predeterminados" },
+    { "Use LEFT/RIGHT and confirm with X; O cancels", "Use LEFT/RIGHT e confirme com X; O cancela", "Usa LEFT/RIGHT y confirma con X; O cancela" },
+    { "Move cancelled", "Movimento cancelado", "Movimiento cancelado" },
+    { "New position saved", "Nova posicao salva", "Nueva posición guardada" },
+    { "Uninstall application?", "Desinstalar aplicativo?", "¿Desinstalar aplicación?" },
+    { "The application and its installed local data will be removed.", "O aplicativo e seus dados locais instalados serão removidos.", "Se eliminarán la aplicación y sus datos locales instalados." },
+    { "This item is not an application installed by Package Installer", "Este item não é um aplicativo instalado pelo Package Installer", "Este elemento no es una aplicación instalada por Package Installer" },
+    { "The tile can be restored from default settings.", "O tile pode ser restaurado pelas configuracoes padrao.", "El mosaico se puede restaurar desde los ajustes predeterminados." },
+    { "Updating devices and library", "Atualizando dispositivos e biblioteca", "Actualizando dispositivos y biblioteca" },
+    { "Active profile", "Perfil ativo", "Perfil activo" },
+    { "Export settings", "Exportar configuracoes", "Exportar ajustes" },
+    { "Import settings", "Importar configuracoes", "Importar ajustes" },
+    { "Failed to write SHELLLAY.EXP", "Falha ao gravar SHELLLAY.EXP", "No se pudo escribir SHELLLAY.EXP" },
+    { "Downloads are disabled in this first internal version", "Downloads ficam desativados nesta primeira versao interna", "Las descargas están desactivadas en esta primera versión interna" },
+    { "TRIANGLE Edit", "TRIANGLE Editar", "TRIANGLE Editar" },
+    { "LEFT/RIGHT Move    X Confirm    O Cancel", "LEFT/RIGHT Mover    X Confirmar    O Cancelar", "LEFT/RIGHT Mover    X Confirmar    O Cancelar" },
+    { "Content unavailable", "Conteudo indisponivel", "Contenido no disponible" },
+    { "Confirmation timed out", "Tempo de confirmação esgotado", "Se agotó el tiempo de confirmación" },
+    { "Cancelled by user", "Cancelado pelo usuário", "Cancelado por el usuario" },
+    { "Titan storage", "Armazenamento Titan", "Almacenamiento de Titan" },
+    { "Inventory: updating in background", "Inventário: atualizando em background", "Inventario: actualizando en segundo plano" },
+    { "Inventory: updated", "Inventário: atualizado", "Inventario: actualizado" },
+    { "Validating theme content", "Validando conteudo do tema", "Validando contenido del tema" },
+    { "Validating application content", "Validando conteudo do aplicativo", "Validando contenido de la aplicación" },
+    { "Invalid entrypoint path", "Caminho do entrypoint invalido", "Ruta de entrypoint no válida" },
+    { "Titan icon, tile or background has an invalid size", "Icone, tile ou background Titan possui tamanho invalido", "El icono, mosaico o fondo Titan tiene un tamaño no válido" },
+    { "Theme preview must be RGB565 256x128", "Preview do tema precisa ser RGB565 256x128", "La vista previa del tema debe ser RGB565 256x128" },
+    { "Unsupported Titan App API version", "Versao da Titan App API nao suportada", "Versión de Titan App API no compatible" },
+    { "Theme contains code or invalid files", "Tema contem codigo ou arquivos invalidos", "El tema contiene código o archivos no válidos" },
+    { "Package executable is not a safe MIPS ELF", "O executavel do pacote nao e um ELF MIPS seguro", "El ejecutable del paquete no es un ELF MIPS seguro" },
+    { "Failed to publish application manifest", "Falha ao publicar o manifesto do aplicativo", "No se pudo publicar el manifiesto de la aplicación" },
+    { "Publishing theme", "Publicando tema", "Publicando tema" },
+    { "Publishing application to Home", "Publicando aplicativo na grade", "Publicando aplicación en Inicio" },
+    { "Could not publish theme", "Nao foi possivel publicar o tema", "No se pudo publicar el tema" },
+    { "Could not publish application", "Nao foi possivel publicar o aplicativo", "No se pudo publicar la aplicación" },
+    { "Theme installed successfully", "Tema instalado com sucesso", "Tema instalado correctamente" },
+    { "Package installed successfully", "Pacote instalado com sucesso", "Paquete instalado correctamente" },
+    { "Preparing: inspecting package", "Preparando: consultando pacote", "Preparando: examinando paquete" },
+    { "Preparing: opening payload", "Preparando: abrindo payload", "Preparando: abriendo payload" },
+    { "Preparing: seeking payload", "Preparando: posicionando payload", "Preparando: posicionando payload" },
+    { "Preparing: loading package into RAM", "Preparando: carregando pacote em RAM", "Preparando: cargando paquete en RAM" },
+    { "Preparing: reading header", "Preparando: lendo cabecalho", "Preparando: leyendo cabecera" },
+    { "Preparing: validating header", "Preparando: validando cabecalho", "Preparando: validando cabecera" },
+    { "Preparing: reading file table", "Preparando: lendo tabela de arquivos", "Preparando: leyendo tabla de archivos" },
+    { "Preparing: validating table", "Preparando: validando tabela", "Preparando: validando tabla" },
+    { "Preparing: reserving destination", "Preparando: reservando destino", "Preparando: reservando destino" },
+    { "Preparing: checking TITAN", "Preparando: verificando TITAN", "Preparando: comprobando TITAN" },
+    { "Preparing: checking themes", "Preparando: verificando themes", "Preparando: comprobando temas" },
+    { "Preparing: checking apps", "Preparando: verificando apps", "Preparando: comprobando aplicaciones" },
+    { "Preparing: checking existing installation", "Preparando: verificando instalacao existente", "Preparando: comprobando instalación existente" },
+    { "Preparing: creating transaction", "Preparando: criando transacao", "Preparando: creando transacción" },
+    { "Extracting package to temporary area", "Extraindo pacote para area temporaria", "Extrayendo paquete al área temporal" },
+    { "Installation cancelled; no tile was published", "Instalacao cancelada; nenhum tile foi publicado", "Instalación cancelada; no se publicó ningún mosaico" },
+    { "Opening application file", "Abrindo arquivo do aplicativo", "Abriendo archivo de la aplicación" },
+    { "Failed to create application file", "Falha ao criar arquivo do aplicativo", "No se pudo crear el archivo de la aplicación" },
+    { "Finishing application file", "Concluindo arquivo do aplicativo", "Finalizando archivo de la aplicación" },
+    { "Failed to finish application file", "Falha ao concluir arquivo do aplicativo", "No se pudo finalizar el archivo de la aplicación" },
+    { "Invalid file checksum", "Checksum de arquivo invalido", "Checksum de archivo no válido" },
+    { "Writing application data", "Gravando dados do aplicativo", "Escribiendo datos de la aplicación" },
+    { "USB write failure", "Falha de escrita USB", "Fallo de escritura USB" },
+    { "Preparing data in RAM", "Preparando dados em RAM", "Preparando datos en RAM" },
+    { "Reading package data", "Lendo dados do pacote", "Leyendo datos del paquete" },
+    { "USB read failure", "Falha de leitura USB", "Fallo de lectura USB" },
+    { "Cancellation requested...", "Cancelamento solicitado...", "Cancelación solicitada..." },
+    { "Invalid package selection", "Selecao de pacote invalida", "Selección de paquete no válida" },
+    { "Invalid or corrupted package", "Pacote invalido ou corrompido", "Paquete no válido o dañado" },
+    { "Package contains unsafe path", "Pacote contem caminho inseguro", "El paquete contiene una ruta insegura" },
+    { "Package checksum failed", "Checksum do pacote falhou", "Falló el checksum del paquete" },
+    { "Application already installed", "Aplicativo ja instalado", "Aplicación ya instalada" },
+    { "USB read or write failure", "Falha de leitura ou escrita USB", "Fallo de lectura o escritura USB" },
+    { "Titan App API incompatible", "Titan App API incompativel", "Titan App API incompatible" },
+    { "Package Installer requires DEX Mode", "Package Installer requer DEX Mode", "Package Installer requiere DEX Mode" },
+    { "Failed to publish application", "Falha ao publicar aplicativo", "No se pudo publicar la aplicación" },
+    { "Installation cancelled", "Instalacao cancelada", "Instalación cancelada" },
+    { "Ready", "Pronto", "Listo" },
+    { "Invalid MIPS ELF executable", "Executavel ELF MIPS invalido", "Ejecutable ELF MIPS no válido" },
+    { "Invalid Titan App module", "Modulo Titan App invalido", "Módulo Titan App no válido" },
+    { "%s / Port %u", "%s / Porta %u", "%s / Puerto %u" },
+    { "Connected / player assigned", "Conectado / jogador atribuído", "Conectado / jugador asignado" },
+    { "%u installed", "%u instalado", "%u instalado" },
+    { "%u items installed", "%u instalados", "%u instalados" },
+    { "%u accessory", "%u acessório", "%u accesorio" },
+    { "%u accessories", "%u acessórios", "%u accesorios" },
+    { "Error %d", "Erro %d", "Error %d" },
+    { "Player %d", "Jogador %d", "Jugador %d" },
+    { "%s / disconnected", "%s / desconectado", "%s / desconectado" },
+    { "Port %u", "Porta %u", "Puerto %u" },
+    { "Connection: %s", "Conexão: %s", "Conexión: %s" },
+    { "Battery: %u%%", "Bateria: %u%%", "Batería: %u%%" },
+    { "Player: %u", "Jogador: %u", "Jugador: %u" },
+    { "State: %s", "Estado: %s", "Estado: %s" },
+    { "Size: %s", "Tamanho: %s", "Tamaño: %s" },
+    { "Location: %s", "Local: %s", "Ubicación: %s" },
+    { "Version: %s", "Versão: %s", "Versión: %s" },
+    { "Type: %s", "Tipo: %s", "Tipo: %s" },
+    { "Game: %u / %u   Downloaded: %u/%u   No art: %u   Errors: %u", "Jogo: %u / %u   Baixados: %u/%u   Sem arte: %u   Erros: %u", "Juego: %u / %u   Descargados: %u/%u   Sin arte: %u   Errores: %u" },
+    { "Library: %u games   Resolved: %u/%u   No art: %u   Errors: %u", "Biblioteca: %u jogos   Resolvidos: %u/%u   Sem arte: %u   Erros: %u", "Biblioteca: %u juegos   Resueltos: %u/%u   Sin arte: %u   Errores: %u" },
+    { "Primary controller assigned to port %d", "Controle principal atribuido a porta %d", "Control principal asignado al puerto %d" },
+    { "Move the primary controller to port %d?", "Mover o controle principal para a porta %d?", "¿Mover el control principal al puerto %d?" },
+    { "Applications: %s", "Aplicativos: %s", "Aplicaciones: %s" },
+    { "Native games: %s", "Jogos nativos: %s", "Juegos nativos: %s" },
+    { "Themes: %s", "Temas: %s", "Temas: %s" },
+    { "Waiting", "Aguardando", "Esperando" },
+    { "Titan usage: %s", "Uso do Titan: %s", "Uso de Titan: %s" },
+    { "Asset download", "Download de assets", "Descarga de recursos" },
+    { "State", "Estado", "Estado" },
+    { "Opening the system application launcher.", "Abrindo o iniciador de aplicativos do sistema.", "Abriendo el iniciador de aplicaciones del sistema." },
+    { "Select at least one item", "Selecione pelo menos um item", "Selecciona al menos un elemento" },
+    { "Items returned to the main grid", "Os itens voltaram para a grade principal", "Los elementos volvieron a la cuadrícula principal" },
+    { "Uninstallation", "Desinstalacao", "Desinstalación" },
+    { "Invalid TITAN.DAT", "TITAN.DAT inválido", "TITAN.DAT no válido" },
+    { "Future version detected", "Versão futura detectada", "Se detectó una versión futura" },
+    { "VMC formatted", "VMC formatada", "VMC formateada" },
+    { "Saving configuration", "Salvando configuração", "Guardando configuración" },
+    { "Writing profile data", "Gravando dados do perfil", "Escribiendo datos del perfil" },
+    { "Progressive test unavailable", "Teste progressivo indisponível", "Prueba progresiva no disponible" },
+    { "Select Component in the PS2 OSD", "Selecione Component no OSD do PS2", "Selecciona Component en el OSD de PS2" },
+    { "Video mode failure", "Falha no modo de vídeo", "Fallo del modo de vídeo" },
+    { "Interlaced mode retained", "Modo interlaçado mantido", "Se mantuvo el modo entrelazado" },
+    { "Format VMC", "Formatar VMC", "Formatear VMC" },
+    { "Formatting VMC", "Formatando VMC", "Formateando VMC" },
+    { "Format Memory Card 2?", "Formatar Memory Card 2?", "¿Formatear Memory Card 2?" },
+    { "Format Memory Card 1?", "Formatar Memory Card 1?", "¿Formatear Memory Card 1?" },
+    { "Choose continue to see the final confirmation.", "Escolha continuar para ver a confirmação final.", "Elige continuar para ver la confirmación final." },
+    { "Memory Card 2 will be completely erased.", "O Memory Card 2 será completamente apagado.", "Memory Card 2 se borrará por completo." },
+    { "Memory Card 1 will be completely erased.", "O Memory Card 1 será completamente apagado.", "Memory Card 1 se borrará por completo." },
+    { "Formatting Memory Card", "Formatando Memory Card", "Formateando Memory Card" },
+    { "Add user", "Adicionar usuario", "Añadir usuario" },
+    { "Notification settings", "Config. de notificacoes", "Ajustes de notificaciones" },
+    { "Switch profile", "Trocar perfil", "Cambiar perfil" },
+    { "Restart Project Titan", "Reiniciar Project Titan", "Reiniciar Project Titan" },
+    { "Restart console", "Reiniciar console", "Reiniciar consola" },
+    { "Turn off console", "Desligar console", "Apagar consola" },
+    { "Titan UL Engine options", "Opcoes do Titan UL Engine", "Opciones de Titan UL Engine" },
+    { "Titan-Neutrino Engine options", "Opcoes do Titan-Neutrino Engine", "Opciones de Titan-Neutrino Engine" },
+    { "View storage", "Ver armazenamento", "Ver almacenamiento" },
+    { "Refresh devices", "Atualizar dispositivos", "Actualizar dispositivos" },
+    { "Test controller", "Testar controle", "Probar control" },
+    { "Reassign port", "Reatribuir porta", "Reasignar puerto" },
+    { "Controller settings", "Config. do controle", "Ajustes del control" },
+    { "Content", "Conteudo", "Contenido" },
+    { "Select Bluetooth, then reboot", "Select Bluetooth, then reboot", "Selecciona Bluetooth y reinicia" },
+    { "Up/Down Select   Left/Right Change backend   X Pair   O Back", "Up/Down Select   Left/Right Change backend   X Pair   O Back", "Arriba/Abajo Seleccionar   Izq/Der Cambiar backend   X Emparejar   O Volver" },
+    { "Errors and storage interruptions remain visible.", "Errors and storage interruptions remain visible.", "Los errores y las interrupciones de almacenamiento permanecen visibles." },
+    { "Erases the selected physical card after two confirmations.", "Erases the selected physical card after two confirmations.", "Borra la tarjeta física seleccionada tras dos confirmaciones." },
+    { "Configure Wi-Fi AR9271 and RJ45 Ethernet connectivity.", "Configure Wi-Fi AR9271 and RJ45 Ethernet connectivity.", "Configura la conectividad Wi-Fi AR9271 y Ethernet RJ45." },
+    { "Configure shell services and renderer behavior.", "Configure shell services and renderer behavior.", "Configura los servicios de la shell y el comportamiento del renderizador." },
+    { "Review Project Titan, bootloader and console information.", "Review Project Titan, bootloader and console information.", "Consulta información de Project Titan, el bootloader y la consola." },
+    { "Choose interface, credentials and connection state.", "Choose interface, credentials and connection state.", "Elige interfaz, credenciales y estado de conexión." },
+    { "Background inventory, information and safe deletion of installed content.", "Inventário em background, informações e exclusão segura de conteúdo instalado.", "Inventario en segundo plano, información y eliminación segura del contenido instalado." },
+    { "Select theme", "Select theme", "Seleccionar tema" },
+    { "X Install theme    O Back    D-pad Select", "X Install theme    O Back    D-pad Select", "X Instalar tema    O Volver    D-pad Seleccionar" },
+    { "X Apply    TRIANGLE Delete    O Back    D-pad Select", "X Aplicar    TRIANGLE Excluir    O Voltar    Direcional Selecionar", "X Aplicar    TRIANGLE Eliminar    O Volver    D-pad Seleccionar" },
+    { "X Apply    O Back    D-pad Select", "X Aplicar    O Voltar    Direcional Selecionar", "X Aplicar    O Volver    D-pad Seleccionar" },
+    { "X Switch device   △ Automatic   O Back", "X Alternar dispositivo   △ Automático   O Voltar", "X Cambiar dispositivo   △ Automático   O Volver" },
+    { "Multitap port", "Porta do Multitap", "Puerto de Multitap" },
+    { "Erase every save and file on the selected physical Memory Card.", "Erase every save and file on the selected physical Memory Card.", "Borra todas las partidas y archivos de la Memory Card física seleccionada." },
+    { "Configure Wi-Fi with automatic scan or an RJ45 connection.", "Configure Wi-Fi with automatic scan or an RJ45 connection.", "Configura Wi-Fi con búsqueda automática o una conexión RJ45." },
+    { "Configured Output", "Configured Output", "Salida configurada" },
+    { "Output preference read from the PlayStation 2 OSD configuration.", "Output preference read from the PlayStation 2 OSD configuration.", "Preferencia de salida leída de la configuración OSD de PlayStation 2." },
+    { "Requires Component output selected in the PS2 OSD.", "Requires Component output selected in the PS2 OSD.", "Requiere salida Component seleccionada en el OSD de PS2." },
+    { "Actual GS render target allocated for the selected output mode.", "Actual GS render target allocated for the selected output mode.", "Render target real de GS asignado al modo de salida seleccionado." },
+    { "Open live PADMAN connection and input information.", "Open live PADMAN connection and input information.", "Abre información en vivo de conexión PADMAN y entrada." },
+    { "DEX validation selector. Optimized 960x540 is the release/default 720p composition; Reference is retained only for A/B diagnostics.", "DEX validation selector. Optimized 960x540 is the release/default 720p composition; Reference is retained only for A/B diagnostics.", "Selector de validación DEX. Optimized 960x540 es la composición 720p predeterminada de release; Reference se conserva solo para diagnósticos A/B." },
+    { ".tthm packages in mass:/TITAN/packages", "Pacotes .tthm em mass:/TITAN/packages", "Paquetes .tthm en mass:/TITAN/packages" },
+    { "O Cancel", "O Cancelar", "O Cancelar" },
+    { "O Back", "O Voltar", "O Volver" },
+    { "Removes TIMG in Storage Scheduler quanta without blocking navigation.", "Remove TIMG em quanta do Storage Scheduler sem bloquear a navegação.", "Elimina TIMG en intervalos de Storage Scheduler sin bloquear la navegación." },
+    { "Use the RJ45 Ethernet port on the Network Adapter / PS2 Slim.", "Use a porta Ethernet RJ45 do Network Adapter / PS2 Slim.", "Usa el puerto Ethernet RJ45 del Network Adapter / PS2 Slim." },
+    { "How do you want to configure the Wi-Fi connection?", "How do you want to configure the Wi-Fi connection?", "¿Cómo quieres configurar la conexión Wi-Fi?" },
+    { "How do you want to configure the LAN connection?", "How do you want to configure the LAN connection?", "¿Cómo quieres configurar la conexión LAN?" },
+    { "Keeps the advanced configuration and interface-selection flow.", "Mantém o fluxo avançado de configuração e seleção da interface.", "Mantiene el flujo avanzado de configuración y selección de interfaz." },
+    { "Currently selected physical interface.", "Currently selected physical interface.", "Interfaz física seleccionada actualmente." },
+    { "Current connection information", "Current connection information", "Información de conexión actual" },
+    { "Selected Wi-Fi network.", "Selected Wi-Fi network.", "Red Wi-Fi seleccionada." },
+    { "Wi-Fi search", "Busca Wi-Fi", "Búsqueda Wi-Fi" },
+    { "Network selected; enter the WPA2 password.", "Network selected; enter the WPA2 password.", "Red seleccionada; introduce la contraseña WPA2." },
+    { "Could not save the Wi-Fi credential to Titan storage", "Could not save the Wi-Fi credential to Titan storage", "No se pudo guardar la credencial Wi-Fi en el almacenamiento de Titan" },
+    { "Connecting with the AR9271 TT1426 driver", "Conectando com o driver AR9271 TT1426", "Conectando con el controlador AR9271 TT1426" },
+    { "Credential saved; AR9271 service is not ready yet", "Credential saved; AR9271 service is not ready yet", "Credencial guardada; el servicio AR9271 aún no está listo" },
+    { "This integration uses the hardware-proven WPA2-PSK path from TT1426", "Esta integração usa o caminho WPA2-PSK hardware-proven do TT1426", "Esta integración usa la ruta WPA2-PSK validada en hardware de TT1426" },
+    { "Could not select the network", "Could not select the network", "No se pudo seleccionar la red" },
+    { "Theme installed; select it in Settings > Themes", "Theme installed; select it in Settings > Themes", "Tema instalado; selecciónalo en Ajustes > Temas" },
+    { "Storage is still busy; operation cancelled", "Storage is still busy; operation cancelled", "El almacenamiento sigue ocupado; operación cancelada" },
+    { "Optimized 960x540 selected", "Optimized 960x540 selected", "Optimized 960x540 seleccionado" },
+    { "Reference selected", "Reference selected", "Reference seleccionado" },
+    { "Folder information", "Folder information", "Información de carpeta" },
+    { "Reassign controller", "Reatribuir controle", "Reasignar control" },
+    { "Connect the controller to the new port before confirming.", "Conecte o controle na nova porta antes de confirmar.", "Conecta el control al nuevo puerto antes de confirmar." },
+    { "Reassign", "Reatribuir", "Reasignar" },
+    { "Layout exported to SHELLLAY.EXP", "Layout exportado para SHELLLAY.EXP", "Layout exportado a SHELLLAY.EXP" },
+    { "Layout imported from SHELLLAY.EXP", "Layout importado de SHELLLAY.EXP", "Layout importado desde SHELLLAY.EXP" },
+    { "Select this before unplugging the AC power cord.", "Select this before unplugging the AC power cord.", "Selecciona esto antes de desconectar el cable de alimentación de CA." },
+    { "Enter a valid HTTP or HTTPS address.", "Digite um endereco HTTP ou HTTPS valido.", "Introduce una dirección HTTP o HTTPS válida." },
+    { "Web address", "Endereco da Web", "Dirección web" },
+    { "Video still needs to be ported to Titan's internal player", "Video ainda precisa ser portado para o player interno do Titan", "El vídeo aún debe portarse al reproductor interno de Titan" },
+    { "L1/R1 History   X Open   TRIANGLE Address   O Back", "L1/R1 Historico   X Abrir   TRIANGLE Endereco   O Voltar", "L1/R1 Historial   X Abrir   TRIANGLE Dirección   O Volver" },
+    { "LEFT/RIGHT Navigate    DOWN Home    X Open    SELECT Options", "LEFT/RIGHT Navigate    DOWN Home    X Open    SELECT Opcoes", "LEFT/RIGHT Navegar    DOWN Inicio    X Abrir    SELECT Opciones" },
+    { "D-Pad Navigate    UP System    X Open    SELECT Options    TRIANGLE Refresh", "D-Pad Navigate    UP System    X Open    SELECT Opcoes    TRIANGLE Refresh", "D-Pad Navegar    UP Sistema    X Abrir    SELECT Opciones    TRIANGLE Actualizar" },
+    { "Installing package    O Cancel", "Installing package    O Cancel", "Instalando paquete    O Cancelar" },
+    { "UP/DOWN Navigate    X Select    O Back", "UP/DOWN Navigate    X Select    O Back", "ARRIBA/ABAJO Navegar    X Seleccionar    O Volver" },
+    { "UP/DOWN Navigate    LEFT/RIGHT Change    X Select    O Back", "UP/DOWN Navigate    LEFT/RIGHT Change    X Select    O Back", "ARRIBA/ABAJO Navegar    IZQ/DER Cambiar    X Seleccionar    O Volver" },
+    { "Bluetooth selected for next boot", "Bluetooth selected for next boot", "Bluetooth seleccionado para el próximo arranque" },
+    { "USB selected for next boot", "USB selected for next boot", "USB seleccionado para el próximo arranque" },
+    { "Bluetooth selected for next boot; reboot Titan, then pair", "Bluetooth selected for next boot; reboot Titan, then pair", "Bluetooth seleccionado para el próximo arranque; reinicia Titan y luego empareja" },
+    { "Could not save the selected theme", "Could not save the selected theme", "No se pudo guardar el tema seleccionado" },
+    { "Missing MIPS header", "Cabecalho MIPS ausente", "Falta la cabecera MIPS" },
+    { "Module was not compiled for R5900; recompile with mips64r5900el-ps2-elf-gcc", "Modulo nao foi compilado para R5900; recompile com mips64r5900el-ps2-elf-gcc", "El módulo no fue compilado para R5900; recompílalo con mips64r5900el-ps2-elf-gcc" },
+    { "Module uses unsupported MIPS16/microMIPS/ASE", "Modulo usa MIPS16/microMIPS/ASE nao suportado", "El módulo usa MIPS16/microMIPS/ASE no compatible" },
+    { "PIC/abicalls module is not supported by Titan App API v1", "Modulo PIC/abicalls nao suportado pela Titan App API v1", "El módulo PIC/abicalls no es compatible con Titan App API v1" },
+    { "Titan Native module requires N32/ABI2; recompile the application", "Modulo Titan Native requer ABI N32/ABI2; recompile o aplicativo", "El módulo Titan Native requiere N32/ABI2; recompila la aplicación" },
+    { "MIPS floating-point ABI is incompatible with EE/R5900", "ABI de ponto flutuante MIPS incompativel com EE/R5900", "La ABI de punto flotante MIPS es incompatible con EE/R5900" },
+    { "N32 R_MIPS_26 relocation is outside the jump region", "Relocacao N32 R_MIPS_26 fora da regiao de salto", "La reubicación N32 R_MIPS_26 está fuera de la región de salto" },
+    { "Invalid Titan App relocation table", "Tabela de relocacoes Titan App invalida", "Tabla de reubicaciones de Titan App no válida" },
+    { "Failed to apply Titan App MIPS relocations", "Falha ao aplicar relocacoes MIPS do Titan App", "No se pudieron aplicar las reubicaciones MIPS de Titan App" },
+    { "Titan App exports are missing or not executable", "Exports Titan App ausentes ou nao executaveis", "Faltan exports de Titan App o no son ejecutables" },
+    { "Unresolved N32 import: %.80s", "Import N32 nao resolvido: %.80s", "Importación N32 sin resolver: %.80s" },
+    { "<invalid symbol>", "<simbolo invalido>", "<símbolo no válido>" },
+    { "Titan App tried to free a pointer it does not own", "Titan App tentou liberar ponteiro nao pertencente ao app", "Titan App intentó liberar un puntero que no le pertenece" },
+    { "Titan App tried to allocate memory during titan_app_init", "Titan App tentou alocar memoria durante titan_app_init", "Titan App intentó asignar memoria durante titan_app_init" },
+    { "Titan App tried to free memory during titan_app_init", "Titan App tentou liberar memoria durante titan_app_init", "Titan App intentó liberar memoria durante titan_app_init" },
+    { "Titan App tried to notify during titan_app_init", "Titan App tentou notificar durante titan_app_init", "Titan App intentó enviar una notificación durante titan_app_init" },
+    { "Titan App tried to read storage during titan_app_init", "Titan App tentou ler storage durante titan_app_init", "Titan App intentó leer almacenamiento durante titan_app_init" },
+    { "Titan App tried to write storage during titan_app_init", "Titan App tentou gravar storage durante titan_app_init", "Titan App intentó escribir en almacenamiento durante titan_app_init" },
+    { "Titan App tried to query storage during titan_app_init", "Titan App tentou consultar storage durante titan_app_init", "Titan App intentó consultar almacenamiento durante titan_app_init" },
+    { "Titan App tried to start audio during titan_app_init", "Titan App tentou iniciar audio durante titan_app_init", "Titan App intentó iniciar audio durante titan_app_init" },
+    { "Titan App tried to stop audio during titan_app_init", "Titan App tentou encerrar audio durante titan_app_init", "Titan App intentó detener audio durante titan_app_init" },
+    { "Titan App runtime is busy", "Titan App runtime is busy", "El runtime de Titan App está ocupado" },
+    { "Preparing Titan App", "Preparando Titan App", "Preparando Titan App" },
+    { "Reserving Titan App resources", "Reservando recursos do Titan App", "Reservando recursos de Titan App" },
+    { "Titan App initialization cancelled", "Inicializacao do Titan App cancelada", "Inicialización de Titan App cancelada" },
+    { "Titan App initialization closed", "Inicializacao do Titan App encerrada", "Inicialización de Titan App cerrada" },
+    { "Parking storage services", "Estacionando servicos de armazenamento", "Estacionando servicios de almacenamiento" },
+    { "Validating module for EE/R5900", "Validando modulo para EE/R5900", "Validando módulo para EE/R5900" },
+    { "Preparing application surface", "Preparando superficie do aplicativo", "Preparando superficie de la aplicación" },
+    { "Starting Titan App in protected context", "Iniciando Titan App em contexto protegido", "Iniciando Titan App en contexto protegido" },
+    { "Could not create Titan App thread", "Nao foi possivel criar a thread do Titan App", "No se pudo crear el hilo de Titan App" },
+    { "Initializing application", "Inicializando aplicativo", "Inicializando aplicación" },
+    { "Titan App requires a newer runtime (update the system)", "Titan App requer um runtime mais novo (atualize o sistema)", "Titan App requiere un runtime más reciente (actualiza el sistema)" },
+    { "titan_app_init rejected the session", "titan_app_init rejeitou a sessao", "titan_app_init rechazó la sesión" },
+    { "Application ready", "Aplicativo pronto", "Aplicación lista" },
+    { "Titan App active", "Titan App ativo", "Titan App activo" },
+    { "Invalid Titan App initialization state", "Estado de inicializacao Titan App invalido", "Estado de inicialización de Titan App no válido" },
+    { "Could not create Titan Game thread", "Nao foi possivel criar a thread do Titan Game", "No se pudo crear el hilo de Titan Game" },
+    { "Failed to start Titan App", "Falha ao iniciar Titan App", "No se pudo iniciar Titan App" },
+    { "Failed to start Titan Game", "Falha ao iniciar Titan Game", "No se pudo iniciar Titan Game" },
+    { "titan_app_init exceeded 15 seconds; session recovered", "titan_app_init excedeu 15 segundos; sessao recuperada", "titan_app_init superó 15 segundos; sesión recuperada" },
+    { "Titan App renderer", "Titan App renderer", "Renderizador de Titan App" },
+    { "The application sent invalid draw commands; the interface was protected.", "O aplicativo enviou comandos de desenho invalidos; a interface foi protegida.", "La aplicación envió comandos de dibujo no válidos; la interfaz fue protegida." },
+    { "Select + Circle: cancel", "Select + Círculo: cancelar", "Select + Círculo: cancelar" },
+    { "R3  Full screen", "R3  Tela cheia", "R3  Pantalla completa" },
+    { "Application not found", "Aplicativo nao encontrado", "Aplicación no encontrada" },
+    { "Invalid application selection", "Selecao de aplicativo invalida", "Selección de aplicación no válida" },
+    { "Invalid ELF executable", "Executavel ELF invalido", "Ejecutable ELF no válido" },
+    { "Invalid or incompatible Titan App module", "Modulo Titan App invalido ou incompativel", "Módulo Titan App no válido o incompatible" },
+    { "Application handoff failed", "Falha no handoff do aplicativo", "Falló la transferencia de la aplicación" },
+    { "Application returned without starting", "O aplicativo retornou sem iniciar", "La aplicación regresó sin iniciarse" },
+    { "Application was not installed by Titan", "Aplicativo nao foi instalado pelo Titan", "La aplicación no fue instalada por Titan" },
+    { "Uninstall not allowed", "Desinstalacao nao permitida", "Desinstalación no permitida" },
+    { " / Installed theme", " / Tema instalado", " / Tema instalado" },
+    { ".tthm via Package Installer", ".tthm pelo Package Installer", ".tthm mediante Package Installer" },
+    { "WPA2 password must be between 8 and 63 characters.", "A senha WPA2 deve ter entre 8 e 63 caracteres.", "La contraseña WPA2 debe tener entre 8 y 63 caracteres." },
+    { "Application installed; catalog updated without a full rescan", "Application installed; catalog updated without a full rescan", "Aplicación instalada; catálogo actualizado sin un escaneo completo" },
+    { "Application uninstalled", "Application uninstalled", "Aplicación desinstalada" },
+    { "Choose installed themes for the system background and visual style.", "Choose installed themes for the system background and visual style.", "Elige temas instalados para el fondo y el estilo visual del sistema." },
+    { "Controller Service", "Controller Service", "Servicio de controles" },
+    { "Development application service placeholder", "Development application service placeholder", "Marcador del servicio de aplicaciones de desarrollo" },
+    { "Enable or disable Project Titan network services.", "Enable or disable Project Titan network services.", "Activa o desactiva los servicios de red de Project Titan." },
+    { "Found", "Encontrado", "Encontrado" },
+    { "Run in background", "Executar em segundo plano", "Ejecutar en segundo plano" },
+    { "Experimental Neutrino handoff mode. Use only for game video compatibility tests.", "Experimental Neutrino handoff mode. Use only for game video compatibility tests.", "Modo experimental de transferencia Neutrino. Úsalo solo para pruebas de compatibilidad de vídeo de juegos." },
+    { "Fast startup, background services and a responsive console interface.", "Fast startup, background services and a responsive console interface.", "Inicio rápido, servicios en segundo plano y una interfaz de consola fluida." },
+    { "Filesystem service", "Filesystem service", "Servicio del sistema de archivos" },
+    { "Future transfer services will use this activity list.", "Future transfer services will use this activity list.", "Los futuros servicios de transferencia usarán esta lista de actividad." },
+    { "Install official Project Titan updates from a .pup package on USB.", "Install official Project Titan updates from a .pup package on USB.", "Instala actualizaciones oficiales de Project Titan desde un paquete .pup en USB." },
+    { "Install packages and access Project Titan diagnostics.", "Install packages and access Project Titan diagnostics.", "Instala paquetes y accede a los diagnósticos de Project Titan." },
+    { "Install verified .pkg applications and .tthm themes from mass:/TITAN/packages.", "Install verified .pkg applications and .tthm themes from mass:/TITAN/packages.", "Instala aplicaciones .pkg y temas .tthm verificados desde mass:/TITAN/packages." },
+    { "Installed bootloader revision detected on this console.", "Installed bootloader revision detected on this console.", "Se detectó la revisión instalada del bootloader en esta consola." },
+    { "Installed theme removed", "Installed theme removed", "Tema instalado eliminado" },
+    { "Library verification now continues after the Home screen is available.", "Library verification now continues after the Home screen is available.", "La verificación de la biblioteca continúa después de que Inicio esté disponible." },
+    { "720p mode kept", "Modo 720p mantido", "Modo 720p conservado" },
+    { "Previous mode restored", "Modo anterior reativado", "Modo anterior restaurado" },
+    { "Network Services Status", "Network Services Status", "Estado de los servicios de red" },
+    { "No applications are installed", "No applications are installed", "No hay aplicaciones instaladas" },
+    { "The previous mode was preserved", "O modo anterior foi preservado", "Se conservó el modo anterior" },
+    { "Package Installer", "Package Installer", "Instalador de paquetes" },
+    { "Path switch rejected; current video state preserved", "Path switch rejected; current video state preserved", "Cambio de ruta rechazado; se conservó el estado de vídeo actual" },
+    { "SHELLLAY.EXP missing or invalid", "SHELLLAY.EXP ausente ou invalido", "SHELLLAY.EXP ausente o no válido" },
+    { "WPA2 password", "Senha WPA2", "Contraseña WPA2" },
+    { "Wi-Fi password", "Senha Wi-Fi", "Contraseña Wi-Fi" },
+    { "Stopping PlayStation 2 services", "Stopping PlayStation 2 services", "Deteniendo los servicios de PlayStation 2" },
+    { "Testing video output", "Testing video output", "Probando la salida de vídeo" },
+    { "This tile now routes to its active service or hub.", "This tile now routes to its active service or hub.", "Este mosaico ahora dirige a su servicio o centro activo." },
+    { "UP/DOWN Navigate    X Install    TRIANGLE Refresh    O Back", "UP/DOWN Navigate    X Install    TRIANGLE Refresh    O Back", "UP/DOWN Navegar    X Instalar    TRIANGLE Actualizar    O Volver" },
+    { "USB configured", "USB configured", "USB configurado" },
+    { "Uninstalling application", "Uninstalling application", "Desinstalando aplicación" },
+    { "VMC busy", "VMC ocupada", "VMC ocupada" },
+    { "VMC verified", "VMC verificada", "VMC verificada" },
+    { "Verifying VMC", "Verificando VMC", "Verificando VMC" },
+    { "Verify VMC", "Verificar VMC", "Verificar VMC" },
+    { "Video output confirmed", "Video output confirmed", "Salida de vídeo confirmada" },
+    { "Video output restored", "Video output restored", "Salida de vídeo restaurada" },
+    { "View Network Services Status", "View Network Services Status", "Ver estado de los servicios de red" },
+    { "★ Package Installer", "★ Package Installer", "★ Instalador de paquetes" },
+    { "Titan App runtime error", "Titan App runtime error", "Error del runtime de Titan App" },
+    { "Invalid system browser entrypoint", "System browser entrypoint invalido", "Entrypoint del navegador del sistema no válido" },
+    { "Create VMC", "Criar VMC", "Crear VMC" },
+    { "Choose your avatar", "Escolha seu avatar", "Elige tu avatar" },
+    { "SSID must be between 1 and 32 characters.", "O SSID deve ter entre 1 e 32 caracteres.", "El SSID debe tener entre 1 y 32 caracteres." },
+    { "The name is too long.", "O nome e muito longo.", "El nombre es demasiado largo." },
+    { "The four-profile limit has been reached.", "O limite de quatro perfis foi atingido.", "Se alcanzó el límite de cuatro perfiles." },
+    { "Use a valid name.", "Use um nome valido.", "Usa un nombre válido." },
+    { "Recreate VMC", "Recriar VMC", "Recrear VMC" },
+    { "Continue", "Continuar", "Continuar" },
+    { "LEFT/RIGHT Navigate    X Confirm", "LEFT/RIGHT Navegar    X Confirmar", "LEFT/RIGHT Navegar    X Confirmar" },
+    { "Move", "Mover", "Mover" },
+    { "Mark all as read", "Marcar todas como lidas", "Marcar todas como leídas" },
+    { "Clear notifications", "Limpar notificacoes", "Borrar notificaciones" },
+    { "Manage saves/VMC", "Gerenciar saves/VMC", "Administrar guardados/VMC" },
+    { "Manage VMCs", "Gerenciar VMCs", "Administrar VMCs" },
+    { "Restore defaults", "Restaurar padroes", "Restaurar valores predeterminados" },
+    { "Name", "Nome", "Nombre" },
+    { "Deselect all", "Desmarcar todos", "Deseleccionar todo" },
+    { "Confirm", "Confirmar", "Confirmar" },
+    { "Waiting for hardware", "Aguardando hardware", "Esperando hardware" },
+    { "Clear asset cache", "Limpar cache de assets", "Limpiar caché de recursos" },
+    { "Cache, temporary files and backup removed", "Cache, temporario e backup removidos", "Caché, archivos temporales y copia de seguridad eliminados" },
+    { "Use Restore defaults in Settings to recover the layout", "Use Restaurar padroes em Settings para recuperar o layout", "Usa Restaurar valores predeterminados en Ajustes para recuperar el diseño" },
+    { "Move tile", "Mover tile", "Mover mosaico" },
+    { "Notifications", "Notificacoes", "Notificaciones" },
+    { "Notification center cleared", "Central de notificacoes limpa", "Centro de notificaciones borrado" },
+    { "Restore defaults?", "Restaurar padroes?", "¿Restaurar valores predeterminados?" },
+    { "Restore", "Restaurar", "Restaurar" },
+    { "Payload in RAM out of bounds", "Payload em RAM fora dos limites", "Payload en RAM fuera de los límites" },
+    { "Folder name", "Nome da pasta", "Nombre de la carpeta" },
+    { "Folder", "Pasta", "Carpeta" },
+    { "Search", "Buscar", "Buscar" },
+    { "Search Library", "Buscar na Biblioteca", "Buscar en Biblioteca" },
+    { "Wi-Fi Network", "Rede Wi-Fi", "Red Wi-Fi" },
+    { "SSID 2.4 GHz", "SSID 2.4 GHz", "SSID 2.4 GHz" },
+    { "item", "item", "elemento" },
+    { "items", "itens", "elementos" },
+    { "%u items", "%u itens", "%u elementos" },
+    { "VMC created", "VMC criada", "VMC creada" },
+    { "Ready to mount", "Pronta para montar", "Lista para montar" },
+    { "VMC protected", "VMC protegida", "VMC protegida" },
+    { "Recreating VMC", "Recriando VMC", "Recreando VMC" },
+    { "Processing Slot 1", "Processando Slot 1", "Procesando ranura 1" },
+    { "Processing Slot 2", "Processando Slot 2", "Procesando ranura 2" },
+    { "Who is using this PS2?", "Quem esta usando este PS2?", "¿Quién está usando esta PS2?" },
+    { "Hide from Home", "Ocultar da grade", "Ocultar de Inicio" },
+    { "Number of items", "Numero de itens", "Número de elementos" },
+    { "AR9271 detected", "AR9271 detectado", "AR9271 detectado" },
+    { "Local cache", "Cache local", "Caché local" },
+    { "Adapter detected", "Adaptador detectado", "Adaptador detectado" },
+    { "Insert SSID manually", "Inserir SSID manualmente", "Introducir SSID manualmente" },
+    { "Channel %u / %d dBm%s", "Canal %u / %d dBm%s", "Canal %u / %d dBm%s" },
+    { " / protected", " / protegida", " / protegida" },
+    { "Passive 2.4 GHz channel scan in progress.", "Varredura passiva de canais 2.4 GHz em andamento.", "Escaneo pasivo de canales de 2.4 GHz en curso." },
+    { "Ready", "Pronta", "Lista" },
+    { "Common layer used by both interfaces.", "Camada comum usada pelas duas interfaces.", "Capa común usada por ambas interfaces." },
+    { "Library cache", "Cache da biblioteca", "Caché de biblioteca" },
+    { "Debug report", "Relatorio de debug", "Informe de depuración" },
+    { "Tile hidden", "Tile oculto", "Mosaico oculto" },
+    { "Home grid", "Grade principal", "Cuadrícula de Inicio" },
+    { "Hide tile?", "Ocultar tile?", "¿Ocultar mosaico?" },
+    { "Hide", "Ocultar", "Ocultar" },
+    { "Items will return to the Home grid.", "Os itens retornarao para a grade principal.", "Los elementos volverán a la cuadrícula de Inicio." },
+    { "All were marked as read", "Todas foram marcadas como lidas", "Todas se marcaron como leídas" },
+    { "Lightweight web inside Project Titan; HTTPS via Titan Stream Bridge", "Web leve dentro do Project Titan; HTTPS via Titan Stream Bridge", "Web ligera dentro de Project Titan; HTTPS mediante Titan Stream Bridge" },
+    { "Titan App contains a COP1 instruction incompatible with EE/R5900", "Titan App contem instrucao COP1 incompativel com EE/R5900", "Titan App contiene una instrucción COP1 incompatible con EE/R5900" },
+    { "Titan App API version incompatible", "Versao da Titan App API incompativel", "Versión de Titan App API incompatible" },
+    { "Another Titan App is already running", "Outro Titan App ja esta em execucao", "Ya hay otra Titan App en ejecución" },
+    { "%u assets processed", "%u assets processados", "%u recursos procesados" },
+    { "Copy a .pup to mass:/TITAN/update or mass:/TITAN/packages.", "Copie um .pup para mass:/TITAN/update ou mass:/TITAN/packages.", "Copia un .pup a mass:/TITAN/update o mass:/TITAN/packages." },
+};
+
+const char *TitanLocalization_Compat(const char *text)
+{
+    unsigned int index;
+    TitanLanguage language;
+
+    if (text == 0)
+        return "";
+
+    language = g_localization.language;
+    for (index = 0u; index < sizeof(g_compat_strings) / sizeof(g_compat_strings[0]); index++)
+    {
+        const TitanLocalizationCompatEntry *entry = &g_compat_strings[index];
+        if (strcmp(text, entry->english) == 0 ||
+            strcmp(text, entry->portuguese) == 0 ||
+            strcmp(text, entry->spanish) == 0)
+        {
+            if (language == TITAN_LANGUAGE_PORTUGUESE)
+                return entry->portuguese;
+            if (language == TITAN_LANGUAGE_SPANISH)
+                return entry->spanish;
+            return entry->english;
+        }
+    }
+    return text;
+}
+
+static int TitanLocalization_Parse(const char *text, TitanLanguage *language)
+{
+    if (!text || !language) return 0;
+    if (strstr(text, "language=pt-BR")) *language = TITAN_LANGUAGE_PORTUGUESE;
+    else if (strstr(text, "language=es")) *language = TITAN_LANGUAGE_SPANISH;
+    else if (strstr(text, "language=en")) *language = TITAN_LANGUAGE_ENGLISH;
+    else return 0;
+    return 1;
+}
+
+static void TitanLocalization_Load(void)
+{
+    int fd;
+    char buffer[64];
+    TitanStorageIoResult got;
+    TitanLanguage loaded;
+    fd = TitanStorageIo_Open(TITAN_LOCALIZATION_PATH, TITAN_STORAGE_IO_READ);
+    if (fd < 0) return;
+    got = TitanStorageIo_ReadSome(fd, buffer, sizeof(buffer) - 1u);
+    (void)TitanStorageIo_Close(fd);
+    if (got <= 0 || (size_t)got >= sizeof(buffer)) return;
+    buffer[(size_t)got] = '\0';
+    if (TitanLocalization_Parse(buffer, &loaded)) g_localization.language = loaded;
+}
+
+void TitanLocalization_Initialize(void)
+{
+    memset(&g_localization, 0, sizeof(g_localization));
+    g_localization.language = TITAN_LANGUAGE_ENGLISH;
+    TitanLocalization_Load();
+}
+
+TitanLanguage TitanLocalization_GetLanguage(void) { return g_localization.language; }
+
+const char *TitanLocalization_GetLanguageName(void)
+{
+    switch (g_localization.language) {
+        case TITAN_LANGUAGE_PORTUGUESE: return "Português (Brasil)";
+        case TITAN_LANGUAGE_SPANISH: return "Español";
+        case TITAN_LANGUAGE_ENGLISH:
+        default: return "English";
+    }
+}
+
+const char *TitanLocalization_Get(TitanStringId id)
+{
+    unsigned int language = (unsigned int)g_localization.language;
+    if ((unsigned int)id >= TITAN_STR_COUNT) return "";
+    if (language >= TITAN_LANGUAGE_COUNT) language = TITAN_LANGUAGE_ENGLISH;
+    return g_strings[language][(unsigned int)id];
+}
+
+void TitanLocalization_CycleLanguage(int direction)
+{
+    int next = (int)g_localization.language + (direction < 0 ? -1 : 1);
+    if (next < 0) next = TITAN_LANGUAGE_COUNT - 1;
+    if (next >= TITAN_LANGUAGE_COUNT) next = 0;
+    if (next == (int)g_localization.language) return;
+    g_localization.language = (TitanLanguage)next;
+    g_localization.save_pending = 1;
+    TitanStorageScheduler_NotifyBackgroundWork();
+}
+
+int TitanLocalization_HasStorageWork(void) { return g_localization.save_pending != 0; }
+
+int TitanLocalization_StorageWorkerPump(void)
+{
+    int fd;
+    const char *code;
+    char text[32];
+    size_t length;
+    if (!g_localization.save_pending) return 0;
+    g_localization.save_pending = 0;
+    code = g_localization.language == TITAN_LANGUAGE_PORTUGUESE ? "pt-BR" :
+        g_localization.language == TITAN_LANGUAGE_SPANISH ? "es" : "en";
+    snprintf(text, sizeof(text), "version=1\nlanguage=%s\n", code);
+    length = strlen(text);
+    (void)TitanStorageIo_CreateDirectory(TITAN_LOCALIZATION_DIR);
+    fd = TitanStorageIo_Open(TITAN_LOCALIZATION_TEMP,
+        TITAN_STORAGE_IO_WRITE | TITAN_STORAGE_IO_CREATE | TITAN_STORAGE_IO_TRUNCATE);
+    if (fd < 0) { g_localization.save_pending = 1; return -1; }
+    if (!TitanStorageIo_WriteExact(fd, text, length) || TitanStorageIo_Flush(fd) < 0) {
+        (void)TitanStorageIo_Close(fd); (void)TitanStorageIo_Remove(TITAN_LOCALIZATION_TEMP);
+        g_localization.save_pending = 1; return -1;
+    }
+    (void)TitanStorageIo_Close(fd);
+    if (TitanStorageIo_AtomicReplace(TITAN_LOCALIZATION_TEMP, TITAN_LOCALIZATION_PATH, TITAN_LOCALIZATION_BACKUP) < 0) {
+        g_localization.save_pending = 1; return -1;
+    }
+    (void)TitanStorageIo_Remove(TITAN_LOCALIZATION_BACKUP);
+    return 1;
+}

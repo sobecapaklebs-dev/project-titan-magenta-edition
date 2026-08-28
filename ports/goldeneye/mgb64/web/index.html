@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>MGB64 — browser demo</title>
+<!-- Favicon is injected at runtime by mgb64-shell.js as a Blob URL (trademark-
+     free green crosshair). Runtime-generated rather than a tracked data: URI or
+     an extra dist file: the contamination guard forbids embedded data-URI
+     payloads and the web-demo workflow pins the artifact to exactly 6 files (the
+     5 static shell files + sw.js). -->
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<!-- Decorative cinematic backdrop: reticle grid + phosphor bloom + scanlines.
+     Purely presentational, aria-hidden, pointer-events:none. -->
+<div class="bg-fx" aria-hidden="true">
+  <div class="bg-grid"></div>
+  <div class="bg-barrel"></div>
+  <div class="bg-scan"></div>
+</div>
+<!--
+  CONTROLS ARE GROUNDED IN CODE — keep this page in sync with the engine.
+  Keyboard defaults + action labels: src/platform/input_bindings.c (kDefault / kLabel).
+  Extra hardcoded keys (Use=F, Crouch=C/Ctrl, weapon wheel, Watch=Esc/Tab, Mute=M):
+    src/platform/platform_sdl.c (the SDL_KEYDOWN handler + the "H" help block).
+  NOTE (WEB-001): the F1 settings overlay and F10 FPS-toggle exist only in the
+    native app (src/app/ui_overlay.cpp) — MGB64_APP is OFF on web, so there is no
+    overlay here, and the F1/F2/F3–F12 engine debug keys are gated behind
+    GE007_DEV_HOTKEYS (default OFF). Do NOT re-advertise F-keys on this page.
+  Gamepad defaults: src/platform/input_bindings.c (kGpDefault / kGpLabel).
+  If any binding is rebound in code, update the .controls table below to match.
+-->
+<main id="gate">
+  <div class="wrap">
+
+    <header class="hero">
+      <p class="eyebrow"><span class="sig-dot" aria-hidden="true"></span>WebGPU · runs entirely on your machine</p>
+      <h1 class="wordmark" data-text="MGB64">MGB64</h1>
+      <p class="tagline">
+        A native port of a classic 1997 N64 first-person shooter, compiled to
+        WebGPU and running in this tab. <strong>Bring your own ROM</strong> — the
+        site ships the engine only.
+      </p>
+    </header>
+
+    <!-- STATE 1: gate failure (WebGPU / OPFS unsupported). rom-ui stays hidden,
+         so only this line is shown. Populated by mgb64-shell.js.
+         WEB-065: role/aria-live so capability refusals, boot progress, and "Boot
+         failed" are announced to screen readers (this line carries them all). -->
+    <p id="gate-msg" class="status-line" role="status" aria-live="polite">Checking your browser…</p>
+    <!-- WEB-065: the whole page is inert without JS (rom-ui stays [hidden], the
+         gate never updates past "Checking your browser…"). Say so plainly. -->
+    <noscript>
+      <p class="status-line">This demo needs JavaScript enabled to download and run the WebGPU engine.</p>
+    </noscript>
+
+    <!-- STATES 2 (picker) & 3 (ready): revealed once the capability gate passes.
+         mgb64-shell.js toggles #rom-status / #play.disabled / #forget.hidden. -->
+    <div id="rom-ui" hidden>
+
+      <section class="picker" aria-labelledby="picker-title">
+        <h2 id="picker-title">Load your ROM</h2>
+        <p class="picker-sub">
+          Select your <code>.z64</code> ROM (exactly 12&nbsp;MB). It is stored
+          <strong>only in this browser</strong> and is never uploaded — there is
+          no server to receive it.
+        </p>
+
+        <label class="file-field">
+          <span class="file-label">Choose ROM file</span>
+          <input type="file" id="rom-input" accept=".z64,.v64,.n64,.rom">
+        </label>
+
+        <p id="rom-status" role="status" aria-live="polite"></p>
+
+        <label class="option-row">
+          <input type="checkbox" id="unlock-all">
+          <span>Start with <strong>all missions unlocked</strong> — jump straight
+          to any level (saves untouched)</span>
+        </label>
+
+        <!-- WEB-018: web has no in-game settings overlay (MGB64_APP OFF) or
+             editable ini, so surface the two most-wanted input prefs here. The
+             shell appends them as --config-override Input.* args at boot and
+             persists them to localStorage like the unlock-all row above
+             (mgb64-shell.js). The slider is a MULTIPLIER of the engine's default
+             mouse sensitivity: 1.00× = native feel. -->
+        <div class="option-row option-slider">
+          <label class="option-label" for="mouse-sens">
+            <span>Mouse sensitivity</span>
+            <output id="mouse-sens-val" class="range-val">1.00&times;</output>
+          </label>
+          <input type="range" id="mouse-sens" min="0.25" max="3" step="0.05"
+                 value="1" aria-describedby="mouse-sens-val">
+        </div>
+
+        <label class="option-row">
+          <input type="checkbox" id="invert-y">
+          <span>Invert mouse <strong>Y</strong> axis — reverse look up/down</span>
+        </label>
+
+        <div class="actions">
+          <button id="play" class="btn btn-primary" disabled>▶ Play</button>
+          <button id="forget" class="btn btn-ghost" hidden>Forget stored ROM</button>
+        </div>
+
+        <p class="overlay-note">
+          In game: <kbd>Esc</kbd> / <kbd>Tab</kbd> release mouse &amp; open the
+          Watch · <kbd>M</kbd> mute · <kbd>H</kbd> help. Click the canvas to
+          capture the mouse. An FPS overlay is on by default.
+        </p>
+      </section>
+
+      <div class="fold">
+
+        <details class="disclosure">
+          <summary>Controls</summary>
+          <div class="disclosure-body">
+            <div class="controls">
+              <section>
+                <h3>Movement</h3>
+                <dl>
+                  <dt>Move</dt><dd><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></dd>
+                  <dt>Look</dt><dd>Mouse</dd>
+                  <!-- WEB-008: advertise C only. Ctrl also crouches in the
+                       engine, but pairing crouch-forward with W is Ctrl+W, which
+                       closes the browser tab (unpreventable) — don't lead users
+                       into it. -->
+                  <dt>Crouch</dt><dd><kbd>C</kbd></dd>
+                  <dt>Lean (while aiming)</dt><dd><kbd>Q</kbd> / <kbd>E</kbd></dd>
+                </dl>
+              </section>
+              <section>
+                <h3>Combat</h3>
+                <dl>
+                  <dt>Fire</dt><dd>Left-click / <kbd>L&nbsp;Shift</kbd></dd>
+                  <dt>Aim (hold)</dt><dd>Right-click / <kbd>R&nbsp;Shift</kbd></dd>
+                  <dt>Reload</dt><dd><kbd>R</kbd></dd>
+                  <dt>Use / interact</dt><dd><kbd>F</kbd></dd>
+                  <dt>Switch weapon</dt><dd>Mouse wheel</dd>
+                </dl>
+              </section>
+              <section>
+                <h3>System</h3>
+                <dl>
+                  <dt>Watch / pause</dt><dd><kbd>Esc</kbd> / <kbd>Tab</kbd></dd>
+                  <dt>Mute audio</dt><dd><kbd>M</kbd></dd>
+                  <dt>Help (to console)</dt><dd><kbd>H</kbd></dd>
+                  <dt>FPS overlay</dt><dd>On by default</dd>
+                </dl>
+              </section>
+              <section>
+                <h3>Gamepad</h3>
+                <p class="gp-intro">
+                  Plug in an SDL-compatible controller — the browser exposes it
+                  and the engine maps it automatically. Defaults:
+                </p>
+                <dl>
+                  <dt>Fire / Aim</dt><dd>RT / LT</dd>
+                  <dt>Jump</dt><dd>A</dd>
+                  <dt>Reload / Use</dt><dd>B</dd>
+                  <dt>Next weapon</dt><dd>Y</dd>
+                  <dt>Prev weapon</dt><dd>R3 (right-stick click)</dd>
+                  <dt>Crouch</dt><dd>L3 (left-stick click)</dd>
+                  <dt>Watch / pause</dt><dd>Start</dd>
+                </dl>
+              </section>
+            </div>
+          </div>
+        </details>
+
+        <details class="disclosure">
+          <summary>About this demo</summary>
+          <div class="disclosure-body">
+            <p>
+              This is the same engine that ships as the desktop apps, compiled to
+              a single WebGPU/wasm binary. It runs the full solo campaign — pick a
+              ROM and play from the first mission.
+            </p>
+
+            <h3>What's different from the N64 original</h3>
+            <ul class="diff">
+              <li><strong>Mouse-and-keyboard aiming</strong> — free-look with the
+                mouse, instead of the original's single analog stick.</li>
+              <li><strong>Auto-aim assist is on</strong> by default (toggleable in
+                the desktop launcher).</li>
+              <li><strong>Lights shoot out</strong> consistently — the
+                shoot-out-lights hatch is on by default.</li>
+              <li><strong>A small FPS overlay</strong> sits in the top-right,
+                on by default.</li>
+              <li><strong>Faithful HUD</strong> — the aim reticle appears only
+                while aiming, exactly like the N64; there is no persistent
+                crosshair and no minimap.</li>
+            </ul>
+
+            <h3>Browser &amp; privacy</h3>
+            <ul class="diff">
+              <li>Needs <strong>WebGPU</strong>: Chrome / Edge 113+, Safari 26+,
+                or Firefox 141+ on Windows. There is no WebGL fallback — the page
+                tells you up front rather than running degraded.</li>
+              <li>Your ROM stays in your browser's <strong>Origin-Private File
+                System</strong>; it is never uploaded. <em>Forget stored ROM</em>
+                deletes that copy immediately.</li>
+              <li>Saves auto-persist to IndexedDB every few seconds and when the
+                tab closes — no manual save needed.</li>
+            </ul>
+          </div>
+        </details>
+
+
+      </div>
+    </div>
+  </div>
+    <nav class="links" aria-label="More">
+      <a class="link-card" href="https://github.com/akratch/mgb64/releases/latest">
+        <span class="link-title">Want the full experience?</span>
+        <span class="link-sub">Download the native app — macOS · Windows · Linux</span>
+      </a>
+      <a class="link-card" href="https://github.com/akratch/mgb64">
+        <span class="link-title">Project README</span>
+        <span class="link-sub">Source, build steps, and disclaimer</span>
+      </a>
+    </nav>
+</main>
+
+<!-- Unobtrusive in-game hint; mgb64-shell.js reveals it on boot (additive). -->
+<div id="overlay-hint" hidden aria-hidden="true">
+  <kbd>Esc</kbd> release mouse · <kbd>M</kbd> mute · <kbd>H</kbd> help
+</div>
+
+<!-- WEB-029: mgb64-shell.js reveals this if FS.syncfs can't reach browser
+     storage, so the user isn't left trusting an auto-save that never lands. -->
+<div id="save-banner" role="status" aria-live="polite" hidden>
+  Couldn't save to browser storage — progress may not persist.
+</div>
+
+<canvas id="canvas" width="1280" height="960" hidden></canvas>
+<script src="mgb64-shell.js"></script>
+</body>
+</html>

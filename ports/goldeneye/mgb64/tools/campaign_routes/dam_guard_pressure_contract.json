@@ -1,0 +1,98 @@
+{
+  "schema": "mgb64.campaign_route.v1",
+  "name": "dam_guard_pressure_contract",
+  "level": 33,
+  "frames": 320,
+  "route_class": "scripted_contract",
+  "description": "Dam guard pressure contract. Bond is deterministically placed near a live guard, the guard is forced onto the persistent attack AI list, and guard-owned shots must fire and damage Bond through the normal combat path.",
+  "env": {
+    "GE007_DISABLE_LEVEL_INTRO": 1,
+    "GE007_TRACE_CHRNUM": 0,
+    "GE007_TRACE_COMBAT_SCAN": 1,
+    "GE007_TRACE_GUARD_BOND_SHOTS": 1,
+    "GE007_TRACE_GUARD_BOND_SHOTS_CHRNUM": 0,
+    "GE007_TRACE_GUARD_BOND_SHOTS_BUDGET": 160
+  },
+  "scripted_events": {
+    "warp_chrs": [
+      {"name": "place_near_guard", "frame": 60, "chr": 0, "distance": 200, "angle": 0}
+    ],
+    "set_chr_ai": [
+      {"name": "force_attack_ai", "frame": 80, "chr": 0, "ailist": 13}
+    ]
+  },
+  "assertions": {
+    "expect_frame_exit": true,
+    "min_records": 315,
+    "no_render_failures": true,
+    "no_front_failure": true,
+    "log_count_assertions": [
+      {
+        "name": "guard_bond_aimed_shots",
+        "pattern": "^\\[GUARD_BOND_SHOT\\].*\\bchr=0\\b.*\\baim=1\\b",
+        "min_count": 10
+      },
+      {
+        "name": "guard_bond_damage_application",
+        "pattern": "^\\[GUARD_BOND_SHOT\\].*\\bchr=0\\b.*\\bcall=1\\b.*\\bdamage_amount=0\\.06250\\b",
+        "min_count": 1
+      }
+    ],
+    "state_milestones": [
+      {
+        "name": "spawn_survival",
+        "frame_at_or_after": 1,
+        "checks": [
+          {"path": "track.present", "op": "==", "value": 1},
+          {"path": "track.flag_hidden", "op": "==", "value": 0},
+          {"path": "combat.health.bond", "op": "==", "value": 1.0},
+          {"path": "front.bond_kia", "op": "==", "value": 0},
+          {"path": "front.mission_failed", "op": "==", "value": 0}
+        ]
+      },
+      {
+        "name": "guard_on_attack_ai",
+        "frame_at_or_after": 100,
+        "checks": [
+          {"path": "track.present", "op": "==", "value": 1},
+          {"path": "track.ai.list", "op": "==", "value": 13},
+          {"path": "track.ai.global", "op": "==", "value": 1},
+          {"path": "track.flag_hidden", "op": "==", "value": 0}
+        ]
+      },
+      {
+        "name": "guard_firing",
+        "frame_at_or_after": 240,
+        "checks": [
+          {"path": "track.firecount", "op": ">=", "value": 30},
+          {"path": "track.action", "op": "==", "value": 8},
+          {"path": "track.flag_hidden", "op": "==", "value": 0}
+        ]
+      },
+      {
+        "name": "bond_damaged_by_guard",
+        "frame_at_or_after": 260,
+        "checks": [
+          {"path": "track.firecount", "op": ">=", "value": 50},
+          {"path": "combat.health.bond", "op": "<=", "value": 0.94},
+          {"path": "combat.health.bond", "op": ">=", "value": 0.875},
+          {"path": "combat.health.health_show", "op": ">", "value": 0},
+          {"path": "front.bond_kia", "op": "==", "value": 0},
+          {"path": "front.mission_failed", "op": "==", "value": 0}
+        ]
+      },
+      {
+        "name": "final_guard_pressure_stability",
+        "frame_at_or_after": 320,
+        "checks": [
+          {"path": "track.firecount", "op": ">=", "value": 70},
+          {"path": "combat.health.bond", "op": "<=", "value": 0.94},
+          {"path": "combat.health.bond", "op": ">=", "value": 0.875},
+          {"path": "front.active_stage", "op": "==", "value": 33},
+          {"path": "front.bond_kia", "op": "==", "value": 0},
+          {"path": "front.mission_failed", "op": "==", "value": 0}
+        ]
+      }
+    ]
+  }
+}

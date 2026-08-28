@@ -1,0 +1,81 @@
+{
+  "schema": "mgb64.rom_oracle.route.v1",
+  "name": "dam_strafe_matrix",
+  "level": "33",
+  "frames": 300,
+  "native_frames": 300,
+  "stock_frames": 8000,
+  "native_speedframes": 3,
+  "stock_speedframes": 3,
+  "stock_gameplay_start_global": 1146,
+  "stock_menu_close_on_player": true,
+  "native_render_audit": true,
+  "native_min_moving_records": 80,
+  "stock_min_moving_records": 80,
+  "stock_min_gameplay_input_records": 120,
+  "stock_max_suppressed_menu_records": 0,
+  "stock_min_menu_to_gameplay_gap": 30,
+  "compare_align": "gameplay-frame",
+  "compare_profile": "scalar-speed",
+  "compare_min_aligned": 98,
+  "compare_gameplay_windows": [
+    { "start": 82, "len": 44 },
+    { "start": 142, "len": 10 },
+    { "start": 202, "len": 44 }
+  ],
+  "compare_normalize_position": true,
+  "description": "Dam spawn forward, C-right strafe, and forward+C-right scalar-speed matrix.",
+  "events": [
+    {
+      "start": 80,
+      "len": 45,
+      "forward": true
+    },
+    {
+      "start": 140,
+      "len": 45,
+      "buttons": ["c_right"]
+    },
+    {
+      "start": 200,
+      "len": 45,
+      "forward": true,
+      "buttons": ["c_right"]
+    }
+  ],
+  "stock_events": [
+    {
+      "start": 100,
+      "len": 3,
+      "buttons": ["start"],
+      "phase": "menu",
+      "repeat": { "every": 240, "until": 2260 }
+    },
+    {
+      "start": 160,
+      "len": 3,
+      "buttons": ["a"],
+      "phase": "menu",
+      "repeat": { "every": 240, "until": 2080 }
+    },
+    {
+      "start": 80,
+      "len": 45,
+      "forward": true,
+      "phase": "gameplay"
+    },
+    {
+      "start": 140,
+      "len": 45,
+      "buttons": ["c_right"],
+      "phase": "gameplay"
+    },
+    {
+      "start": 200,
+      "len": 45,
+      "forward": true,
+      "buttons": ["c_right"],
+      "phase": "gameplay"
+    }
+  ]
+}

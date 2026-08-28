@@ -1,0 +1,104 @@
+{
+  "schema": "mgb64.campaign_route.v1",
+  "name": "control_spawn_door_traversal_contract",
+  "description": "Control stock-spawn controller route that opens the first console-floor door pair and reaches a later authored pad cluster. This proves real input-driven door interaction and deeper traversal without warp, force, or stage-state automation.",
+  "route_class": "input_interaction",
+  "level": 23,
+  "frames": 820,
+  "env": {
+    "GE007_TRACE_FLOW_ONLY": "1",
+    "GE007_DOOR_TRACE": "1",
+    "GE007_DOOR_TRACE_OBJ": "144",
+    "GE007_DOOR_TRACE_BUDGET": "1000",
+    "GE007_DOOR_TRACE_FRAME_MAX": "820",
+    "GE007_INTERACT_TRACE": "1",
+    "GE007_INTERACT_TRACE_BUDGET": "260"
+  },
+  "input_segments": [
+    {"name": "console_door_approach", "start": 80, "duration": 220, "inputs": ["forward", "right"]},
+    {"name": "console_door_open_press", "start": 150, "duration": 8, "inputs": ["b"]},
+    {"name": "post_door_forward_push", "start": 340, "duration": 340, "inputs": ["forward"]}
+  ],
+  "assertions": {
+    "expect_frame_exit": true,
+    "min_records": 815,
+    "no_render_failures": true,
+    "no_front_failure": true,
+    "require_input_automation": true,
+    "no_direct_state_automation": true,
+    "min_moving_records": 560,
+    "min_horizontal_delta": 1850.0,
+    "log_count_assertions": [
+      {
+        "name": "real_control_door_allow",
+        "pattern": "^\\[INTERACT_TRACE\\] door allow obj=144\\b",
+        "min_count": 1
+      },
+      {
+        "name": "control_door_open_transition",
+        "pattern": "^\\[DOOR_TRACE\\] frame=\\d+ obj=144 state obj=144 0->1\\b",
+        "min_count": 1
+      },
+      {
+        "name": "control_door_open_displacement",
+        "pattern": "^\\[DOOR_TRACE\\] frame=\\d+ obj=144 displace state=1\\b",
+        "min_count": 250
+      }
+    ],
+    "setup_target_milestones": [
+      {
+        "name": "console_door_near_setup_pad_163",
+        "frame_at_or_after": 120,
+        "target": {"kind": "object", "type_name": "door", "obj": 144, "pad": 163},
+        "max_horizontal_distance": 60.0,
+        "max_abs_y_delta": 150.0
+      },
+      {
+        "name": "late_console_area_near_setup_pad_49",
+        "frame_at_or_after": 680,
+        "target": {"kind": "pad", "pad": 49},
+        "max_horizontal_distance": 180.0
+      }
+    ],
+    "position_milestones": [
+      {
+        "name": "console_door_contact",
+        "frame_at_or_after": 140,
+        "min_horizontal_delta": 150.0,
+        "min_abs_z_delta": 140.0
+      },
+      {
+        "name": "post_door_room_transition",
+        "frame_at_or_after": 500,
+        "min_horizontal_delta": 1100.0,
+        "min_abs_x_delta": 650.0,
+        "min_abs_z_delta": 900.0
+      },
+      {
+        "name": "late_console_area_reach",
+        "frame_at_or_after": 680,
+        "min_horizontal_delta": 1800.0,
+        "min_abs_x_delta": 1100.0,
+        "min_abs_z_delta": 1350.0
+      },
+      {
+        "name": "post_input_console_area_rest",
+        "frame_at_or_after": 819,
+        "min_horizontal_delta": 1850.0,
+        "min_abs_x_delta": 1200.0,
+        "min_abs_z_delta": 1350.0
+      }
+    ],
+    "state_milestones": [
+      {
+        "name": "late_control_stable",
+        "frame_at_or_after": 800,
+        "checks": [
+          {"path": "front.active_stage", "op": "==", "value": 23},
+          {"path": "front.bond_kia", "op": "==", "value": 0},
+          {"path": "front.mission_failed", "op": "==", "value": 0}
+        ]
+      }
+    ]
+  }
+}

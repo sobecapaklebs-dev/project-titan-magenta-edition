@@ -1,0 +1,10 @@
+Project NES / BuildFix27 FCEUmm source provenance
+
+Repository: https://github.com/libretro/libretro-fceumm
+Frozen commit: b5e3566515c27dc66c9c20572171673126532e06
+Expected Git tree: 6adfb382bf8a369f1a6ee224e89c08d981e22cec
+License: GNU GPL v2
+
+The Project NES BuildFix27 release provider is linked from the exact frozen
+source imported into third_party/fceumm/modern. The importer verifies the
+frozen source identity and emits external/fceumm/FCEUMM_IMPORTED_SHA256SUMS.

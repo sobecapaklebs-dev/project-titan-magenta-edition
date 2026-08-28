@@ -1,0 +1,102 @@
+#!/usr/bin/env bash
+#
+# pre-push -- structural public-remote publish gate (owner ruling 2026-07-11,
+# docs/fidelity/ESCALATIONS.md, resolved C1/D1).
+#
+# For EVERY push whose remote is the public repo (akratch/mgb64) -- topic-branch
+# pushes, main updates, and tag pushes alike -- this hook scans the exact NEW
+# commits being pushed (their diff CONTENT *and* their commit MESSAGES) for the
+# never-leak classes (private absolute paths, personal email, credentials,
+# proprietary SDK notice) and REFUSES the push on a hit. This closes the
+# day-to-day `git push -u origin fix/whatever` lane at the git layer: it needs no
+# script discipline, so the C1 leak class cannot recur via a topic-branch push +
+# server-side PR merge. The fidelity trees + AI-authorship trailers are ACCEPTED
+# public and are NOT blocked (see scripts/ci/scan_leak_classes.sh).
+#
+# It also nudges main / release-tag pushes through the guarded entrypoint
+# scripts/publish_public.sh (strict verify + gameplay gate); that nudge is
+# overridable, the leak-class scan is not.
+#
+# Enable in a checkout with:  scripts/install_git_hooks.sh   (sets
+# core.hooksPath=.githooks). See docs/WORKFLOW.md rule 3.
+#
+set -euo pipefail
+
+# Resolve this repo's guard scripts by the hook's own location, so the hook works
+# regardless of the invoking checkout's cwd.
+hook_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ci_dir="${hook_dir}/../scripts/ci"
+
+remote_name="${1:-}"
+remote_url="${2:-}"
+
+# (1) Contamination guard (ROM / extracted assets) -- every push, every remote.
+bash "${ci_dir}/check_no_rom_data.sh"
+
+# (2) Is this the public remote? Detect by name or URL (owner may add a test-only
+# override regex via MGB64_PUBLIC_REMOTE_RE).
+is_public_remote() {
+  case "$remote_name" in origin|public|akratch) return 0 ;; esac
+  case "$remote_url" in
+    *github.com[:/]akratch/mgb64|*github.com[:/]akratch/mgb64.git|*github.com[:/]akratch/mgb64/*) return 0 ;;
+  esac
+  if [ -n "${MGB64_PUBLIC_REMOTE_RE:-}" ] \
+     && printf '%s\n%s\n' "$remote_name" "$remote_url" | grep -qE "$MGB64_PUBLIC_REMOTE_RE"; then
+    return 0
+  fi
+  return 1
+}
+is_public_remote || exit 0
+
+zero="0000000000000000000000000000000000000000"
+scan="${ci_dir}/scan_leak_classes.sh"
+
+leak_fail=0
+gate_needed=0
+gate_satisfied=1
+
+# git feeds ref updates on stdin: "<local ref> <local sha> <remote ref> <remote sha>".
+while read -r local_ref local_sha remote_ref remote_sha; do
+  [ -n "${local_ref:-}" ] || continue
+  # Deletion (local side all-zeros): nothing new to scan.
+  [ "$local_sha" = "$zero" ] && continue
+
+  # New commits this ref introduces on the remote.
+  if [ "$remote_sha" = "$zero" ]; then
+    new_commits="$(git rev-list "$local_sha" --not --remotes="$remote_name" 2>/dev/null || git rev-list "$local_sha")"
+  else
+    new_commits="$(git rev-list "${remote_sha}..${local_sha}" 2>/dev/null || true)"
+  fi
+  # shellcheck disable=SC2086  # SHAs are word-safe; intentional splitting.
+  if [ -n "$new_commits" ]; then
+    if ! bash "$scan" $new_commits </dev/null; then
+      leak_fail=1
+    fi
+  fi
+
+  # Routing nudge for main / release-tag refs.
+  case "$remote_ref" in
+    refs/heads/main|refs/tags/v*)
+      gate_needed=1
+      [ "${MGB64_PUBLISH_GATE:-0}" = "1" ] || gate_satisfied=0
+      ;;
+  esac
+done
+
+if [ "$leak_fail" -ne 0 ]; then
+  echo "pre-push: REFUSED -- never-leak text found in commits bound for the public remote (${remote_name:-?})." >&2
+  exit 1
+fi
+
+if [ "$gate_needed" -eq 1 ] && [ "$gate_satisfied" -ne 1 ] && [ "${MGB64_ALLOW_DIRECT_PUBLIC_PUSH:-0}" != "1" ]; then
+  {
+    echo "pre-push: REFUSED -- direct push to public main / release tag."
+    echo "  Route these through the one guarded entrypoint (strict verify + release gameplay gate):"
+    echo "    scripts/publish_public.sh --dev-push --yes                 # routine main update"
+    echo "    scripts/publish_public.sh --tag vX.Y.Z --confirm-gameplay \"macos=...,windows=...\" --yes"
+    echo "  Deliberate manual override: MGB64_ALLOW_DIRECT_PUBLIC_PUSH=1"
+  } >&2
+  exit 1
+fi
+
+exit 0

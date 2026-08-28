@@ -1,0 +1,104 @@
+/*
+ * Project Titan 0.3.90 RC1 - Magenta Veil V5 textured VU1 ribbons
+ *
+ * VU memory contract (qword addresses):
+ *   0     left/right rail offsets
+ *   1     GS raster offset (2048, 2048, 0, 0)
+ *   16    65 pairs of center/scaled-normal vectors
+ *   160   65 per-point RGBA vectors
+ *   240   65 pairs of prepacked UV vectors
+ *   384   PATH1 texture-state GIF packet
+ *   388   per-pass ALPHA register (overwrites static placeholder)
+ *   389   packed vertex GIFtag (UV, RGBAQ, XYZ2)
+ *   390   generated PATH1 vertex packet
+ *
+ * The EE encodes the broad sweep/mesh and varying width in center/normal XY.
+ * Center Z/W hold two folded EFU angles (0..pi/2); normal Z/W hold their
+ * signed X/Y amplitudes. VU1 evaluates both carriers with ESIN, adds the
+ * procedural displacement to the center, then extrudes rails and emits PATH1.
+ */
+
+.align 4
+.vu
+.global titan_wave_vu1_micro_start
+.global titan_wave_vu1_micro_end
+
+titan_wave_vu1_micro_start:
+    nop                         iaddiu vi01, vi00, 16
+    nop                         iaddiu vi02, vi00, 160
+    nop                         iaddiu vi03, vi00, 240
+    nop                         iaddiu vi04, vi00, 390
+    nop                         iaddiu vi05, vi00, 0
+    nop                         iaddiu vi06, vi00, 65
+    nop                         lq.xyzw vf10, 0(vi00)
+    nop                         lq.xyzw vf11, 1(vi00)
+
+TitanWaveVu1_Loop:
+    nop                         lq.xyzw vf01, 0(vi01)
+    nop                         iaddiu vi01, vi01, 1
+    nop                         esin P, vf01z
+    nop                         lq.xyzw vf02, 0(vi01)
+    nop                         iaddiu vi01, vi01, 1
+    nop                         lq.xyzw vf05, 0(vi02)
+    nop                         iaddiu vi02, vi02, 1
+    nop                         lq.xyzw vf06, 0(vi03)
+    nop                         iaddiu vi03, vi03, 1
+    nop                         lq.xyzw vf07, 0(vi03)
+    nop                         iaddiu vi03, vi03, 1
+
+    /* While EFU evaluates sin(angle_y), FMAC prepares the rail offsets. */
+    mulx.xy vf03, vf02, vf10x  nop
+    muly.xy vf04, vf02, vf10y  nop
+    nop                         waitp
+    nop                         mfp.y vf08, P
+
+    /* The second EFU evaluation is the quadrature carrier (cosine encoded
+     * as sine(theta + pi/2)) and bends X. P is single-buffered, so the first
+     * result is moved out before starting the next ESIN. */
+    nop                         esin P, vf01w
+    sub.zw  vf03, vf03, vf03   nop
+    sub.zw  vf04, vf04, vf04   nop
+    nop                         nop
+    nop                         waitp
+    nop                         mfp.x vf09, P
+
+    /* MFP has a four-cycle result latency. Fill it with independent work,
+     * then apply signed amplitudes from normal.z/w to center X/Y. */
+    nop                         nop
+    nop                         nop
+    nop                         nop
+    nop                         nop
+    mulw.y vf08, vf08, vf02w   nop
+    mulz.x vf09, vf09, vf02z   nop
+    add.x   vf01, vf01, vf09   nop
+    add.y   vf01, vf01, vf08   nop
+
+    add.xy  vf03, vf01, vf03   nop
+    add.xy  vf04, vf01, vf04   nop
+    add.xy  vf03, vf03, vf11   nop
+    add.xy  vf04, vf04, vf11   nop
+
+    ftoi4.xy vf03, vf03        nop
+    ftoi4.xy vf04, vf04        nop
+
+    nop                         sq.xyzw vf06, 0(vi04)
+    nop                         sq.xyzw vf05, 1(vi04)
+    nop                         sq.xyzw vf03, 2(vi04)
+    nop                         sq.xyzw vf07, 3(vi04)
+    nop                         sq.xyzw vf05, 4(vi04)
+    nop                         sq.xyzw vf04, 5(vi04)
+    nop                         iaddiu vi04, vi04, 6
+    nop                         iaddiu vi05, vi05, 1
+    nop                         nop
+    nop                         ibne vi05, vi06, TitanWaveVu1_Loop
+    nop                         nop
+
+    nop                         iaddiu vi07, vi00, 384
+    nop                         xgkick vi07
+    nop                         nop
+    nop                         nop
+    nop                         nop
+    nop[e]                      nop
+    nop                         nop
+
+titan_wave_vu1_micro_end:

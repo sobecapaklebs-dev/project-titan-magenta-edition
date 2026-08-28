@@ -1,0 +1,1 @@
+Project Titan TPUP self-test build25: storage single-owner + staged CRC verification.

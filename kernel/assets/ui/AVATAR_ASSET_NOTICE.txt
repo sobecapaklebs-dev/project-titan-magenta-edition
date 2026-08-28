@@ -1,0 +1,15 @@
+PROJECT TITAN PROFILE AVATAR ATLAS
+
+The PSM16 atlas and the individual PNG files in this package were extracted
+from a reference image supplied by the Project Titan developer during the
+design session.  The tier labels, TierMaker branding, grid, comment overlay and
+other non-avatar elements were not included.
+
+The source screenshot is not redistributed.  The 199 extracted images keep
+stable numeric IDs in row-major source order.  The runtime atlas contains
+32x32 cells in a 512x512 PSM16 texture; titan_ui_avatars_manifest.csv maps each
+ID back to its source cell.
+
+These images are intended for Project Titan proof-of-concept and personal
+testing.  Rights in recognizable third-party characters, artwork and marks
+remain with their respective owners.

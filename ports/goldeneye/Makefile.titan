@@ -1,0 +1,187 @@
+EE_CC ?= mips64r5900el-ps2-elf-gcc
+EE_LD ?= mips64r5900el-ps2-elf-ld
+PYTHON ?= python3
+ROM ?=
+
+MGB := mgb64
+ROOT := ../..
+BUILD := build/titan
+OBJ := $(BUILD)/obj
+PKG_SOURCE := $(BUILD)/package
+TMOD := $(BUILD)/titaneye.tmod
+PKG := $(BUILD)/TITANEYE007.tpkg
+
+GAME_SOURCES := $(filter-out $(MGB)/src/game/minimap.c,$(wildcard $(MGB)/src/game/*.c))
+SYSTEM_SOURCES := \
+    $(MGB)/src/boss.c $(MGB)/src/init.c $(MGB)/src/memp.c \
+    $(MGB)/src/mema.c $(MGB)/src/sched.c $(MGB)/src/fr.c \
+    $(MGB)/src/vi.c $(MGB)/src/joy.c $(MGB)/src/music.c \
+    $(MGB)/src/snd.c $(MGB)/src/deb.c $(MGB)/src/debugmenu.c \
+    $(MGB)/src/speed_graph.c $(MGB)/src/random.c $(MGB)/src/token.c \
+    $(MGB)/src/ramrom.c $(MGB)/src/crash.c $(MGB)/src/cfb.c \
+    $(MGB)/src/stacks.c $(MGB)/src/rmon.c $(MGB)/src/pi.c \
+    $(MGB)/src/tlb_manage.c $(MGB)/src/tlb_random.c \
+    $(MGB)/src/c_data_filler.c
+ASSET_SOURCES := $(MGB)/assets/font_dl.c $(MGB)/assets/GlobalImageTable.c
+APP_SOURCES := $(MGB)/src/app/cli_stage_tables.c
+PLATFORM_SOURCES := \
+    $(MGB)/src/platform/aimbone_dispatch.c \
+    $(MGB)/src/platform/ammo_icon_anchor.c \
+    $(MGB)/src/platform/asset_stubs.c \
+    $(MGB)/src/platform/audi_port.c \
+    $(MGB)/src/platform/audio_compat.c \
+    $(MGB)/src/platform/audio_pc.c \
+    $(MGB)/src/platform/audio_queue_controller.c \
+    $(MGB)/src/platform/autoaim_score.c \
+    $(MGB)/src/platform/bg_impact_guard.c \
+    $(MGB)/src/platform/binding_conflict.c \
+    $(MGB)/src/platform/chrobj_detonate.c \
+    $(MGB)/src/platform/chrobj_impact_suppress.c \
+    $(MGB)/src/platform/fire_rate_authentic.c \
+    $(MGB)/src/platform/fp_weapon_perspnorm.c \
+    $(MGB)/src/platform/frame_clamp.c \
+    $(MGB)/src/platform/glass_shot_depth.c \
+    $(MGB)/src/platform/gp_reserved.c \
+    $(MGB)/src/platform/gu_trig.c \
+    $(MGB)/src/platform/hull_vertex_clamp.c \
+    $(MGB)/src/platform/mixer.c \
+    $(MGB)/src/platform/model_convert.c \
+    $(MGB)/src/platform/mp_beam_rawcast.c \
+    $(MGB)/src/platform/mp_healthbar_gate.c \
+    $(MGB)/src/platform/mp_respawn_tail.c \
+    $(MGB)/src/platform/platform_stdio.c \
+    $(MGB)/src/platform/platform_titan.c \
+    $(MGB)/src/platform/port_env.c \
+    $(MGB)/src/platform/projectile_endpoint_clamp.c \
+    $(MGB)/src/platform/radial_deadzone.c \
+    $(MGB)/src/platform/rom_io.c \
+    $(MGB)/src/platform/rom_offsets.c \
+    $(MGB)/src/platform/save_status.c \
+    $(MGB)/src/platform/segment_stubs.c \
+    $(MGB)/src/platform/setup_pnames.c \
+    $(MGB)/src/platform/sim_state_hash.c \
+    $(MGB)/src/platform/sim_state_hash_registry.c \
+    $(MGB)/src/platform/spectrum_settile.c \
+    $(MGB)/src/platform/stan_roomset.c \
+    $(MGB)/src/platform/stubs.c \
+    $(MGB)/src/platform/sys_hotkey.c \
+    $(MGB)/src/platform/watch_ammo_switchstate.c \
+    $(MGB)/src/platform/watch_inv_aspect.c \
+    $(MGB)/src/platform/watch_joypad_page.c \
+    $(MGB)/src/platform/watch_scene_render.c \
+    $(MGB)/src/platform/watch_scroll_gate.c \
+    $(MGB)/src/platform/watchmenu_hand_lifecycle.c \
+    $(MGB)/src/platform/weapon_action_sfx.c \
+    $(MGB)/src/platform/weapon_bullet_type.c \
+    $(MGB)/src/platform/weapon_cycle_queue.c
+FAST3D_SOURCES := \
+    $(MGB)/src/platform/fast3d/gfx_pc.c \
+    $(MGB)/src/platform/fast3d/gfx_ps2_vu0.c \
+    $(MGB)/src/platform/fast3d/gfx_cc.c \
+    $(MGB)/src/platform/fast3d/gfx_room_normals.c \
+    $(MGB)/src/platform/fast3d/screenshot_series.c \
+    $(MGB)/src/platform/fast3d/gfx_titan.c
+BRIDGE_SOURCES := titan_ge_module.c titan_ge_libc.c titan_ge_platform.c \
+    titan_ge_rom.c titan_ge_runtime.c titan_ge_decor.c titan_ge_closed_stubs.c
+
+# Titan Native/Game modules use the PS2 EE N32 ABI. Keep the architecture-neutral
+# compiler-rt builtins local so TitanEYE remains self-contained.
+COMPILER_RT_DIR := third_party/compiler-rt-builtins
+COMPILER_RT_SOURCES := \
+    $(COMPILER_RT_DIR)/adddf3.c \
+    $(COMPILER_RT_DIR)/subdf3.c \
+    $(COMPILER_RT_DIR)/muldf3.c \
+    $(COMPILER_RT_DIR)/divdf3.c \
+    $(COMPILER_RT_DIR)/comparedf2.c \
+    $(COMPILER_RT_DIR)/fp_mode.c \
+    $(COMPILER_RT_DIR)/extendsfdf2.c \
+    $(COMPILER_RT_DIR)/fixdfsi.c \
+    $(COMPILER_RT_DIR)/fixunsdfsi.c \
+    $(COMPILER_RT_DIR)/fixsfdi.c \
+    $(COMPILER_RT_DIR)/fixunssfdi.c \
+    $(COMPILER_RT_DIR)/floatdidf.c \
+    $(COMPILER_RT_DIR)/floatsidf.c \
+    $(COMPILER_RT_DIR)/floatundidf.c \
+    $(COMPILER_RT_DIR)/floatunsidf.c \
+    $(COMPILER_RT_DIR)/truncdfsf2.c \
+    $(COMPILER_RT_DIR)/ashldi3.c \
+    $(COMPILER_RT_DIR)/lshrdi3.c \
+    $(COMPILER_RT_DIR)/divdi3.c \
+    $(COMPILER_RT_DIR)/udivdi3.c \
+    $(COMPILER_RT_DIR)/udivmoddi4.c \
+    $(COMPILER_RT_DIR)/bswapdi2.c \
+    $(COMPILER_RT_DIR)/bswapsi2.c \
+    $(COMPILER_RT_DIR)/clzdi2.c \
+    $(COMPILER_RT_DIR)/clzsi2.c \
+    $(COMPILER_RT_DIR)/ctzsi2.c \
+    $(COMPILER_RT_DIR)/ctzdi2.c \
+    $(COMPILER_RT_DIR)/muldi3.c
+
+SOURCES := $(GAME_SOURCES) $(SYSTEM_SOURCES) $(ASSET_SOURCES) $(APP_SOURCES) \
+    $(PLATFORM_SOURCES) $(FAST3D_SOURCES) $(BRIDGE_SOURCES) $(COMPILER_RT_SOURCES)
+OBJECTS := $(addprefix $(OBJ)/,$(SOURCES:.c=.o))
+
+CPPFLAGS := -D_EE -DPROJECT_TITAN_TGR -DNATIVE_PORT -DNONMATCHING \
+    -DPORT_FIXME_STUBS -DPORT_SOUNDPLAYER_REAL -D_LANGUAGE_C \
+    -DVERSION_US -DLANG_US -DREFRESH_NTSC -DLEFTOVERDEBUG \
+    -DLEFTOVERSPECTRUM -DBUGFIX_R0 -DBYTEMATCH
+CPPFLAGS += -include ./titan_ge_stdio_compat.h
+CPPFLAGS += -I$(MGB)/include -I$(MGB)/include/PR -I$(MGB)/src \
+    -I$(MGB)/src/game -I$(MGB)/src/platform \
+    -I$(MGB)/src/platform/fast3d -I$(MGB)/src/libultra/audio \
+    -I$(MGB)/assets -I$(MGB)/lib/glad/include -I$(MGB) \
+    -I$(ROOT)/kernel/include -I$(COMPILER_RT_DIR)
+CFLAGS := -G0 -mno-gpopt -Os -std=gnu11 -march=r5900 -mabi=n32 -mhard-float \
+    -msingle-float -ffreestanding -fno-common -fno-pic -mno-abicalls \
+    -fno-strict-aliasing -fms-extensions -fno-builtin -fno-stack-protector \
+    -Wall -Wno-unused-variable -Wno-unused-function \
+    -Wno-unused-but-set-variable -Wno-missing-braces -Wno-parentheses \
+    -Wno-unknown-pragmas -Wno-implicit-function-declaration \
+    -Wno-missing-declarations -Wno-int-conversion \
+    -Wno-incompatible-pointer-types -Wno-empty-body -Wno-switch
+
+.PHONY: all module package verify clean check-ee-compiler print-sources
+all: module
+module: $(TMOD)
+package: $(PKG)
+
+check-ee-compiler:
+	@machine=`$(EE_CC) -dumpmachine 2>/dev/null` || { \
+		echo "TitanEYE requires mips64r5900el-ps2-elf-gcc from PS2DEV" >&2; exit 1; }; \
+	test "$$machine" = "mips64r5900el-ps2-elf" || { \
+		echo "Refusing non-R5900 compiler: $$machine" >&2; exit 1; }
+
+# P162 PS2-native geometry hot path: preserve -Os globally, but compile the
+# Fast3D interpreter and VU0 bridge at -O2. No -ffast-math: clip semantics stay IEEE.
+TITANEYE_FAST3D_NATIVE_CFLAGS := $(filter-out -Os -O0 -O1 -O2 -O3,$(CFLAGS)) -O2
+$(OBJ)/$(MGB)/src/platform/fast3d/gfx_pc.o: CFLAGS := $(TITANEYE_FAST3D_NATIVE_CFLAGS)
+$(OBJ)/$(MGB)/src/platform/fast3d/gfx_ps2_vu0.o: CFLAGS := $(TITANEYE_FAST3D_NATIVE_CFLAGS)
+
+$(OBJ)/%.o: %.c | check-ee-compiler
+	@mkdir -p $(dir $@)
+	$(EE_CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
+
+$(TMOD): $(OBJECTS)
+	@mkdir -p $(dir $@)
+	# RC1 Titan Native ABI is R5900 N32/ABI2. Link through the EE compiler
+	# driver so the relocatable link uses the same ABI/emulation as every object.
+	$(EE_CC) -march=r5900 -mabi=n32 -nostdlib -r -Wl,--no-relax -o $@ $(OBJECTS)
+	$(PYTHON) $(ROOT)/apps/project-nes/tools/check_r5900_tmod.py $@
+	$(PYTHON) $(ROOT)/tools/check_titan_native_n32.py $@
+	$(PYTHON) tools/check_titaneye_tmod.py $@
+
+$(PKG): $(TMOD) resources/icon.rgb565 resources/tile.rgb565 resources/background.rgb565
+	@test -n "$(ROM)" || { echo "Use: make -f Makefile.titan package ROM=/path/to/GoldenEye\\ 007.z64" >&2; exit 1; }
+	$(PYTHON) tools/build_private_package.py \
+		--module $(TMOD) --rom "$(ROM)" --icon resources/icon.rgb565 --tile resources/tile.rgb565 --background resources/background.rgb565 \
+		--package-source $(PKG_SOURCE) --output $@
+
+verify: $(PKG)
+	$(PYTHON) $(ROOT)/kernel/tools/titan_pkg.py verify $(PKG)
+	$(PYTHON) tools/check_titaneye_tmod.py $(TMOD)
+
+clean:
+	rm -rf $(BUILD)
+
+print-sources:
+	@printf '%s\n' $(SOURCES)

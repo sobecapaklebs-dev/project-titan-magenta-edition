@@ -1,0 +1,25 @@
+Project Titan DEX tile icons
+============================
+
+The APP_HOME and FTP_HOME source images were supplied by the Project Titan
+project owner for use in the shell.
+
+APP_HOME was replaced at the project owner's request for Titan UI 0.9.34.
+Processing performed for the current APP_HOME asset:
+- background removed;
+- supplied four-squares-and-database glyph cleaned and optically centered;
+- transparent padding normalized on all four sides;
+- white artwork converted to a grayscale alpha mask;
+
+Processing retained from Titan UI 0.9.19 for FTP_HOME:
+- source crop straightened and centered;
+- FTP artwork converted from black to a white alpha mask;
+- artwork normalized to a 128x128 A8 mask;
+
+Both assets are packed into the GS UI texture atlas.
+
+Files:
+- titan_ui_app_home.a8
+- titan_ui_app_home.png
+- titan_ui_ftp_home.a8
+- titan_ui_ftp_home.png

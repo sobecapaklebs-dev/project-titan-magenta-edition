@@ -1,0 +1,46 @@
+{
+  "schema": "mgb64.campaign_route.v1",
+  "name": "dam_objective_contract",
+  "level": 33,
+  "frames": 240,
+  "route_class": "scripted_contract",
+  "description": "Dam objective criteria progression: alarms, modem, data backup, and bungee flags advance the real objective vector.",
+  "env": {
+    "GE007_TRACE_FLOW_ONLY": 1,
+    "GE007_TRACE_OBJECTIVES": 1,
+    "GE007_STAGEFLAG_TRACE": 1,
+    "GE007_STAGEFLAG_TRACE_MASK": "0x1F00",
+    "GE007_STAGEFLAG_TRACE_BUDGET": 32
+  },
+  "scripted_events": {
+    "damage_tags": [
+      {"name": "destroy_alarm_0", "frame": 80, "tag": 0, "amount": 2000},
+      {"name": "destroy_alarm_1", "frame": 82, "tag": 1, "amount": 2000},
+      {"name": "destroy_alarm_2", "frame": 84, "tag": 2, "amount": 2000},
+      {"name": "destroy_alarm_3", "frame": 86, "tag": 3, "amount": 2000}
+    ],
+    "set_stage_flags": [
+      {"name": "modem_flag", "frame": 120, "flags": "0x100"},
+      {"name": "data_flag", "frame": 160, "flags": "0x400"},
+      {"name": "bungee_flag", "frame": 200, "flags": "0x1000"}
+    ]
+  },
+  "assertions": {
+    "expect_frame_exit": true,
+    "min_records": 240,
+    "no_render_failures": true,
+    "objective_milestones": [
+      {"name": "initial", "frame_at_or_after": 1, "statuses": [0, 0, 0, 0]},
+      {"name": "alarms_destroyed", "frame_at_or_after": 95, "statuses": [1, 0, 0, 0]},
+      {"name": "modem_flag", "frame_at_or_after": 125, "statuses": [1, 1, 0, 0]},
+      {"name": "data_flag", "frame_at_or_after": 165, "statuses": [1, 1, 1, 0]},
+      {"name": "bungee_flag", "frame_at_or_after": 205, "statuses": [1, 1, 1, 1]}
+    ],
+    "final_objective": {
+      "statuses": [1, 1, 1, 1],
+      "flags_include": "0x1500",
+      "flags_exclude": "0x2A00"
+    },
+    "required_stageflag_after": ["0x100", "0x500", "0x1500"]
+  }
+}

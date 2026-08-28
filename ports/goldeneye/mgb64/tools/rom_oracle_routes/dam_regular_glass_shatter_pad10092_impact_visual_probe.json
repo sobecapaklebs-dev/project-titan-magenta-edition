@@ -1,0 +1,197 @@
+{
+    "schema": "mgb64.rom_oracle.route.v1",
+    "name": "dam_regular_glass_shatter_pad10092_impact_visual_probe",
+    "level": "33",
+    "native_frames": 125,
+    "stock_frames": 2600,
+    "stock_screenshot_frame": 2541,
+    "stock_gameplay_start_global": 1147,
+    "stock_require_first_gameplay_global": 1147,
+    "stock_speedframes": 2,
+    "stock_menu_close_on_player": true,
+    "native_render_audit": true,
+    "stock_min_gameplay_input_records": 5,
+    "stock_max_suppressed_menu_records": 0,
+    "stock_min_menu_to_gameplay_gap": 30,
+    "stock_min_force_player_applies": 300,
+    "stock_min_force_player_stan_applies": 300,
+    "compare_kind": "visual",
+    "compare_align": "global",
+    "compare_profile": "logical-viewport",
+    "visual_logical_size": [
+        320,
+        240
+    ],
+    "visual_logical_viewport": [
+        0,
+        10,
+        320,
+        220
+    ],
+    "visual_baseline_logical_frame": "active",
+    "visual_test_logical_frame": "full",
+    "visual_regions": [
+        {
+            "name": "tower_pane",
+            "roi": [
+                80,
+                115,
+                320,
+                180
+            ]
+        },
+        {
+            "name": "impact_side",
+            "roi": [
+                255,
+                145,
+                120,
+                95
+            ]
+        },
+        {
+            "name": "projected_impact",
+            "roi": [
+                173,
+                156,
+                20,
+                19
+            ]
+        },
+        {
+            "name": "lower_actor_cluster",
+            "roi": [
+                145,
+                160,
+                215,
+                125
+            ]
+        },
+        {
+            "name": "hud_viewmodel",
+            "roi": [
+                360,
+                300,
+                255,
+                130
+            ]
+        }
+    ],
+    "visual_mask_exclude_regions": [
+        "lower_actor_cluster",
+        "hud_viewmodel"
+    ],
+    "compare_require_health_match": true,
+    "compare_health_tolerance": 0.001,
+    "compare_damage_show_tolerance": 1,
+    "compare_actor_chrnums": [
+        44,
+        7
+    ],
+    "compare_actor_fields": [
+        "alive",
+        "hidden",
+        "onscreen",
+        "action"
+    ],
+    "compare_actor_frame": "screenshot",
+    "compare_actor_position_tolerance": 25.0,
+    "compare_require_active": true,
+    "compare_max_active_tolerance": 0,
+    "compare_first_position_tolerance": 1.0,
+    "compare_require_prop_destroyed": true,
+    "compare_prop_position_tolerance": 1.0,
+    "compare_require_impact_active": true,
+    "compare_require_impact_match": true,
+    "compare_impact_position_tolerance": 5.0,
+    "compare_impact_position_points": "center",
+    "compare_max_buffer_len": 200,
+    "description": "Dam regular-glass pad-10092 impact-aligned route seed. This is the actor-light pane/decal successor candidate to the pad-10004 impact route, not a final pixel-parity oracle. Stock uses crosshair 160:120; native uses fire start 68 plus crosshair 159.00:122.50, found by impact-sequence scouting. The selected world impact at stock frame 2541 and native frame 124 satisfies the 5.0 world-unit center gate and <=1.0px projected-center gate, while the sampled world-impact type sequence matches [1,1,1,1] on both sides. Actor composition remains report-only: chr7 onscreen and chr44 room/position drift are expected, so use glass_pad10092_impact_visual_regression.sh rather than promoting broad screenshot deltas directly.",
+    "native_config": {
+        "Video.AnisotropicFiltering": 1,
+        "Input.ViewmodelSway": 0,
+        "Video.Bloom": 0,
+        "Video.Brightness": 0,
+        "Video.Contrast": 1,
+        "Video.FovY": 60,
+        "Video.Gamma": 1,
+        "Video.GradePresets": 0,
+        "Video.MSAA": 0,
+        "Video.RemasterFX": 0,
+        "Video.RenderScale": 1,
+        "Video.RetroFilter": "on",
+        "Video.Saturation": 1,
+        "Video.Sharpen": 0,
+        "Video.Tonemap": 0,
+        "Video.Vignette": 0,
+        "Video.WindowHeight": 480,
+        "Video.WindowMode": "windowed",
+        "Video.WindowWidth": 640,
+        "Input.ModernCrosshair": 0,
+        "Input.HitMarkers": 0,
+        "Input.ReticleTargetFeedback": 0,
+        "Input.MinimapEnabled": 0
+    },
+    "native_env": {
+        "GE007_DIAG_DISABLE_HIGHDPI": "1",
+        "GE007_DISABLE_LEVEL_INTRO": "1",
+        "GE007_TRACE_GLASS": "1",
+        "GE007_TRACE_GLASS_BUDGET": "1600",
+        "GE007_OBJECT_TRACE": "1",
+        "GE007_OBJECT_TRACE_PAD": "10092",
+        "GE007_OBJECT_TRACE_BUDGET": "1600",
+        "GE007_AUTO_WARP_FRAME": 40,
+        "GE007_AUTO_WARP_PAD": 10092,
+        "GE007_AUTO_FORCE_PLAYER_SCRIPT": "45-260:16356.85:518.28:19066.15:315.0000:-6.4210:167.31:10092",
+        "GE007_AUTO_AUTOAIM_SCRIPT": "41:0,58:0,67:0",
+        "GE007_AUTO_CROSSHAIR_SCRIPT": "45-260:159.00:122.50"
+    },
+    "stock_env": {
+        "MGB64_ARES_FORCE_PLAYER_SCRIPT": "1:900:16356.85:518.28:19066.15:315.0000:-6.4210:167.31:10092",
+        "MGB64_ARES_CROSSHAIR_SCRIPT": "1:900:160:120"
+    },
+    "events": [],
+    "native_events": [
+        {
+            "start": 68,
+            "len": 170,
+            "buttons": [
+                "fire"
+            ]
+        }
+    ],
+    "stock_events": [
+        {
+            "start": 100,
+            "len": 3,
+            "buttons": [
+                "start"
+            ],
+            "phase": "menu",
+            "repeat": {
+                "every": 240,
+                "until": 2260
+            }
+        },
+        {
+            "start": 160,
+            "len": 3,
+            "buttons": [
+                "a"
+            ],
+            "phase": "menu",
+            "repeat": {
+                "every": 240,
+                "until": 2080
+            }
+        },
+        {
+            "start": 70,
+            "len": 170,
+            "buttons": [
+                "fire"
+            ],
+            "phase": "gameplay"
+        }
+    ]
+}

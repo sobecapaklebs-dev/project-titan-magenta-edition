@@ -1,0 +1,142 @@
+# Normalize text files across platforms.
+* text=auto eol=lf
+
+# Common ROM/media/build artifacts should stay binary if they ever appear
+# locally; the release guards still forbid committing them.
+*.z64 binary
+*.n64 binary
+*.v64 binary
+*.rom binary
+*.bin binary
+*.bmp binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.raw binary
+*.wav binary
+*.mp3 binary
+*.ogg binary
+*.flac binary
+*.dmg binary
+*.zip binary
+*.7z binary
+*.tar binary
+*.tgz binary
+*.gz binary
+
+# Keep GitHub language statistics focused on MGB64-owned code. These paths are
+# inventoried in THIRD_PARTY.md and retained for build/tooling compatibility.
+lib/glad/** linguist-vendored
+tools/armips.cpp linguist-vendored
+tools/asm-processor/** linguist-vendored
+tools/extractor/puff.c linguist-vendored
+tools/extractor/puff.h linguist-vendored
+tools/gzipsrc/** linguist-vendored
+tools/smaa/AreaTex.py linguist-vendored
+tools/smaa/SearchTex.py linguist-vendored
+tools/ido5.3_recomp/** linguist-vendored
+tools/mktex/src/libpdtex/** linguist-vendored
+
+# --- Internal working documentation: the public/internal boundary ------------
+# The documentation boundary is now STRUCTURAL, not suffix-guessed:
+#
+#   docs/*.md        -> PUBLIC curated reference (see docs/README.md).
+#   docs/design/**   -> INTERNAL design notes, roadmaps, and forward-looking
+#                       plans. Kept in THIS development repository for maintainers
+#                       and contributors with access, but NEVER shipped in the
+#                       public source archive (`git archive`, honored
+#                       automatically) or the fresh public launch repository
+#                       (scripts/create_public_launch_repo.sh filters the tree by
+#                       these entries).
+#
+# This block is the single source of truth for what documentation is public vs
+# internal. For any new internal doc, put it under docs/design/ (do not add
+# ad-hoc top-level exclusions — top-level docs/ is the public reference surface).
+#
+# --- BEGIN history-scan-exempt ------------------------------------------------
+# scripts/ci/check_public_history_text.sh derives its git-HISTORY scan
+# exclusions ONLY from export-ignore entries between this marker and the
+# matching "END history-scan-exempt" marker below (see that script's awk
+# derivation) — NOT from every export-ignore line in this file.
+#
+# That is a deliberate, narrow decoupling (2026-07-10, CR-2 fix). export-ignore
+# controls what a `git archive` / GitHub "Download ZIP" artifact or a fresh
+# scripts/create_public_launch_repo.sh checkout contains. It does NOT control
+# what reaches the public remote day-to-day: this repo's actual publish path is
+# a direct `git push` of ordinary merged history (docs/WORKFLOW.md rule 6), so
+# a tree being export-ignored from the *artifact* does not make its
+# history-reachable content safe to stop content-scanning. Only docs/design/**
+# and the LEGACY paths below have an explicit, written decision that their
+# history is also out of this guard's scope. Any new export-ignore entry —
+# including future fidelity-program paths — goes OUTSIDE this block by
+# default. Moving one inside requires the same kind of explicit, written
+# sign-off recorded right here, not just an incidental .gitattributes edit.
+docs/design/** export-ignore
+#
+# LEGACY paths, retained on purpose. Internal docs previously lived at these
+# paths (before consolidation under docs/design/). They match nothing in the
+# current tree; kept here purely so this guard keeps ignoring historical
+# internal content under these paths that is now gone from HEAD. Do not remove
+# them without also updating that guard.
+docs/superpowers/** export-ignore
+docs/remaster-aaa/** export-ignore
+docs/*_PLAN.md export-ignore
+docs/*_ROADMAP.md export-ignore
+docs/*_REVIEW.md export-ignore
+docs/PRE_SHIP_REVIEW_*.md export-ignore
+docs/*_AUDIT_*.md export-ignore
+docs/*_SURVEY.md export-ignore
+docs/*_WIP.md export-ignore
+docs/*_STATUS.md export-ignore
+docs/*_GLIDEPATH.md export-ignore
+docs/*_MAP.md export-ignore
+docs/*_GUIDE.md export-ignore
+docs/*_THEORY.md export-ignore
+# --- END history-scan-exempt --------------------------------------------------
+#
+# Fidelity program (2026-07-10 internal-only decision D1; see
+# docs/design/FIDELITY_REVIEW_AND_PLAN_2026-07-10.md). Its tooling and working
+# data live outside docs/design/, so they need their own export-ignore entries
+# for the git-archive / public-launch-repo artifact, below. They are
+# DELIBERATELY placed OUTSIDE the history-scan-exempt block above: these trees
+# are still pushed to the public remote verbatim as ordinary history
+# (docs/WORKFLOW.md rule 6), so scripts/ci/check_public_history_text.sh must
+# keep content-scanning their history even though a fresh archive/launch-repo
+# checkout never contains them. (An earlier version of this change listed
+# these entries ahead of the LEGACY block; the guard's then-unscoped awk
+# derivation picked them up automatically and silently stopped scanning their
+# history — CR-2, 2026-07-10 fidelity-leak review. Do not move these back
+# inside the marked block above without the same explicit sign-off it requires.)
+docs/fidelity/** export-ignore
+tools/fidelity/** export-ignore
+baselines/tapes/** export-ignore
+#
+# Native-port defect audit (docs/audit/**): internal robustness/correctness
+# findings (unfixed crash repros, signing-pipeline gaps, malformed-asset faults).
+# A public list of unfixed defects does not belong in the release artifact, so it
+# is export-ignored — but DELIBERATELY kept OUTSIDE the history-scan-exempt block
+# above so its history is still content-scanned on the direct-push path.
+docs/audit/** export-ignore
+#
+# tools/tests/test_fidelity_ledger.py lives in the general (public) tools/tests/
+# directory, not under tools/fidelity/, so the glob above misses it. It exists
+# solely to unit-test the internal tools/fidelity/ledger.py (imports it
+# directly), so it is exactly as internal as the tree it tests. Kept OUTSIDE
+# the history-scan-exempt block above, for the same direct-push reason.
+tools/tests/test_fidelity_ledger.py export-ignore
+#
+# Path-gap docs: internal working documents that predate the docs/design/
+# convention and sit at top-level docs/ paths that defeat every glob above.
+# Exclude them explicitly rather than rename them (renaming would break
+# in-flight references); this list is why "any new internal doc goes under
+# docs/design/" above matters going forward. Also kept OUTSIDE the
+# history-scan-exempt block above, for the same direct-push reason.
+docs/BACKLOG_v0.4.0.md export-ignore
+docs/RECOMP_LANDSCAPE_SURVEY_2026-07-10.md export-ignore
+# Internal "Windows Confidence Attestation" — carries dev-branch names and MW.x/M6.x
+# planning codenames CONTRIBUTING.md bans from the public face; keep it maintainer-side.
+docs/WINDOWS_CONFIDENCE.md export-ignore
+# Maintainer doc-triage artifact (OWNER-DECIDE rows, ledger IDs, internal structure).
+docs/DOCS_INVENTORY.md export-ignore

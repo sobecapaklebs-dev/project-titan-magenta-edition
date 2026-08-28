@@ -1,0 +1,6 @@
+Provider: LLVM compiler-rt builtins
+Upstream: https://github.com/llvm/llvm-project
+Commit: 55de668108bc2881ab30119d62467f0263c7ae64
+Source subtree: compiler-rt/lib/builtins
+License: Apache-2.0 WITH LLVM-exception
+Purpose: N32/ABI2 compiler runtime helpers for TitanEYE R5900 ET_REL module

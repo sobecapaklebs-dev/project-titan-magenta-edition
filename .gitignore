@@ -1,0 +1,74 @@
+# Build products
+**/build/
+**/build-*/
+**/build_logs/
+**/build-logs/
+**/__pycache__/
+*.o
+*.a
+*.so
+*.elf
+*.irx
+*.tmod
+*.tpkg
+*.pkg
+*.pup
+
+# ROM / disc / BIOS / commercial content
+*.z64
+*.v64
+*.n64
+*.nes
+*.sfc
+*.smc
+*.gba
+*.gb
+*.gbc
+*.iso
+*.cso
+*.chd
+*.cue
+*.mdf
+*.mds
+
+# Firmware / raw dumps
+*.fw
+*.rom
+*.dump
+
+# Logs / traces / crash captures
+*.trace
+*.log
+titan-debug*.txt
+titan-last*.txt
+titan-current*.txt
+titan-*.zip
+*TITAN_ELFSCAN_FREEZE*
+*.core
+
+# Archives generated for handoff/release
+*.tar
+*.tar.gz
+*.tgz
+*.zip
+*.7z
+
+# Local/editor
+.env
+.env.*
+.vscode/
+.idea/
+.DS_Store
+*.swp
+*~
+*.bak
+*.orig
+*.rej
+
+# Local private material
+private/
+rom/
+roms/
+assets/private/
+ports/*/rom/
+ports/*/roms/

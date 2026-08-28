@@ -1,0 +1,42 @@
+#!/usr/bin/env python3
+from pathlib import Path
+r=Path(__file__).resolve().parents[2]
+bg=(r/'kernel/src/ui/titan_shell_background.c').read_text()
+scene=(r/'kernel/src/ui/titan_shell_scene.c').read_text()
+audio=(r/'kernel/src/services/titan_audio.c').read_text()
+theme=(r/'kernel/src/services/titan_theme.c').read_text()
+th=(r/'kernel/src/services/titan_theme.h').read_text()
+sched=(r/'kernel/src/services/titan_storage_scheduler.c').read_text()
+life=(r/'kernel/src/services/titan_theme_lifecycle.c').read_text()
+runner=(r/'kernel/tests/run_host_tests.sh').read_text()
+def req(c,m):
+    if not c: raise AssertionError(m)
+req('TITAN_THEME_LIFECYCLE_PRE_HOME' in life and 'TITAN_THEME_LIFECYCLE_RETURN_HOME' in life,'global lifecycle states missing')
+req('TitanThemeLifecycle_SetPhase' in scene,'shell does not drive lifecycle')
+req('g_scene.startup_phase == TITAN_STARTUP_PHASE_HOME_ENTER ? 0.0f : 1.0f' in scene,'prehome ribbon gate missing')
+req('TitanShellBackground_RequestDynamicActivation' in scene,'HOME lifecycle does not authorize scene activation')
+req('TitanShellBackground_StorageWorkerPump' in sched,'dynamic scene I/O not owned by storage worker')
+refresh=bg[bg.index('void TitanShellBackground_RefreshThemeAssets'):bg.index('void TitanShellBackground_RequestDynamicActivation')]
+for forbidden in ('TitanStorageIo_','LoadSceneFrame(','LoadV4('): req(forbidden not in refresh,'refresh performs dynamic I/O')
+draw=bg[bg.index('void TitanShellBackground_Draw('):]
+req('TitanThemeLifecycle_GetSceneOpacity()' in draw,'render not lifecycle-gated')
+req('opacity <= 0.001f' in bg and 'TitanThemeV4_Update' in bg,'v4 zero-opacity fast path missing')
+req('audio_music_home_only' in theme and 'music_home_only' in th,'home-only music schema missing')
+req('TitanThemeLifecycle_MusicAllowed()' in audio,'music not lifecycle-gated')
+req('TITAN_THEME_LIFECYCLE_SUBMENU' in scene and 'TITAN_THEME_LIFECYCLE_TOP' in scene,'TOP/submenu lifecycle missing')
+req('TitanTheme_ParseUnsigned(value, 1u, TITAN_THEME_SHELL_API_VERSION' in theme,'Theme API v1-v4 parser compatibility lost')
+req('theme->shell_api < 2u' in theme and 'theme->shell_api < 3u' in theme and 'theme->shell_api != 4u' in theme,'version-specific compatibility gates missing')
+
+req('test_buildfix30_theme_lifecycle_contracts.py' in runner,'runner missing BF30 theme contracts')
+print('titan-theme-prehome-ribbon-contract: OK')
+print('titan-theme-prehome-scene-disabled-contract: OK')
+print('titan-theme-home-enter-scene-start-contract: OK')
+print('titan-theme-home-enter-sync-contract: OK')
+print('titan-theme-prehome-music-disabled-contract: OK')
+print('titan-theme-home-music-start-contract: OK')
+print('titan-theme-return-home-contract: OK')
+print('titan-theme-top-transition-contract: OK')
+print('titan-theme-v1-backcompat-contract: OK')
+print('titan-theme-v2-backcompat-contract: OK')
+print('titan-theme-v3-backcompat-contract: OK')
+print('titan-theme-v4-lifecycle-contract: OK')

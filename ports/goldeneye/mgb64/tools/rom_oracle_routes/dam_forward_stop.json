@@ -1,0 +1,64 @@
+{
+    "schema": "mgb64.rom_oracle.route.v1",
+    "name": "dam_forward_stop",
+    "level": "33",
+    "frames": 220,
+    "native_frames": 220,
+    "stock_frames": 6500,
+    "stock_screenshot_frame": 2950,
+    "native_speedframes": 3,
+    "stock_speedframes": 3,
+    "stock_gameplay_start_global": 1146,
+    "stock_menu_close_on_player": true,
+    "native_render_audit": true,
+    "native_min_moving_records": 60,
+    "stock_min_moving_records": 60,
+    "stock_min_gameplay_input_records": 60,
+    "stock_max_suppressed_menu_records": 0,
+    "stock_min_menu_to_gameplay_gap": 30,
+    "compare_align": "move-global",
+    "compare_profile": "scalar-speed",
+    "compare_min_aligned": 60,
+    "compare_max_aligned": 60,
+    "compare_normalize_position": true,
+    "description": "Dam spawn, full forward stick scalar-speed comparison over the stable stock timing window.",
+    "events": [
+        {
+            "start": 80,
+            "len": 90,
+            "forward": true
+        }
+    ],
+    "stock_events": [
+        {
+            "start": 100,
+            "len": 3,
+            "buttons": [
+                "start"
+            ],
+            "phase": "menu",
+            "repeat": {
+                "every": 240,
+                "until": 2260
+            }
+        },
+        {
+            "start": 160,
+            "len": 3,
+            "buttons": [
+                "a"
+            ],
+            "phase": "menu",
+            "repeat": {
+                "every": 240,
+                "until": 2080
+            }
+        },
+        {
+            "start": 80,
+            "len": 90,
+            "forward": true,
+            "phase": "gameplay"
+        }
+    ]
+}

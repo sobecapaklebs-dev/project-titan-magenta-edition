@@ -1,0 +1,15 @@
+{
+  "_comment": "Facility per-level curation (W2.E8.T2; indoor / CI4-heavy). Token ids + routing choices only -- no ROM data, committable. Top-5 hue-ID heroes (RemasterFX=0 pin, coverage at frame-300 spawn): tok0672 67.3% (X-braced door), tok1420 0.2%, tok0673 0.03% (sibling door panel), tok0674 0.01% (IA grate), tok0695 0.01% (CI decal). ART-DIRECTION NOTE: the facility 'walls' are DESIGNED surfaces (an X-braced blast door, grates), NOT plain fill -- a procedural preset would ERASE the design, so the heroes route to AI upscale (preserves the design, sharpens). No preset is appropriate here (presets are exercised on surface1=snow and depot=concrete/metal). tok0674 IA cutout + the tileable weapon tokens tok0026/tok1798 (near-flat 32x32 CI) ride the automatic tree. QA-VANTAGE NOTE: the frame-300 deterministic spawn is an extreme close-up of one door tile, where the fast3d renderer samples the HD texture at the original 64x64 tile resolution (HD detail cannot render on a single magnified tile), so pack_qa is run at a lit corridor vantage (GE007_AUTO_WARP_FRAME=40 GE007_AUTO_WARP_PAD=22, ~26% visible change) where the surfaces tile at distance -- the same positioned-capture mechanism sec4.8's seam A/B uses. See docs/design/remaster-aaa/02-hd-asset-pipeline.md sec 4.2/4.7.",
+  "tok0672": {
+    "source": "ai_upscale",
+    "mode": "seam_safe",
+    "model": "realesrgan-x4plus",
+    "_note": "Facility X-braced blast door (hero #1, 64x64 fmt=4 I-format tileable=1 room). A DESIGNED door surface -- AI upscale preserves+sharpens the X-brace; a concrete/gravel preset would erase the design. seam_safe = the automatic room+tileable choice, pinned as the explicit curation record."
+  },
+  "tok0673": {
+    "source": "ai_upscale",
+    "mode": "seam_safe",
+    "model": "realesrgan-x4plus",
+    "_note": "Facility door panel (hero #3, 64x64 fmt=4 I-format tileable=1 room) -- sibling of tok0672; same AI-upscale route to preserve the design."
+  }
+}

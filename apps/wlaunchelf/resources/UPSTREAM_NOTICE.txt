@@ -1,0 +1,13 @@
+wLaunchELF upstream notice
+=========================
+
+Upstream project: ps2homebrew/wLaunchELF
+Repository: https://github.com/ps2homebrew/wLaunchELF
+Upstream license: Academic Free License v2.0 (AFL-2.0).
+
+This first Project Titan integration milestone establishes a native Titan
+frontend and the kernel-owned storage/ELF handoff ABI. It does not yet vendor
+the full upstream wLaunchELF source tree because the build workspace could not
+materialize the Git repository. When upstream source files are imported, all
+original copyright, license and attribution notices must be retained, and the
+modified-source attribution required by AFL-2.0 must accompany them.

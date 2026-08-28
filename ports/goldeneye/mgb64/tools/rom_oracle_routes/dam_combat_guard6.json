@@ -1,0 +1,81 @@
+{
+    "schema": "mgb64.rom_oracle.route.v1",
+    "name": "dam_combat_guard6",
+    "gate": true,
+    "tape": "dam_combat_guard6",
+    "level": "33",
+    "frames": 300,
+    "native_frames": 300,
+    "stock_frames": 6500,
+    "stock_screenshot_frame": 2950,
+    "native_speedframes": 3,
+    "stock_speedframes": 3,
+    "stock_gameplay_start_global": 1146,
+    "stock_menu_close_on_player": true,
+    "native_render_audit": false,
+    "native_min_moving_records": 40,
+    "stock_min_moving_records": 40,
+    "stock_min_gameplay_input_records": 40,
+    "stock_max_suppressed_menu_records": 0,
+    "stock_min_menu_to_gameplay_gap": 30,
+    "compare_align": "move-global",
+    "compare_profile": "scalar-speed",
+    "compare_min_aligned": 40,
+    "compare_max_aligned": 120,
+    "compare_normalize_position": true,
+    "description": "Dam spawn combat route: walk forward toward guard 6 (nearest guard in the 36-roster; becomes onscreen/target_visible) while firing the PP7. Exercises the combat oracle (shots_fired>0, projectiles>0) so the guard-AI parity divergence (FID-0054) is frame-locked to a live combat trigger. Both-sides oracle step: movement_oracle_capture.sh --route dam_combat_guard6 --native-full-trace --no-compare, then compare_combat_trace.py --align tick. Movement compare uses --align move-global (onset-rebased tick pairing; index pairing skews native per-frame vs stock per-tick 3x and manufactured a false sprint-speed divergence \u2014 DAM_PARITY_DEEP_DIVE 2026-07-17 \u00a73.1). Known residual vs live ares: ~2 aligned ticks differ by one boost-ramp step (0.0108) from the \u00b11-VI-frame stock input jitter (FID-0082) shifting sprint-boost onset by one tick.",
+    "events": [
+        {
+            "start": 80,
+            "len": 120,
+            "forward": true
+        },
+        {
+            "start": 100,
+            "len": 160,
+            "buttons": [
+                "fire"
+            ]
+        }
+    ],
+    "stock_events": [
+        {
+            "start": 100,
+            "len": 3,
+            "buttons": [
+                "start"
+            ],
+            "phase": "menu",
+            "repeat": {
+                "every": 240,
+                "until": 2260
+            }
+        },
+        {
+            "start": 160,
+            "len": 3,
+            "buttons": [
+                "a"
+            ],
+            "phase": "menu",
+            "repeat": {
+                "every": 240,
+                "until": 2080
+            }
+        },
+        {
+            "start": 80,
+            "len": 120,
+            "forward": true,
+            "phase": "gameplay"
+        },
+        {
+            "start": 100,
+            "len": 160,
+            "buttons": [
+                "fire"
+            ],
+            "phase": "gameplay"
+        }
+    ]
+}

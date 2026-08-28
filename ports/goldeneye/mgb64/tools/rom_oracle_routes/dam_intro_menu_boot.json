@@ -1,0 +1,217 @@
+{
+  "schema": "mgb64.rom_oracle.route.v1",
+  "name": "dam_intro_menu_boot",
+  "description": "D30/H9: Dam authored level-intro camera path, native side driven through the FRONTEND (no --level; scripted START/A menu presses) instead of a direct --level boot, compared full-window against the same stock-ROM oracle recipe as dam_intro_camera_path.json.",
+  "level": "33",
+  "native_frames": 2000,
+  "stock_frames": 5000,
+  "native_menu_boot": true,
+  "native_env": {
+    "GE007_ENABLE_LEVEL_INTRO": "1",
+    "GE007_INTRO_CAMERA_INDEX": "5"
+  },
+  "native_render_audit": false,
+  "compare_kind": "intro",
+  "compare_align": "per-mode",
+  "compare_profile": "path",
+  "compare_state": true,
+  "compare_selected_camera": true,
+  "compare_intro_setup": true,
+  "compare_bond_anim": false,
+  "compare_camera_modes": "intro,fadeswirl,swirl",
+  "compare_require_frozen": true,
+  "compare_vector_tolerance": 0.05,
+  "compare_direction_tolerance": 0.005,
+  "compare_scalar_tolerance": 0.001,
+  "compare_anim_tolerance": 0.03,
+  "compare_expect_mode_durations": "1:482:0,2:59:0,3:591:0",
+  "compare_waivers": {
+    "field:cam_delta[1]:mode3": "D31",
+    "mode_durations": "D32",
+    "field:cam_pos[0]:mode3": "D35",
+    "field:cam_pos[2]:mode3": "D35",
+    "field:cam_target[0]:mode3": "D35",
+    "field:cam_target[1]:mode3": "D35",
+    "field:cam_target[2]:mode3": "D35",
+    "field:cam_floor[0]:mode3": "D35",
+    "field:cam_floor[1]:mode3": "D35",
+    "field:cam_floor[2]:mode3": "D35",
+    "field:cam_delta[0]:mode3": "D35",
+    "field:cam_delta[2]:mode3": "D35",
+    "field:cam_pos[1]:mode3": "D35",
+    "field:facing[0]:mode3": "D35",
+    "field:facing[2]:mode3": "D35"
+  },
+  "native_intro_audit": true,
+  "native_intro_require_player": true,
+  "native_intro_require_frozen": true,
+  "native_intro_require_bond_present": true,
+  "native_intro_require_bond_onscreen": true,
+  "native_intro_require_bond_model_mtx": true,
+  "native_intro_require_bond_rendered": true,
+  "native_intro_require_bond_anim": true,
+  "native_intro_require_bond_anim_hash": true,
+  "native_intro_require_bond_right_item": 5,
+  "native_intro_min_active_records": 180,
+  "native_intro_min_present_frames": 180,
+  "native_intro_min_onscreen_frames": 180,
+  "native_intro_min_model_mtx_frames": 180,
+  "native_intro_min_rendered_frames": 180,
+  "native_intro_min_render_count": 180,
+  "native_intro_min_anim_frames": 180,
+  "native_intro_min_anim_hash_frames": 180,
+  "native_intro_min_anim_advance": 1.0,
+  "native_intro_min_right_item_frames": 180,
+  "native_intro_max_first_present_frame": 1500,
+  "native_intro_max_first_render_frame": 1500,
+  "stock_max_suppressed_menu_records": 0,
+  "events": [],
+  "native_events": [
+    {
+      "start": 20,
+      "len": 3,
+      "buttons": [
+        "start"
+      ],
+      "phase": "menu"
+    },
+    {
+      "start": 120,
+      "len": 3,
+      "buttons": [
+        "start"
+      ],
+      "phase": "menu"
+    },
+    {
+      "start": 220,
+      "len": 3,
+      "buttons": [
+        "start"
+      ],
+      "phase": "menu"
+    },
+    {
+      "start": 320,
+      "len": 3,
+      "buttons": [
+        "start"
+      ],
+      "phase": "menu"
+    },
+    {
+      "start": 420,
+      "len": 3,
+      "buttons": [
+        "start"
+      ],
+      "phase": "menu"
+    },
+    {
+      "start": 520,
+      "len": 3,
+      "buttons": [
+        "start"
+      ],
+      "phase": "menu"
+    },
+    {
+      "start": 620,
+      "len": 3,
+      "buttons": [
+        "start"
+      ],
+      "phase": "menu"
+    },
+    {
+      "start": 700,
+      "len": 3,
+      "buttons": [
+        "start"
+      ],
+      "phase": "menu"
+    },
+    {
+      "start": 70,
+      "len": 3,
+      "buttons": [
+        "a"
+      ],
+      "phase": "menu"
+    },
+    {
+      "start": 170,
+      "len": 3,
+      "buttons": [
+        "a"
+      ],
+      "phase": "menu"
+    },
+    {
+      "start": 270,
+      "len": 3,
+      "buttons": [
+        "a"
+      ],
+      "phase": "menu"
+    },
+    {
+      "start": 370,
+      "len": 3,
+      "buttons": [
+        "a"
+      ],
+      "phase": "menu"
+    },
+    {
+      "start": 470,
+      "len": 3,
+      "buttons": [
+        "a"
+      ],
+      "phase": "menu"
+    },
+    {
+      "start": 570,
+      "len": 3,
+      "buttons": [
+        "a"
+      ],
+      "phase": "menu"
+    },
+    {
+      "start": 660,
+      "len": 3,
+      "buttons": [
+        "a"
+      ],
+      "phase": "menu"
+    }
+  ],
+  "stock_events": [
+    {
+      "start": 100,
+      "len": 3,
+      "buttons": [
+        "start"
+      ],
+      "phase": "menu",
+      "repeat": {
+        "every": 240,
+        "until": 2260
+      }
+    },
+    {
+      "start": 160,
+      "len": 3,
+      "buttons": [
+        "a"
+      ],
+      "phase": "menu",
+      "repeat": {
+        "every": 240,
+        "until": 2080
+      }
+    }
+  ]
+}

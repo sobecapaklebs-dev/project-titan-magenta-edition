@@ -1,0 +1,266 @@
+/* FCE Ultra - NES/Famicom Emulator
+ *
+ * Copyright notice for this file:
+ *  Copyright (C) 2012 CaH4e3
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
+ */
+
+#include "mapinc.h"
+#include "emu2413.h"
+
+static int32_t dwave = 0;
+static OPLL *VRC7Sound = NULL;
+static uint8_t vrc7idx, preg[3], creg[8], mirr;
+static uint8_t IRQLatch, IRQa, IRQd;
+static int32_t IRQCount, CycleCount;
+static uint8_t *WRAM = NULL;
+static uint32_t WRAMSIZE;
+
+static SFORMAT StateRegs[] =
+{
+	{ &vrc7idx, 1, "VRCI" },
+	{ preg, 3, "PREG" },
+	{ creg, 8, "CREG" },
+	{ &mirr, 1, "MIRR" },
+	{ &IRQa, 1, "IRQA" },
+	{ &IRQd, 1, "IRQD" },
+	{ &IRQLatch, 1, "IRQL" },
+	{ &IRQCount, 4 | FCEUSTATE_RLSB, "IRQC" },
+	{ &CycleCount, 4 | FCEUSTATE_RLSB, "CYCC" },
+	{ 0 }
+};
+
+/* VRC7 Sound */
+
+/* Apply per-channel volume (#512) around OPLL_fillbuf.  Default volume
+ * 256 dispatches to the plain OPLL_fillbuf for a bit-identical
+ * pre-#512 path; volume 0 drops the chip silently; intermediate
+ * values run a local mix loop that calls OPLL_calc (equivalent to
+ * the internal calc() when quality=0, which is the VRC7 default).
+ * The (calc + 32768) << shift formulation matches OPLL_fillbuf's
+ * inner expression. */
+static void VRC7Mix(int32_t *buf, int32_t len, int shift) {
+	int v;
+	if (!VRC7Sound || len <= 0)
+		return;
+	v = FSettings.ExpVolume[SND_VRC7];
+	if (v == 0)
+		return;
+	if (v == 256) {
+		OPLL_fillbuf(VRC7Sound, buf, len, shift);
+	} else {
+		int32_t i;
+		for (i = 0; i < len; i++) {
+			int32_t s = (OPLL_calc(VRC7Sound) + 32768);
+			buf[i] += ((s * v) / 256) << shift;
+		}
+	}
+}
+
+static void DoVRC7Sound(void) {
+	int32_t z, a;
+	if (FSettings.soundq >= 1)
+		return;
+	z = ((SOUNDTS << 16) / soundtsinc) >> 4;
+	a = z - dwave;
+	VRC7Mix(&Wave[dwave], a, 1);
+	dwave += a;
+}
+
+static void UpdateOPLNEO(int32_t *WaveBuf, int Count) {
+	VRC7Mix(WaveBuf, Count, 4);
+}
+
+static void UpdateOPL(int Count) {
+	int32_t z, a;
+	z = ((SOUNDTS << 16) / soundtsinc) >> 4;
+	a = z - dwave;
+	VRC7Mix(&Wave[dwave], a, 1);
+	dwave = 0;
+}
+
+static void VRC7SC(void) {
+	if (VRC7Sound)
+		OPLL_set_rate(VRC7Sound, FSettings.SndRate);
+}
+
+static void VRC7SKill(void) {
+	if (VRC7Sound)
+		OPLL_delete(VRC7Sound);
+	VRC7Sound = NULL;
+}
+
+static void VRC7_ESI(void) {
+	GameExpSound.RChange = VRC7SC;
+	GameExpSound.Kill = VRC7SKill;
+	VRC7Sound = OPLL_new(3579545, FSettings.SndRate ? FSettings.SndRate : 44100);
+	OPLL_reset(VRC7Sound);
+	OPLL_reset(VRC7Sound);
+}
+
+/* VRC7 Sound */
+
+static void Sync(void) {
+	uint8_t i;
+	setprg8r(0x10, 0x6000, 0);
+	setprg8(0x8000, preg[0]);
+	setprg8(0xA000, preg[1]);
+	setprg8(0xC000, preg[2]);
+	setprg8(0xE000, ~0);
+	for (i = 0; i < 8; i++)
+		setchr1(i << 10, creg[i]);
+	switch (mirr & 3) {
+	case 0: setmirror(MI_V); break;
+	case 1: setmirror(MI_H); break;
+	case 2: setmirror(MI_0); break;
+	case 3: setmirror(MI_1); break;
+	}
+}
+
+static DECLFW(VRC7SW) {
+	if (FSettings.SndRate) {
+		OPLL_writeReg(VRC7Sound, vrc7idx, V);
+		GameExpSound.Fill = UpdateOPL;
+		GameExpSound.NeoFill = UpdateOPLNEO;
+	}
+}
+
+static DECLFW(VRC7Write) {
+	A |= (A & 8) << 1;	/* another two-in-oooone */
+	if (A >= 0xA000 && A <= 0xDFFF) {
+		A &= 0xF010;
+		creg[((A >> 4) & 1) | ((A - 0xA000) >> 11)] = V;
+		Sync();
+	} else if (A == 0x9030) {
+		VRC7SW(A, V);
+	} else switch (A & 0xF010) {
+		case 0x8000: preg[0] = V; Sync(); break;
+		case 0x8010: preg[1] = V; Sync(); break;
+		case 0x9000: preg[2] = V; Sync(); break;
+		case 0x9010: vrc7idx = V; break;
+		case 0xE000: mirr = V & 3; Sync(); break;
+		case 0xE010: IRQLatch = V; X6502_IRQEnd(FCEU_IQEXT); break;
+		case 0xF000:
+			IRQa = V & 2;
+			IRQd = V & 1;
+			if (V & 2)
+				IRQCount = IRQLatch;
+			CycleCount = 0;
+			X6502_IRQEnd(FCEU_IQEXT);
+			break;
+		case 0xF010:
+			IRQa = IRQd;
+			X6502_IRQEnd(FCEU_IQEXT);
+			break;
+		}
+}
+
+static void VRC7Power(void) {
+	Sync();
+	SetWriteHandler(0x6000, 0x7FFF, CartBW);
+	SetReadHandler(0x6000, 0xFFFF, CartBR);
+	SetWriteHandler(0x8000, 0xFFFF, VRC7Write);
+	FCEU_CheatAddRAM(WRAMSIZE >> 10, 0x6000, WRAM);
+}
+
+static void VRC7Close(void) {
+	if (WRAM)
+		FCEU_gfree(WRAM);
+	WRAM = NULL;
+}
+
+static void VRC7IRQHook(int a) {
+	if (IRQa) {
+		CycleCount += a * 3;
+		while (CycleCount >= 341) {
+			CycleCount -= 341;
+			IRQCount++;
+			if (IRQCount == 0x100) {
+				IRQCount = IRQLatch;
+				X6502_IRQBegin(FCEU_IQEXT);
+			}
+		}
+	}
+}
+
+static void StateRestore(int version) {
+	Sync();
+
+	/* Must run unconditionally: the SLOT savestate chunk restores raw
+	 * OPLL_SLOT contents including the sintbl wavetable pointer, which
+	 * is only valid for the process that saved the state. forceRefresh
+	 * re-derives sintbl and the other rate/patch-dependent fields.
+	 * Previously guarded out on GEKKO together with the (also since-
+	 * unguarded) sound-state registration. */
+	OPLL_forceRefresh(VRC7Sound);
+}
+
+void Mapper85_Init(CartInfo *info) {
+	info->Power = VRC7Power;
+	info->Close = VRC7Close;
+	MapIRQHook = VRC7IRQHook;
+	WRAMSIZE = 8192;
+	WRAM = (uint8_t*)FCEU_gmalloc(WRAMSIZE);
+	SetupCartPRGMapping(0x10, WRAM, WRAMSIZE, 1);
+	AddExState(WRAM, WRAMSIZE, 0, "WRAM");
+	if (info->battery) {
+		info->SaveGame[0] = WRAM;
+		info->SaveGameLen[0] = WRAMSIZE;
+	}
+	GameStateRestore = StateRestore;
+	VRC7_ESI();
+	AddExState(&StateRegs, ~0, 0, 0);
+
+/* These were excluded on Wii/GC (GEKKO) after 2018 reports of states
+ * failing to load on big-endian hosts. The failures traced back to
+ * since-fixed state-layer bugs (FlipByteOrder's over-iteration no-op,
+ * ReadStateChunk's unchecked skip-seek), not to these entries.
+ * Register them everywhere so big-endian builds save and restore the
+ * full OPLL state; StateRestore's OPLL_forceRefresh re-derives the
+ * slot table pointers and rate-dependent fields after load. The
+ * chunks are raw native-order dumps (type=0), which is correct for
+ * same-machine save/load on either endianness; the SLOT chunk cannot
+ * be made cross-endian portable regardless, as OPLL_SLOT embeds a
+ * wavetable pointer and its size differs across 32/64-bit ABIs (a
+ * size mismatch CheckS already skips gracefully on load). */
+	/* Sound states */
+	AddExState(&VRC7Sound->adr, sizeof(VRC7Sound->adr), 0, "ADDR");
+	AddExState(&VRC7Sound->out, sizeof(VRC7Sound->out), 0, "OUT0");
+	AddExState(&VRC7Sound->realstep, sizeof(VRC7Sound->realstep), 0, "RTIM");
+	AddExState(&VRC7Sound->oplltime, sizeof(VRC7Sound->oplltime), 0, "TIME");
+	AddExState(&VRC7Sound->opllstep, sizeof(VRC7Sound->opllstep), 0, "STEP");
+	AddExState(&VRC7Sound->prev, sizeof(VRC7Sound->prev), 0, "PREV");
+	AddExState(&VRC7Sound->next, sizeof(VRC7Sound->next), 0, "NEXT");
+	AddExState(&VRC7Sound->LowFreq, sizeof(VRC7Sound->LowFreq), 0, "LFQ0");
+	AddExState(&VRC7Sound->HiFreq, sizeof(VRC7Sound->HiFreq), 0, "HFQ0");
+	AddExState(&VRC7Sound->InstVol, sizeof(VRC7Sound->InstVol), 0, "VOLI");
+	AddExState(&VRC7Sound->CustInst, sizeof(VRC7Sound->CustInst), 0, "CUSI");
+	AddExState(&VRC7Sound->slot_on_flag, sizeof(VRC7Sound->slot_on_flag), 0, "FLAG");
+	AddExState(&VRC7Sound->pm_phase, sizeof(VRC7Sound->pm_phase), 0, "PMPH");
+	AddExState(&VRC7Sound->lfo_pm, sizeof(VRC7Sound->lfo_pm), 0, "PLFO");
+	AddExState(&VRC7Sound->am_phase, sizeof(VRC7Sound->am_phase), 0, "AMPH");
+	AddExState(&VRC7Sound->lfo_am, sizeof(VRC7Sound->lfo_am), 0, "ALFO");
+	AddExState(&VRC7Sound->patch_number, sizeof(VRC7Sound->patch_number), 0, "PNUM");
+	AddExState(&VRC7Sound->key_status, sizeof(VRC7Sound->key_status), 0, "KET");
+	AddExState(&VRC7Sound->mask, sizeof(VRC7Sound->mask), 0, "MASK");
+	AddExState((uint8_t *)VRC7Sound->slot, sizeof(VRC7Sound->slot), 0, "SLOT");
+}
+
+void NSFVRC7_Init(void) {
+	SetWriteHandler(0x9010, 0x901F, VRC7Write);
+	SetWriteHandler(0x9030, 0x903F, VRC7Write);
+	VRC7_ESI();
+}

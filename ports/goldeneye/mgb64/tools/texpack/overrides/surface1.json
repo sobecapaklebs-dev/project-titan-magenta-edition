@@ -1,0 +1,602 @@
+{
+  "_comment": "Surface (I) per-level curation (W2.E8.T2; the exit-demo level, outdoor snow). Token ids + routing choices only -- no ROM data, committable. Top-5 hue-ID heroes (RemasterFX=0 pin, coverage): tok1267 28.2% (tiled snow ground), tok1263 15.5% (bright snow bank), tok1200 5.2% / tok1201 4.2% / tok1199 2.0% (thin 64x17 dark tree/cliff bands on the hillsides -> ride the automatic whole_image AI-upscale tree; they are dark ~95 luma, NOT snow). The pink/orange sunset sky is a separate skyRender backdrop, not a hero token. tok2228 is pinned seam_safe to match dam's global curation (shared pack, global token ids). 2026-07-10: both snow heroes re-curated procedural->cc0_import (ambientCG Snow010A, CC0): A/B close-ups showed the photo material reads cleaner than the W2.E5.T1 snow synth (whose bank rendition mottles like dirt speckle), and cc0_import is Tier A1 (distributable) where tone=match synth was B. Built manually via tools/texpack/cc0_import.py (build_pack.py defers cc0_import); commands recorded per-token below. See docs/design/remaster-aaa/02-hd-asset-pipeline.md sec 4.2/4.7. 2026-07-10 M3 environment sweep: 34 more heroes re-curated ->cc0_import (Snow010A/Ice004/Concrete034/WoodSiding001/CorrugatedSteel005/Metal029/Metal032/MetalPlates006/Rust004/Planks003/Planks021/Wood026/Wood051), identified via multi-vantage dumps + hue-ID (pads 1/10/20/30/60/79); character textures now PINNED STOCK (see the per-token notes: per-frame re-upload perf tax + art integrity; jackets tok1785/1786 were never built) and fmt3/IA cutouts left on the AI tree; tok0022/tok0291 left alone (Dam-shared curation).",
+  "tok1267": {
+    "source": "cc0_import",
+    "asset": "ambientCG Snow010A (Color map)",
+    "license": "CC0",
+    "url": "https://ambientcg.com/view?id=Snow010A",
+    "size": "1024x512",
+    "args": {
+      "mean": 188,
+      "contrast": 0.9,
+      "highpass": 48,
+      "i_alpha": true
+    },
+    "_note": "Surface snow ground (hero #1, 64x32 fmt=4 I-format tileable=1 room, avgRGB bcbcbc). Build with cc0_import.py using size+args verbatim. mean 188 = the committed avgRGB (not ROM stats). highpass keeps the photo tile-uniform across the big tiled snowfield; i_alpha re-attaches the I-format intensity-as-alpha coupling (the loader's stbi path would otherwise force alpha=255). Tier derives from license (CC0 -> A1)."
+  },
+  "tok1263": {
+    "source": "cc0_import",
+    "asset": "ambientCG Snow010A (Color map)",
+    "license": "CC0",
+    "url": "https://ambientcg.com/view?id=Snow010A",
+    "size": "1024x1024",
+    "args": {
+      "mean": 218,
+      "contrast": 0.8,
+      "i_alpha": false
+    },
+    "_note": "Surface bright snow bank/slope (hero #2, 32x32 fmt=2 CI tileable=0 room, avgRGB dadae0 ~218,218,225 -- bright white snow, not the pink sky). Build with cc0_import.py using size+args verbatim. Non-tileable so no highpass needed; CI format keeps opaque alpha. Contrast 0.8 tames the photo's relief so the bank reads as clean bright snow. Tier derives from license (CC0 -> A1)."
+  },
+  "tok2228": {
+    "source": "ai_upscale",
+    "mode": "seam_safe",
+    "model": "realesrgan-x4plus",
+    "_note": "Curation correction, harmonized with dam.json (global token, shared pack). A tileable=1 non-'room' token; the auto tree routes it whole_image, which fails validate_pack's seam self-check. Pin seam_safe so the HD tile still wraps and both levels' builds agree."
+  },
+  "tok0033": {
+    "args": {
+      "contrast": 0.9,
+      "i_alpha": true,
+      "mean": 112.0
+    },
+    "asset": "ambientCG WoodSiding001 (Color map)",
+    "license": "CC0",
+    "size": "1024x512",
+    "source": "cc0_import",
+    "url": "https://ambientcg.com/view?id=WoodSiding001",
+    "_note": "Weathered exterior siding (I-format). Build with cc0_import.py using size+args verbatim. Tier derives from license (CC0 -> A1)."
+  },
+  "tok0035": {
+    "args": {
+      "contrast": 0.9,
+      "i_alpha": true,
+      "mean": 123.0
+    },
+    "asset": "ambientCG WoodSiding001 (Color map)",
+    "license": "CC0",
+    "size": "1024x512",
+    "source": "cc0_import",
+    "url": "https://ambientcg.com/view?id=WoodSiding001",
+    "_note": "Weathered exterior siding (I-format). Build with cc0_import.py using size+args verbatim. Tier derives from license (CC0 -> A1)."
+  },
+  "tok0247": {
+    "args": {
+      "contrast": 0.9,
+      "i_alpha": true,
+      "mean": 159.0
+    },
+    "asset": "ambientCG Metal032 (Color map)",
+    "license": "CC0",
+    "size": "512x1024",
+    "source": "cc0_import",
+    "url": "https://ambientcg.com/view?id=Metal032",
+    "_note": "Light metal panel with vents. Build with cc0_import.py using size+args verbatim. Tier derives from license (CC0 -> A1)."
+  },
+  "tok0290": {
+    "args": {
+      "contrast": 0.9,
+      "i_alpha": true,
+      "mean": 84.0
+    },
+    "asset": "ambientCG Concrete034 (Color map)",
+    "license": "CC0",
+    "size": "1024x1024",
+    "source": "cc0_import",
+    "url": "https://ambientcg.com/view?id=Concrete034",
+    "_note": "Cross-hatched concrete apron (I-format). Build with cc0_import.py using size+args verbatim. Tier derives from license (CC0 -> A1)."
+  },
+  "tok0295": {
+    "args": {
+      "contrast": 0.85,
+      "highpass": 32,
+      "i_alpha": false,
+      "mean": 188.3
+    },
+    "asset": "ambientCG CorrugatedSteel005 (Color map)",
+    "license": "CC0",
+    "size": "512x512",
+    "source": "cc0_import",
+    "url": "https://ambientcg.com/view?id=CorrugatedSteel005",
+    "_note": "Pale metal siding. Build with cc0_import.py using size+args verbatim. Tier derives from license (CC0 -> A1)."
+  },
+  "tok0296": {
+    "args": {
+      "contrast": 0.85,
+      "i_alpha": false,
+      "mean": 165.7
+    },
+    "asset": "ambientCG CorrugatedSteel005 (Color map)",
+    "license": "CC0",
+    "size": "512x512",
+    "source": "cc0_import",
+    "url": "https://ambientcg.com/view?id=CorrugatedSteel005",
+    "_note": "Pale metal siding (non-tiled variant). Build with cc0_import.py using size+args verbatim. Tier derives from license (CC0 -> A1)."
+  },
+  "tok0876": {
+    "args": {
+      "contrast": 0.9,
+      "highpass": 32,
+      "i_alpha": false,
+      "mean": 43.0
+    },
+    "asset": "ambientCG Metal029 (Color map)",
+    "license": "CC0",
+    "size": "256x512",
+    "source": "cc0_import",
+    "url": "https://ambientcg.com/view?id=Metal029",
+    "_note": "Dark corrugated hut wall (was stock-routed small tile). Build with cc0_import.py using size+args verbatim. Tier derives from license (CC0 -> A1)."
+  },
+  "tok1158": {
+    "args": {
+      "contrast": 0.9,
+      "i_alpha": false,
+      "mean": 72.0
+    },
+    "asset": "ambientCG Rust004 (Color map)",
+    "license": "CC0",
+    "size": "512x512",
+    "source": "cc0_import",
+    "url": "https://ambientcg.com/view?id=Rust004",
+    "_note": "Rust panel family. Build with cc0_import.py using size+args verbatim. Tier derives from license (CC0 -> A1)."
+  },
+  "tok1159": {
+    "args": {
+      "contrast": 0.9,
+      "highpass": 32,
+      "i_alpha": false,
+      "mean": 72.7
+    },
+    "asset": "ambientCG Rust004 (Color map)",
+    "license": "CC0",
+    "size": "512x512",
+    "source": "cc0_import",
+    "url": "https://ambientcg.com/view?id=Rust004",
+    "_note": "Rust panel family (tiled). Build with cc0_import.py using size+args verbatim. Tier derives from license (CC0 -> A1)."
+  },
+  "tok1163": {
+    "args": {
+      "contrast": 0.85,
+      "i_alpha": false,
+      "mean": 93.0
+    },
+    "asset": "ambientCG Rust004 (Color map)",
+    "license": "CC0",
+    "size": "512x512",
+    "source": "cc0_import",
+    "url": "https://ambientcg.com/view?id=Rust004",
+    "_note": "Rust panel family. Build with cc0_import.py using size+args verbatim. Tier derives from license (CC0 -> A1)."
+  },
+  "tok1164": {
+    "args": {
+      "contrast": 0.9,
+      "i_alpha": false,
+      "mean": 80.3
+    },
+    "asset": "ambientCG Rust004 (Color map)",
+    "license": "CC0",
+    "size": "512x512",
+    "source": "cc0_import",
+    "url": "https://ambientcg.com/view?id=Rust004",
+    "_note": "Rust panel family. Build with cc0_import.py using size+args verbatim. Tier derives from license (CC0 -> A1)."
+  },
+  "tok1166": {
+    "args": {
+      "contrast": 0.85,
+      "i_alpha": false,
+      "mean": 98.0
+    },
+    "asset": "ambientCG Rust004 (Color map)",
+    "license": "CC0",
+    "size": "512x512",
+    "source": "cc0_import",
+    "url": "https://ambientcg.com/view?id=Rust004",
+    "_note": "Rust panel family. Build with cc0_import.py using size+args verbatim. Tier derives from license (CC0 -> A1)."
+  },
+  "tok1167": {
+    "args": {
+      "contrast": 0.85,
+      "i_alpha": false,
+      "mean": 97.7
+    },
+    "asset": "ambientCG Rust004 (Color map)",
+    "license": "CC0",
+    "size": "512x512",
+    "source": "cc0_import",
+    "url": "https://ambientcg.com/view?id=Rust004",
+    "_note": "Rust panel family. Build with cc0_import.py using size+args verbatim. Tier derives from license (CC0 -> A1)."
+  },
+  "tok1194": {
+    "args": {
+      "contrast": 0.9,
+      "highpass": 32,
+      "i_alpha": false,
+      "mean": 81.0
+    },
+    "asset": "ambientCG MetalPlates006 (Color map)",
+    "license": "CC0",
+    "size": "512x512",
+    "source": "cc0_import",
+    "url": "https://ambientcg.com/view?id=MetalPlates006",
+    "_note": "Riveted plate family (tiled). Build with cc0_import.py using size+args verbatim. Tier derives from license (CC0 -> A1)."
+  },
+  "tok1203": {
+    "args": {
+      "contrast": 0.9,
+      "i_alpha": false,
+      "mean": 104.0
+    },
+    "asset": "ambientCG Planks003 (Color map)",
+    "license": "CC0",
+    "size": "512x512",
+    "source": "cc0_import",
+    "url": "https://ambientcg.com/view?id=Planks003",
+    "_note": "Cabin exterior nailed boards. Build with cc0_import.py using size+args verbatim. Tier derives from license (CC0 -> A1)."
+  },
+  "tok1204": {
+    "args": {
+      "contrast": 0.9,
+      "i_alpha": false,
+      "mean": 102.3
+    },
+    "asset": "ambientCG Planks003 (Color map)",
+    "license": "CC0",
+    "size": "512x512",
+    "source": "cc0_import",
+    "url": "https://ambientcg.com/view?id=Planks003",
+    "_note": "Cabin exterior nailed boards. Build with cc0_import.py using size+args verbatim. Tier derives from license (CC0 -> A1)."
+  },
+  "tok1264": {
+    "args": {
+      "contrast": 0.85,
+      "highpass": 32,
+      "i_alpha": false,
+      "mean": 231.3
+    },
+    "asset": "ambientCG Snow010A (Color map)",
+    "license": "CC0",
+    "size": "1024x1024",
+    "source": "cc0_import",
+    "url": "https://ambientcg.com/view?id=Snow010A",
+    "_note": "Upper-plateau snow (35.7%% coverage at the pad-60 vantage -- the missed hero; stock rendered as a visible 32px checkerboard). Build with cc0_import.py using size+args verbatim. Tier derives from license (CC0 -> A1)."
+  },
+  "tok1265": {
+    "args": {
+      "contrast": 0.65,
+      "i_alpha": false,
+      "mean": 188.0,
+      "desat": 0.35
+    },
+    "asset": "ambientCG Ice004 (Color map)",
+    "license": "CC0",
+    "size": "512x512",
+    "source": "cc0_import",
+    "url": "https://ambientcg.com/view?id=Ice004",
+    "_note": "Frozen creek running the length of the valley (13.6%% at pad 10). Cracked-ice CC0 sheet, desaturated 0.35 + contrast 0.65 so it reads icy gray-blue against the snow instead of loud teal. Build with cc0_import.py using size+args verbatim. Tier derives from license (CC0 -> A1)."
+  },
+  "tok1499": {
+    "args": {
+      "contrast": 0.85,
+      "i_alpha": false,
+      "mean": 101.3
+    },
+    "asset": "ambientCG Planks021 (Color map)",
+    "license": "CC0",
+    "size": "512x512",
+    "source": "cc0_import",
+    "url": "https://ambientcg.com/view?id=Planks021",
+    "_note": "Cabin interior pine planks. Build with cc0_import.py using size+args verbatim. Tier derives from license (CC0 -> A1)."
+  },
+  "tok1500": {
+    "args": {
+      "contrast": 0.85,
+      "i_alpha": false,
+      "mean": 103.3
+    },
+    "asset": "ambientCG Planks021 (Color map)",
+    "license": "CC0",
+    "size": "512x512",
+    "source": "cc0_import",
+    "url": "https://ambientcg.com/view?id=Planks021",
+    "_note": "Cabin interior pine planks. Build with cc0_import.py using size+args verbatim. Tier derives from license (CC0 -> A1)."
+  },
+  "tok1528": {
+    "args": {
+      "contrast": 0.9,
+      "i_alpha": false,
+      "mean": 97.0
+    },
+    "asset": "ambientCG Wood026 (Color map)",
+    "license": "CC0",
+    "size": "512x512",
+    "source": "cc0_import",
+    "url": "https://ambientcg.com/view?id=Wood026",
+    "_note": "Cabin door (warm smooth wood). Build with cc0_import.py using size+args verbatim. Tier derives from license (CC0 -> A1)."
+  },
+  "tok1530": {
+    "args": {
+      "contrast": 0.9,
+      "highpass": 32,
+      "i_alpha": false,
+      "mean": 54.7
+    },
+    "asset": "ambientCG Wood051 (Color map)",
+    "license": "CC0",
+    "size": "512x512",
+    "source": "cc0_import",
+    "url": "https://ambientcg.com/view?id=Wood051",
+    "_note": "Dark wood planks (tiled). Build with cc0_import.py using size+args verbatim. Tier derives from license (CC0 -> A1)."
+  },
+  "tok1531": {
+    "args": {
+      "contrast": 0.9,
+      "highpass": 32,
+      "i_alpha": false,
+      "mean": 54.7
+    },
+    "asset": "ambientCG Wood051 (Color map)",
+    "license": "CC0",
+    "size": "256x512",
+    "source": "cc0_import",
+    "url": "https://ambientcg.com/view?id=Wood051",
+    "_note": "Dark wood planks (was stock-routed small tile). Build with cc0_import.py using size+args verbatim. Tier derives from license (CC0 -> A1)."
+  },
+  "tok1534": {
+    "args": {
+      "contrast": 0.9,
+      "i_alpha": false,
+      "mean": 61.7
+    },
+    "asset": "ambientCG Wood051 (Color map)",
+    "license": "CC0",
+    "size": "512x512",
+    "source": "cc0_import",
+    "url": "https://ambientcg.com/view?id=Wood051",
+    "_note": "Dark vertical planks. Build with cc0_import.py using size+args verbatim. Tier derives from license (CC0 -> A1)."
+  },
+  "tok1535": {
+    "args": {
+      "contrast": 0.9,
+      "i_alpha": false,
+      "mean": 63.3
+    },
+    "asset": "ambientCG Wood026 (Color map)",
+    "license": "CC0",
+    "size": "512x512",
+    "source": "cc0_import",
+    "url": "https://ambientcg.com/view?id=Wood026",
+    "_note": "Knotted plank cabin wall. Build with cc0_import.py using size+args verbatim. Tier derives from license (CC0 -> A1)."
+  },
+  "tok1536": {
+    "args": {
+      "contrast": 0.9,
+      "i_alpha": false,
+      "mean": 85.3
+    },
+    "asset": "ambientCG Wood026 (Color map)",
+    "license": "CC0",
+    "size": "512x512",
+    "source": "cc0_import",
+    "url": "https://ambientcg.com/view?id=Wood026",
+    "_note": "Warm plank wall. Build with cc0_import.py using size+args verbatim. Tier derives from license (CC0 -> A1)."
+  },
+  "tok1688": {
+    "args": {
+      "contrast": 0.8,
+      "i_alpha": false,
+      "mean": 98.3
+    },
+    "asset": "ambientCG Planks021 (Color map)",
+    "license": "CC0",
+    "size": "512x768",
+    "source": "cc0_import",
+    "url": "https://ambientcg.com/view?id=Planks021",
+    "_note": "Hut interior pine panel. Build with cc0_import.py using size+args verbatim. Tier derives from license (CC0 -> A1)."
+  },
+  "tok1692": {
+    "args": {
+      "contrast": 0.8,
+      "i_alpha": false,
+      "mean": 94.3
+    },
+    "asset": "ambientCG Planks021 (Color map)",
+    "license": "CC0",
+    "size": "512x768",
+    "source": "cc0_import",
+    "url": "https://ambientcg.com/view?id=Planks021",
+    "_note": "Hut interior pine panel. Build with cc0_import.py using size+args verbatim. Tier derives from license (CC0 -> A1)."
+  },
+  "tok1693": {
+    "args": {
+      "contrast": 0.8,
+      "i_alpha": false,
+      "mean": 107.7
+    },
+    "asset": "ambientCG Planks003 (Color map)",
+    "license": "CC0",
+    "size": "512x768",
+    "source": "cc0_import",
+    "url": "https://ambientcg.com/view?id=Planks003",
+    "_note": "Hut interior tan boards. Build with cc0_import.py using size+args verbatim. Tier derives from license (CC0 -> A1)."
+  },
+  "tok1694": {
+    "args": {
+      "contrast": 0.8,
+      "i_alpha": false,
+      "mean": 127.0
+    },
+    "asset": "ambientCG Planks003 (Color map)",
+    "license": "CC0",
+    "size": "512x768",
+    "source": "cc0_import",
+    "url": "https://ambientcg.com/view?id=Planks003",
+    "_note": "Hut interior tan boards. Build with cc0_import.py using size+args verbatim. Tier derives from license (CC0 -> A1)."
+  },
+  "tok2340": {
+    "args": {
+      "contrast": 0.9,
+      "highpass": 32,
+      "i_alpha": false,
+      "mean": 46.3
+    },
+    "asset": "ambientCG MetalPlates006 (Color map)",
+    "license": "CC0",
+    "size": "512x512",
+    "source": "cc0_import",
+    "url": "https://ambientcg.com/view?id=MetalPlates006",
+    "_note": "Dark riveted grid panel. Build with cc0_import.py using size+args verbatim. Tier derives from license (CC0 -> A1)."
+  },
+  "tok0022": {
+    "source": "procedural",
+    "preset": "gravel",
+    "size": "1024x512",
+    "tone": {
+      "mode": "match"
+    },
+    "_note": "Dam ground/gravel hero surface. tok0022 is 64x32 tileable=0 room; the automatic tree would AI-upscale it, but the shipped Dam pack uses the FFT band-pass gravel synth (roadmap sec 3 'Dam learnings'). tone=match -> Tier B (tone-locked). [harmonized verbatim with the owning level override -- shared global token]"
+  },
+  "tok0291": {
+    "source": "procedural",
+    "preset": "concrete",
+    "size": "1024x1024",
+    "tone": {
+      "mode": "match"
+    },
+    "_note": "Dam gray wall (hero #4, 64x64 tileable=1 room, avgRGB 545454). A flat tileable gray wall: a seamless tone-matched concrete synth reads cleaner than an ESRGAN upscale of a 64x64 tile (which mushes), and it exercises the W2.E5.T1 concrete preset. tone=match -> Tier B (tone-locked). [harmonized verbatim with the owning level override -- shared global token]"
+  },
+  "tok0265": {
+    "source": "ai_upscale",
+    "mode": "seam_safe",
+    "model": "realesrgan-x4plus",
+    "_note": "Train dark floor/shadow band (hero #2, 64x32 fmt=3 IA tileable=1 room, avgRGB 101010). Tileable -> seam_safe AI upscale (auto choice, pinned; preserves the IA alpha and wraps). [harmonized verbatim with the owning level override -- shared global token]"
+  },
+  "tok1195": {
+    "source": "ai_upscale",
+    "mode": "whole_image",
+    "model": "realesrgan-x4plus",
+    "_note": "See-through riveted grate (alpha cutout, 32x32 tileable). Pinned whole_image so the dump alpha rides through; the auto small-tile rule would route it stock, and a CC0 plate import sealed the holes (validate_pack alpha-dropped catch, 2026-07-10)."
+  },
+  "tok2674": {
+    "source": "cc0_import",
+    "asset": "ambientCG Wood026 (Color map)",
+    "license": "CC0",
+    "url": "https://ambientcg.com/view?id=Wood026",
+    "size": "512x512",
+    "args": {
+      "mean": 84.7,
+      "contrast": 0.9,
+      "i_alpha": false
+    },
+    "_note": "KF7 Soviet wooden stock/handguard (draw_class=weapon, 32x32). Rich walnut; the receiver plates tok0027/0028 stay on the AI tree because their painted bolt/pin detail must survive. Build with cc0_import.py using size+args verbatim. Tier derives from license (CC0 -> A1)."
+  },
+  "tok1198": {
+    "source": "original",
+    "tool": "gen_treeline.py",
+    "size": "1024x272",
+    "args": {
+      "seed": 1198,
+      "trees": 18,
+      "dark": "2a3034",
+      "flip_v": true,
+      "alpha_cutout": true
+    },
+    "_note": "Hillside treeline band (64x17 stock; ESRGAN melts it). First-party gen_treeline.py spruce art, V-flipped for the hillside geometry mapping, vertically wrap-faded because the faces tile the strip. alpha_cutout: the stock strip is a translucent XLU overlay with see-through gaps between trees (validate_pack alpha-dropped catch) -- alpha = tree coverage. Rebuild with gen_treeline.py using size+args verbatim. Tier A1 (first-party original)."
+  },
+  "tok1199": {
+    "source": "original",
+    "tool": "gen_treeline.py",
+    "size": "1024x272",
+    "args": {
+      "seed": 1199,
+      "trees": 18,
+      "dark": "2a3034",
+      "flip_v": true,
+      "alpha_cutout": true
+    },
+    "_note": "Hillside treeline band (64x17 stock; ESRGAN melts it). First-party gen_treeline.py spruce art, V-flipped for the hillside geometry mapping, vertically wrap-faded because the faces tile the strip. alpha_cutout: the stock strip is a translucent XLU overlay with see-through gaps between trees (validate_pack alpha-dropped catch) -- alpha = tree coverage. Rebuild with gen_treeline.py using size+args verbatim. Tier A1 (first-party original)."
+  },
+  "tok1200": {
+    "source": "original",
+    "tool": "gen_treeline.py",
+    "size": "1024x272",
+    "args": {
+      "seed": 1200,
+      "trees": 18,
+      "dark": "2a3034",
+      "flip_v": true
+    },
+    "_note": "Hillside treeline band (64x17 stock; ESRGAN melts it). First-party gen_treeline.py spruce art, V-flipped for the hillside geometry mapping, vertically wrap-faded because the faces tile the strip. Rebuild with gen_treeline.py using size+args verbatim. Tier A1 (first-party original)."
+  },
+  "tok1201": {
+    "source": "original",
+    "tool": "gen_treeline.py",
+    "size": "1024x272",
+    "args": {
+      "seed": 1201,
+      "trees": 18,
+      "dark": "2a3034",
+      "flip_v": true,
+      "snow_left": 0.42
+    },
+    "_note": "Hillside treeline band (64x17 stock; ESRGAN melts it). First-party gen_treeline.py spruce art, V-flipped for the hillside geometry mapping, vertically wrap-faded because the faces tile the strip. Left 42% reserved as bare snow slope matching the stock transition. Rebuild with gen_treeline.py using size+args verbatim. Tier A1 (first-party original)."
+  },
+  "tok0901": {
+    "source": "stock",
+    "_note": "CHARACTER texture (guard skin/hands/ushanka fur/face; the manifest mislabels them draw_class=room). Pinned stock for BOTH art integrity and measured perf: animated characters re-upload their textures continuously, so an HD hit is a per-frame decode tax -- Dam pack-on went 120% of pack-off with these built and 85-103% without (median-of-5 interleaved perf_census, 2026-07-10)."
+  },
+  "tok1609": {
+    "source": "stock",
+    "_note": "CHARACTER texture (guard skin/hands/ushanka fur/face; the manifest mislabels them draw_class=room). Pinned stock for BOTH art integrity and measured perf: animated characters re-upload their textures continuously, so an HD hit is a per-frame decode tax -- Dam pack-on went 120% of pack-off with these built and 85-103% without (median-of-5 interleaved perf_census, 2026-07-10)."
+  },
+  "tok1613": {
+    "source": "stock",
+    "_note": "CHARACTER texture (guard skin/hands/ushanka fur/face; the manifest mislabels them draw_class=room). Pinned stock for BOTH art integrity and measured perf: animated characters re-upload their textures continuously, so an HD hit is a per-frame decode tax -- Dam pack-on went 120% of pack-off with these built and 85-103% without (median-of-5 interleaved perf_census, 2026-07-10)."
+  },
+  "tok1616": {
+    "source": "stock",
+    "_note": "CHARACTER texture (guard skin/hands/ushanka fur/face; the manifest mislabels them draw_class=room). Pinned stock for BOTH art integrity and measured perf: animated characters re-upload their textures continuously, so an HD hit is a per-frame decode tax -- Dam pack-on went 120% of pack-off with these built and 85-103% without (median-of-5 interleaved perf_census, 2026-07-10)."
+  },
+  "tok1619": {
+    "source": "stock",
+    "_note": "CHARACTER texture (guard skin/hands/ushanka fur/face; the manifest mislabels them draw_class=room). Pinned stock for BOTH art integrity and measured perf: animated characters re-upload their textures continuously, so an HD hit is a per-frame decode tax -- Dam pack-on went 120% of pack-off with these built and 85-103% without (median-of-5 interleaved perf_census, 2026-07-10)."
+  },
+  "tok1622": {
+    "source": "stock",
+    "_note": "CHARACTER texture (guard skin/hands/ushanka fur/face; the manifest mislabels them draw_class=room). Pinned stock for BOTH art integrity and measured perf: animated characters re-upload their textures continuously, so an HD hit is a per-frame decode tax -- Dam pack-on went 120% of pack-off with these built and 85-103% without (median-of-5 interleaved perf_census, 2026-07-10)."
+  },
+  "tok1793": {
+    "source": "stock",
+    "_note": "CHARACTER texture (guard skin/hands/ushanka fur/face; the manifest mislabels them draw_class=room). Pinned stock for BOTH art integrity and measured perf: animated characters re-upload their textures continuously, so an HD hit is a per-frame decode tax -- Dam pack-on went 120% of pack-off with these built and 85-103% without (median-of-5 interleaved perf_census, 2026-07-10)."
+  },
+  "tok1794": {
+    "source": "stock",
+    "_note": "CHARACTER texture (guard skin/hands/ushanka fur/face; the manifest mislabels them draw_class=room). Pinned stock for BOTH art integrity and measured perf: animated characters re-upload their textures continuously, so an HD hit is a per-frame decode tax -- Dam pack-on went 120% of pack-off with these built and 85-103% without (median-of-5 interleaved perf_census, 2026-07-10)."
+  },
+  "tok1795": {
+    "source": "stock",
+    "_note": "CHARACTER texture (guard skin/hands/ushanka fur/face; the manifest mislabels them draw_class=room). Pinned stock for BOTH art integrity and measured perf: animated characters re-upload their textures continuously, so an HD hit is a per-frame decode tax -- Dam pack-on went 120% of pack-off with these built and 85-103% without (median-of-5 interleaved perf_census, 2026-07-10)."
+  },
+  "tok1796": {
+    "source": "stock",
+    "_note": "CHARACTER texture (guard skin/hands/ushanka fur/face; the manifest mislabels them draw_class=room). Pinned stock for BOTH art integrity and measured perf: animated characters re-upload their textures continuously, so an HD hit is a per-frame decode tax -- Dam pack-on went 120% of pack-off with these built and 85-103% without (median-of-5 interleaved perf_census, 2026-07-10)."
+  },
+  "tok1797": {
+    "source": "stock",
+    "_note": "CHARACTER texture (guard skin/hands/ushanka fur/face; the manifest mislabels them draw_class=room). Pinned stock for BOTH art integrity and measured perf: animated characters re-upload their textures continuously, so an HD hit is a per-frame decode tax -- Dam pack-on went 120% of pack-off with these built and 85-103% without (median-of-5 interleaved perf_census, 2026-07-10)."
+  },
+  "tok1798": {
+    "source": "stock",
+    "_note": "CHARACTER texture (guard skin/hands/ushanka fur/face; the manifest mislabels them draw_class=room). Pinned stock for BOTH art integrity and measured perf: animated characters re-upload their textures continuously, so an HD hit is a per-frame decode tax -- Dam pack-on went 120% of pack-off with these built and 85-103% without (median-of-5 interleaved perf_census, 2026-07-10)."
+  },
+  "tok1820": {
+    "source": "stock",
+    "_note": "CHARACTER texture (guard skin/hands/ushanka fur/face; the manifest mislabels them draw_class=room). Pinned stock for BOTH art integrity and measured perf: animated characters re-upload their textures continuously, so an HD hit is a per-frame decode tax -- Dam pack-on went 120% of pack-off with these built and 85-103% without (median-of-5 interleaved perf_census, 2026-07-10)."
+  },
+  "tok1821": {
+    "source": "stock",
+    "_note": "CHARACTER texture (guard skin/hands/ushanka fur/face; the manifest mislabels them draw_class=room). Pinned stock for BOTH art integrity and measured perf: animated characters re-upload their textures continuously, so an HD hit is a per-frame decode tax -- Dam pack-on went 120% of pack-off with these built and 85-103% without (median-of-5 interleaved perf_census, 2026-07-10)."
+  },
+  "tok1822": {
+    "source": "stock",
+    "_note": "CHARACTER texture (guard skin/hands/ushanka fur/face; the manifest mislabels them draw_class=room). Pinned stock for BOTH art integrity and measured perf: animated characters re-upload their textures continuously, so an HD hit is a per-frame decode tax -- Dam pack-on went 120% of pack-off with these built and 85-103% without (median-of-5 interleaved perf_census, 2026-07-10)."
+  }
+}

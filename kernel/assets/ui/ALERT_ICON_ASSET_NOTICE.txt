@@ -1,0 +1,5 @@
+Project Titan alert-operation icon
+
+Source supplied by the Project Titan maintainer for integration in version 0.3.89.
+The source was converted to a 128x128 A8 mask. It is used for operational alert
+notifications such as reading storage and saving configuration.

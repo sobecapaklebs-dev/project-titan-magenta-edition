@@ -1,0 +1,55 @@
+{
+  "schema": "mgb64.campaign_route.v1",
+  "name": "dam_spawn_input_traversal",
+  "rom_oracle_route": "dam_strafe_matrix",
+  "route_class": "input_traversal",
+  "description": "Dam spawn traversal through the real controller path: forward movement, C-right strafe, and forward+C-right diagonal movement inherited from the ROM-oracle route DSL.",
+  "env": {
+    "GE007_TRACE_FLOW_ONLY": 1
+  },
+  "assertions": {
+    "expect_frame_exit": true,
+    "min_records": 295,
+    "no_render_failures": true,
+    "no_front_failure": true,
+    "require_input_automation": true,
+    "no_direct_state_automation": true,
+    "min_moving_records": 120,
+    "min_horizontal_delta": 2400.0,
+    "setup_target_milestones": [
+      {
+        "name": "strafe_near_setup_pad_327",
+        "frame_at_or_after": 185,
+        "target": {"kind": "pad", "pad": 327},
+        "max_horizontal_distance": 260.0
+      },
+      {
+        "name": "diagonal_near_setup_pad_306",
+        "frame_at_or_after": 245,
+        "target": {"kind": "pad", "pad": 306},
+        "max_horizontal_distance": 360.0
+      }
+    ],
+    "position_milestones": [
+      {
+        "name": "forward_segment",
+        "frame_at_or_after": 125,
+        "min_horizontal_delta": 900.0,
+        "min_abs_x_delta": 900.0
+      },
+      {
+        "name": "strafe_segment",
+        "frame_at_or_after": 185,
+        "min_horizontal_delta": 1450.0,
+        "min_abs_z_delta": 900.0
+      },
+      {
+        "name": "diagonal_segment",
+        "frame_at_or_after": 245,
+        "min_horizontal_delta": 2400.0,
+        "min_abs_x_delta": 1900.0,
+        "min_abs_z_delta": 1400.0
+      }
+    ]
+  }
+}

@@ -1,0 +1,5 @@
+repository=https://github.com/akratch/mgb64
+commit=cd9b58f5f91291579b8e551aa925aab000d311cf
+archive_sha256=129feb3051fd322a6bf7f8637b35e5caa29df7440bf287469b34c42069e71453
+license=MIT
+rom_or_extracted_assets_included=no

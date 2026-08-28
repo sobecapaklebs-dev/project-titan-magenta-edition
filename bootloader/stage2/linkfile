@@ -1,0 +1,107 @@
+ENTRY(__start);
+
+/*
+ * Low-memory layout based on PS2SDK ee/elf-loader/src/loader/linkfile.
+ * See ../licenses/PS2SDK-AFL-2.0.txt.
+ */
+
+MEMORY {
+    bios : ORIGIN = 0x00000000, LENGTH = 592K
+    bram : ORIGIN = 0x00094000, LENGTH = 432K
+    gram : ORIGIN = 0x00100000, LENGTH = 31M
+}
+
+REGION_ALIAS("MAIN_REGION", bram);
+END_MAIN_REGION = ORIGIN(MAIN_REGION) + LENGTH(MAIN_REGION);
+
+PHDRS {
+    text PT_LOAD;
+}
+
+SECTIONS {
+    .text : {
+        _ftext = .;
+        *(.text)
+        *(.text.*)
+        *(.gnu.linkonce.t*)
+        KEEP(*(.init))
+        KEEP(*(.fini))
+        QUAD(0)
+    } >MAIN_REGION :text
+
+    PROVIDE(_etext = .);
+    PROVIDE(etext = .);
+
+    .ctors ALIGN(16) : {
+        KEEP(*crtbegin*.o(.ctors))
+        KEEP(*(EXCLUDE_FILE(*crtend*.o) .ctors))
+        KEEP(*(SORT(.ctors.*)))
+        KEEP(*(.ctors))
+    } >MAIN_REGION
+
+    .dtors ALIGN(16) : {
+        KEEP(*crtbegin*.o(.dtors))
+        KEEP(*(EXCLUDE_FILE(*crtend*.o) .dtors))
+        KEEP(*(SORT(.dtors.*)))
+        KEEP(*(.dtors))
+    } >MAIN_REGION
+
+    .reginfo : { *(.reginfo) } >MAIN_REGION
+
+    .data ALIGN(128) : {
+        _fdata = .;
+        *(.data)
+        *(.data.*)
+        *(.gnu.linkonce.d*)
+        SORT(CONSTRUCTORS)
+    } >MAIN_REGION
+
+    .rodata ALIGN(128) : {
+        *(.rodata)
+        *(.rodata.*)
+        *(.gnu.linkonce.r*)
+    } >MAIN_REGION
+
+    .rdata ALIGN(128) : { *(.rdata) } >MAIN_REGION
+    .gcc_except_table ALIGN(128) : { *(.gcc_except_table) } >MAIN_REGION
+
+    _gp = ALIGN(128) + 0x7ff0;
+    .lit4 ALIGN(128) : { *(.lit4) } >MAIN_REGION
+    .lit8 ALIGN(128) : { *(.lit8) } >MAIN_REGION
+
+    .sdata ALIGN(128) : {
+        *(.sdata)
+        *(.sdata.*)
+        *(.gnu.linkonce.s*)
+    } >MAIN_REGION
+
+    _edata = .;
+    PROVIDE(edata = .);
+
+    .sbss ALIGN(128) : {
+        _fbss = .;
+        *(.sbss)
+        *(.sbss.*)
+        *(.gnu.linkonce.sb*)
+        *(.scommon)
+    } >MAIN_REGION
+
+    .bss ALIGN(128) : {
+        *(.bss)
+        *(.bss.*)
+        *(.gnu.linkonce.b*)
+        *(COMMON)
+    } >MAIN_REGION
+
+    _end_bss = .;
+    _end = .;
+    PROVIDE(end = .);
+
+    .spad 0x70000000 : {
+        *(.spad)
+    }
+
+    PROVIDE(_stack_size = 32 * 1024);
+    PROVIDE(_stack = END_MAIN_REGION - _stack_size);
+    PROVIDE(_heap_size = -1);
+}

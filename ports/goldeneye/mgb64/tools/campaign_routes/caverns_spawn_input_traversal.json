@@ -1,0 +1,55 @@
+{
+  "schema": "mgb64.campaign_route.v1",
+  "name": "caverns_spawn_input_traversal",
+  "description": "Caverns native input traversal from the stock spawn using forward movement. This guards the tight spawn ramp movement envelope without claiming objective progress. [Recalibrated 2026-07-19 for FID-0132: the collision-hull corner fix restores retail door/object footprints; Bond now stops at the closed ramp door's true collision face (hdelta ~119.9) where the pre-fix degenerate half-hull let him clip ~24 units deeper. [Fix-round-1 2026-07-19: the first recalibration (min_abs_x_delta 25/60/60 -> 2/8/4, min_horizontal_delta 135->110 uniformly) under-derived several floors -- 2.0/8.0/4.0 sit at only 56%/67%/65% of the measured x-deltas, which is vacuous (a run producing half the true lateral displacement would still pass). Re-measured 3x on the current build (SDL_AUDIODRIVER=dummy GE007_MUTE=1 --no-ui --deterministic, fresh savedir, single ge007 process), byte-identical all 3 runs: total horizontal_delta=119.92; ramp_entry_push h=119.17/dx=3.58/dz=119.12; sustained_ramp_push h=119.71/dx=11.90/dz=119.12; post_input_coast h=119.28/dx=6.19/dz=119.12. All floors below re-derived to floor(0.75 * measured), 1 decimal, uniformly across horizontal/x/z so every floor sits at the same ~75% margin instead of some at ~90% and others at ~60%: min_horizontal_delta 110->89.9; ramp_entry_push 105/2.0/105 -> 89.3/2.6/89.3; sustained_ramp_push 110/8.0/110 -> 89.7/8.9/89.3; post_input_coast 110/4.0/110 -> 89.4/4.6/89.3. A run that clips at the old (pre-hull-fix) degenerate door face instead of the retail face, or that fails to move at all, produces deltas far below these floors and still fails.] Thresholds re-derived from the corrected deterministic run with margin; attribution proven via GE007_NO_HULL_CORNER_FIX=1 A/B. See docs/fidelity/ledger/FID-0132.json.]",
+  "route_class": "input_traversal",
+  "level": 39,
+  "frames": 300,
+  "env": {
+    "GE007_TRACE_FLOW_ONLY": "1"
+  },
+  "input_segments": [
+    {"name": "ramp_forward_push", "start": 80, "duration": 160, "inputs": ["forward"]}
+  ],
+  "assertions": {
+    "expect_frame_exit": true,
+    "min_records": 295,
+    "no_render_failures": true,
+    "no_front_failure": true,
+    "require_input_automation": true,
+    "no_direct_state_automation": true,
+    "min_moving_records": 150,
+    "min_horizontal_delta": 89.9,
+    "setup_target_milestones": [
+      {
+        "name": "ramp_push_near_setup_pad_368",
+        "frame_at_or_after": 140,
+        "target": {"kind": "pad", "pad": 368},
+        "max_horizontal_distance": 180.0
+      }
+    ],
+    "position_milestones": [
+      {
+        "name": "ramp_entry_push",
+        "frame_at_or_after": 140,
+        "min_horizontal_delta": 89.3,
+        "min_abs_x_delta": 2.6,
+        "min_abs_z_delta": 89.3
+      },
+      {
+        "name": "sustained_ramp_push",
+        "frame_at_or_after": 220,
+        "min_horizontal_delta": 89.7,
+        "min_abs_x_delta": 8.9,
+        "min_abs_z_delta": 89.3
+      },
+      {
+        "name": "post_input_coast",
+        "frame_at_or_after": 299,
+        "min_horizontal_delta": 89.4,
+        "min_abs_x_delta": 4.6,
+        "min_abs_z_delta": 89.3
+      }
+    ]
+  }
+}

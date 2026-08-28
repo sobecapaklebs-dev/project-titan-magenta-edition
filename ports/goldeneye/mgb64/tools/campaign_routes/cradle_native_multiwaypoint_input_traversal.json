@@ -1,0 +1,86 @@
+{
+  "schema": "mgb64.campaign_route.v1",
+  "name": "cradle_native_multiwaypoint_input_traversal",
+  "description": "Cradle native-only multi-waypoint traversal from the stock spawn. This extends the short gantry route with sustained controller-driven forward movement to pad 121 and the later authored pad cluster without warp, force, or stage-state automation.",
+  "route_class": "input_traversal",
+  "level": 41,
+  "frames": 950,
+  "env": {
+    "GE007_TRACE_FLOW_ONLY": "1"
+  },
+  "input_segments": [
+    {"name": "long_gantry_forward_push", "start": 80, "duration": 820, "inputs": ["forward"]}
+  ],
+  "assertions": {
+    "expect_frame_exit": true,
+    "min_records": 945,
+    "no_render_failures": true,
+    "no_front_failure": true,
+    "require_input_automation": true,
+    "no_direct_state_automation": true,
+    "min_moving_records": 820,
+    "min_horizontal_delta": 7600.0,
+    "setup_target_milestones": [
+      {
+        "name": "spawn_near_setup_pad_151",
+        "frame_at_or_after": 1,
+        "target": {"kind": "pad", "pad": 151},
+        "max_horizontal_distance": 5.0
+      },
+      {
+        "name": "long_gantry_near_setup_pad_121",
+        "frame_at_or_after": 512,
+        "target": {"kind": "pad", "pad": 121},
+        "max_horizontal_distance": 80.0
+      },
+      {
+        "name": "late_cluster_near_setup_pad_54",
+        "frame_at_or_after": 900,
+        "target": {"kind": "pad", "pad": 54},
+        "max_horizontal_distance": 450.0
+      },
+      {
+        "name": "late_cluster_near_setup_pad_81",
+        "frame_at_or_after": 900,
+        "target": {"kind": "pad", "pad": 81},
+        "max_horizontal_distance": 600.0
+      },
+      {
+        "name": "late_cluster_near_setup_pad_55",
+        "frame_at_or_after": 900,
+        "target": {"kind": "pad", "pad": 55},
+        "max_horizontal_distance": 700.0
+      }
+    ],
+    "position_milestones": [
+      {
+        "name": "early_gantry_push",
+        "frame_at_or_after": 140,
+        "min_horizontal_delta": 400.0,
+        "min_abs_x_delta": 180.0,
+        "min_abs_z_delta": 330.0
+      },
+      {
+        "name": "pad_121_gantry_reach",
+        "frame_at_or_after": 512,
+        "min_horizontal_delta": 3900.0,
+        "min_abs_x_delta": 1900.0,
+        "min_abs_z_delta": 3400.0
+      },
+      {
+        "name": "late_pad_cluster_approach",
+        "frame_at_or_after": 900,
+        "min_horizontal_delta": 7600.0,
+        "min_abs_x_delta": 3700.0,
+        "min_abs_z_delta": 6500.0
+      },
+      {
+        "name": "post_input_cluster_rest",
+        "frame_at_or_after": 949,
+        "min_horizontal_delta": 7600.0,
+        "min_abs_x_delta": 3700.0,
+        "min_abs_z_delta": 6500.0
+      }
+    ]
+  }
+}

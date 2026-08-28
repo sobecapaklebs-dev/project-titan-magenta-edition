@@ -1,0 +1,21 @@
+# Project Titan: Magenta Edition - FMCB bootstrap configuration
+# Generated/owned by BF30 autonomous installer.
+CNF_version = 1
+Debug_Screen = 0
+FastBoot = 1
+pad_delay = 0
+LK_Auto_E1 = mc?:/TITAN/BOOT/TITAN_FMCB_ENTRY.ELF
+LK_Auto_E2 = mc?:/TITAN/BOOT/TITAN_FMCB_ENTRY.ELF
+LK_Auto_E3 = mc?:/TITAN/BOOT/TITAN_FMCB_ENTRY.ELF
+LK_Circle_E1 = OSDSYS
+LK_Cross_E1 = OSDSYS
+LK_Square_E1 = OSDSYS
+LK_Triangle_E1 = OSDSYS
+LK_L1_E1 = OSDSYS
+LK_R1_E1 = OSDSYS
+LK_L2_E1 = OSDSYS
+LK_R2_E1 = OSDSYS
+LK_L3_E1 = OSDSYS
+LK_R3_E1 = OSDSYS
+name_OSDSYS_ITEM_1 = Project Titan Recovery
+path1_OSDSYS_ITEM_1 = mc?:/BOOT/BOOT.ELF

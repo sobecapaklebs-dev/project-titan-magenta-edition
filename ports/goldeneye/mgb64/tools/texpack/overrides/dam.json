@@ -1,0 +1,28 @@
+{
+  "_comment": "Dam per-level curation (W2.E3 first curation file; refreshed W2.E8.T2 as the regression-anchor redo). Token ids + routing choices only -- no ROM data, committable. Top-5 hue-ID heroes (coverage): tok0022 28.8% (ground), tok0949 27.8% (rock), tok1127 2.4% (32x32 non-tileable brown decal), tok0291 1.2% (64x64 tileable gray wall), tok1446 1.2% (32x32 non-tileable dark decal). Heroes tok1127 + tok1446 are tiny non-tileable decals -> ride the automatic whole_image AI-upscale tree (matches the shipped Dam pack). See docs/design/remaster-aaa/02-hd-asset-pipeline.md sec 4.2/4.7.",
+  "tok0022": {
+    "source": "procedural",
+    "preset": "gravel",
+    "size": "1024x512",
+    "tone": {"mode": "match"},
+    "_note": "Dam ground/gravel hero surface. tok0022 is 64x32 tileable=0 room; the automatic tree would AI-upscale it, but the shipped Dam pack uses the FFT band-pass gravel synth (roadmap sec 3 'Dam learnings'). tone=match -> Tier B (tone-locked)."
+  },
+  "tok0949": {
+    "source": "stock",
+    "reason": "per-quad UV seams; stays stock until W1 smooth normals (roadmap sec 3, W1.E1 T1.3)",
+    "_note": "Dam rock. tok0949 is 64x64 tileable=0 room; per-quad-UV seam surface where an HD replacement would show seams until smooth normals land, so it stays stock (Tier '-')."
+  },
+  "tok0291": {
+    "source": "procedural",
+    "preset": "concrete",
+    "size": "1024x1024",
+    "tone": {"mode": "match"},
+    "_note": "Dam gray wall (hero #4, 64x64 tileable=1 room, avgRGB 545454). A flat tileable gray wall: a seamless tone-matched concrete synth reads cleaner than an ESRGAN upscale of a 64x64 tile (which mushes), and it exercises the W2.E5.T1 concrete preset. tone=match -> Tier B (tone-locked)."
+  },
+  "tok2228": {
+    "source": "ai_upscale",
+    "mode": "seam_safe",
+    "model": "realesrgan-x4plus",
+    "_note": "Curation correction (not a hue hero -- draw_class=unknown IA cutout, 64x64 tileable=1). The automatic tree routes non-'room' tokens to whole_image, which does NOT wrap and fails validate_pack's seam self-check on a tileable token. Pin seam_safe so the HD tile still wraps (the manifest is_tileable=1, so tile-3x3 staging is safe)."
+  }
+}

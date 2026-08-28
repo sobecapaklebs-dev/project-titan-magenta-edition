@@ -1,0 +1,29 @@
+TITAN-REPOSITORY/1
+id=community
+name=Project Titan Community
+
+[package TITNAPP01]
+title=Example Native App
+version=1.2.3
+platform=ps2
+architecture=mips-r5900
+url=https://example.invalid/titan/TITNAPP01-1.2.3.tpkg
+sha256=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+size=123456
+description=Example package for protocol validation
+icon=https://example.invalid/titan/TITNAPP01.png
+background=https://example.invalid/titan/TITNAPP01-bg.jpg
+api=high
+dependencies=
+
+[package TITNTHEM1]
+title=Example Theme
+version=4.0.0
+platform=ps2
+architecture=mips-r5900
+url=https://example.invalid/titan/TITNTHEM1-4.0.0.tthm
+sha256=fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210
+size=654321
+description=Theme package
+api=high
+dependencies=

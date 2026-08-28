@@ -1,0 +1,155 @@
+# ============================================================================
+#  MGB64 .gitignore
+#
+#  GOLDEN RULE: never commit the ROM or anything derived from it. The rules
+#  below block the common cases, but you are the real safeguard. See
+#  CONTRIBUTING.md and DISCLAIMER.md.
+# ============================================================================
+
+# --- ROMs and ROM-adjacent data (NEVER commit) ---
+*.z64
+*.n64
+*.v64
+*.rom
+baserom*
+*.cdata*
+*.eeprom
+ge007_eeprom*
+ge007.ini
+ge007_bindings.ini
+ge007_pipecache.txt
+goldeneye-soundpack/
+tools/irix/
+
+# --- Extracted assets (regenerated from YOUR rom at build time) ---
+# Binary / packed asset data, anywhere (textures, models, audio, segments):
+*.bin
+*.rz
+*.ctl
+*.tbl
+*.sbk
+*.seq
+*.aifc
+*.aiff
+*.seg
+*.cdata
+*.cdata.*
+# Extracted obseg / region text data .c (keep headers/.ld/.s glue, drop data):
+assets/obseg/text/*/*.c
+assets/obseg/em/data/*
+# ROM-derived BULK MEDIA (NOT distributed; extracted/loaded from YOUR ROM).
+# Kept in-tree (code-coupled, no pixels/audio): the .h offset/decl headers,
+# GlobalImageTable.c (display lists + symbolic descriptor tables), and the
+# .inc.c model-header/skeleton/stat glue that src/ #includes.
+assets/animationtable_data.c
+assets/animationtable_entries.c
+assets/rarewarelogo.c
+assets/font_chardatae.c
+assets/font_chardataj.c
+assets/font/fontBankGothic.c
+assets/font/fontZurichBold.c
+assets/images/out/
+assets/images/split/png/
+# Extracted obseg level/model data .c (keep headers/.ld/.s glue, drop data):
+assets/obseg/bg/*_all_p.c
+
+# --- Build output ---
+build/
+build-*/
+dist/
+bin/*
+!bin/.gitkeep
+*.o
+*.a
+*.so
+*.dll
+*.dylib
+*.exe
+
+# --- Logs, captures, dumps (often contain ROM-derived imagery) ---
+*.log
+*.jsonl
+*.bmp
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.webp
+*.ppm
+*.pgm
+*.pnm
+*.raw
+*.wav
+*.mp3
+*.ogg
+*.flac
+*.m4a
+*.aac
+*.mp4
+*.mov
+*.m4v
+*.mkv
+*.avi
+*.webm
+san_output*.txt
+frame_trace*
+screenshot_*
+ref_before_*
+diag_*
+# ...but keep the app's diagnostics source (diag_* is for root-level dump files).
+!src/app/diag_log.h
+# ...and the extracted screenshot-series source (screenshot_* is for root-level
+# PPM/dump files, not this AUDIT-0003 diagnostic TU).
+!src/platform/fast3d/screenshot_series.c
+!src/platform/fast3d/screenshot_series.h
+!src/app/diag_log.cpp
+# (re-allow project-authored images by exception if ever needed, e.g.:)
+# !docs/img/*.png
+# App icon source: hand-authored branding art (not ROM-derived), the single
+# tracked exception. Every platform icon (.icns/.ico/AppImage png) is derived
+# from this at build/package time — see scripts/ci/check_no_rom_data.sh.
+!branding/appicon-source.png
+!branding/appicon-windows.ico
+
+# --- HD texture-pack tooling (tools/texpack) ---
+# Fetched-on-demand Real-ESRGAN binary + models (third-party, large) and build
+# staging. HD packs / texture dumps are ROM-derived and already excluded by the
+# *.png / *.ppm rules above; the manifest is dump-derived metadata.
+tools/texpack/.bin/
+tools/texpack/**/.stage/
+*.texmanifest.csv
+
+# --- Tooling intermediates ---
+__pycache__/
+*.pyc
+tools/extractor/extractor
+tools/n64cksum
+tools/armips
+tools/mktex/build/
+tools/gzipsrc/gzip
+tools/report/report
+
+# --- Editor / OS ---
+.DS_Store
+.vscode/
+.vs/
+.idea/
+CppProperties.json
+*~
+*.tmp
+
+# --- Local-only user scripts ---
+/my_*.sh
+scripts/local/
+scripts/make/local/
+
+# --- Local tooling / generated artifacts (housekeeping §9) ---
+# .cache/ = clangd index. baselines/perf_census_latest.csv is regenerated per
+# census run; the tracked baseline is perf_census_baseline.csv (not this).
+.cache/
+baselines/perf_census_latest.csv
+lib/fonts/Roboto-Medium.ttf
+
+# pixel-oracle calibration fixtures are generated in-memory by the unittest;
+# `gen_pixel_calibration.py --write` output here is for local inspection only.
+tools/fidelity/tests/data/

@@ -1,0 +1,37 @@
+{
+  "schema": "mgb64.campaign_route.v1",
+  "name": "dam_mission_report_contract",
+  "level": 33,
+  "frames": 220,
+  "route_class": "scripted_contract",
+  "description": "Dam success end-state reaches the mission-report/title flow without failure or KIA flags, writes folder 0 Dam/Agent completion, and reloads that save state from a fresh process.",
+  "env": {
+    "GE007_TRACE_FLOW_ONLY": 1,
+    "GE007_TRACE_OBJECTIVES": 1
+  },
+  "scripted_events": {
+    "mission_end": {"frame": 120, "result": "success"},
+    "exit_on_title": {"delay": 60}
+  },
+  "assertions": {
+    "expect_title_exit": true,
+    "min_records": 120,
+    "no_render_failures": true,
+    "success_report": true,
+    "title_return": true,
+    "no_front_failure": true,
+    "initial_objective_statuses": [0, 0, 0, 0],
+    "save_completion": {
+      "folder": 0,
+      "level": 0,
+      "difficulty": 0
+    },
+    "reload_save_completion": {
+      "folder": 0,
+      "level": 0,
+      "difficulty": 0,
+      "frames": 240,
+      "auto_start": "20:3,80:3,140:3,200:3"
+    }
+  }
+}

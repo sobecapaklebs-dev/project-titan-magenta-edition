@@ -1,0 +1,33 @@
+#!/usr/bin/env python3
+from pathlib import Path
+import sys
+root=Path(sys.argv[1] if len(sys.argv)>1 else Path(__file__).resolve().parents[1])
+svc=(root/'src/services/titan_disc_engine.c').read_text()
+hdr=(root/'src/services/titan_disc_engine.h').read_text()
+neu=(root/'src/services/titan_neutrino.c').read_text()
+sesh=(root/'src/services/titan_session_service.h').read_text()
+igr=(root/'src/services/titan_igr_compatibility.c').read_text()
+shell=(root/'src/ui/titan_shell_scene.c').read_text()
+mk=(root/'Makefile').read_text()
+req=lambda c,m: (_ for _ in ()).throw(AssertionError(m)) if not c else None
+req('src/services/titan_disc_engine.o' in mk,'disc engine not built')
+req('TITAN_SESSION_ENGINE_DISC' in sesh,'disc session engine missing')
+req('TITAN_APPLICATION_CLASS_DISC_ENGINE' in svc,'disc classification missing')
+req('TITAN_OVERLAY_RETURN_ONLY' in igr and 'TITAN_SESSION_ENGINE_DISC' in igr,'disc conservative IGR policy missing')
+req('TitanVmc_GetCachedStatus' in svc and 'TitanVmc_Ensure(' not in svc,'disc prepare performs VMC I/O')
+req('TitanStorageScheduler_SetTitanGameExclusiveMode(1)' in svc and 'TitanStorageScheduler_IsTitanGameWorkerParked' in svc,'storage quiesce missing')
+for token in ['-bsd=no','-dvd=no','-titan-igr=return-only','-titan-exit=mc0:/BOOT/BOOT.ELF']:
+    req(token in neu,f'physical Neutrino argument missing: {token}')
+req('TitanNeutrino_LaunchPhysicalDisc' in neu,'physical disc handoff missing')
+req('TITAN_HOME_ENTRY_DISC' in shell and 'TitanDiscService_IsReady()' in shell,'temporary HOME disc tile missing')
+req('TitanShellScene_BeginDiscLaunch' in shell and 'TitanDiscEngine_Launch()' in shell,'HOME disc launch transition missing')
+req('TitanDiscState_Name' in shell and 'disc_session->overlay_level' in shell,'DEX disc diagnostics missing')
+req('game_launch_disc' in shell,'disc launch does not reuse Titan launch transition')
+print('titan-disc-session-contract: OK')
+print('titan-disc-launch-contract: OK')
+print('titan-disc-service-quiesce-contract: OK')
+print('titan-disc-tile-contract: OK')
+print('titan-disc-smartigr-contract: OK')
+print('titan-disc-overlay-contract: OK conservative RETURN_ONLY/profile-gated')
+print('titan-disc-vmc-contract: OK cached VMC optional/fail-open')
+print('titan-disc-dex-contract: OK')

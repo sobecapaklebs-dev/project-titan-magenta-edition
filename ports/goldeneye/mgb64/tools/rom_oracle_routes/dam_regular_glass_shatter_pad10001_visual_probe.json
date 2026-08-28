@@ -1,0 +1,174 @@
+{
+    "schema": "mgb64.rom_oracle.route.v1",
+    "name": "dam_regular_glass_shatter_pad10001_visual_probe",
+    "level": "33",
+    "native_frames": 1473,
+    "stock_frames": 2700,
+    "stock_screenshot_frame": 2616,
+    "stock_gameplay_start_global": 1147,
+    "stock_require_first_gameplay_global": 1147,
+    "stock_speedframes": 2,
+    "stock_menu_close_on_player": true,
+    "native_render_audit": true,
+    "stock_min_gameplay_input_records": 5,
+    "stock_max_suppressed_menu_records": 0,
+    "stock_min_menu_to_gameplay_gap": 30,
+    "stock_min_force_player_applies": 300,
+    "stock_min_force_player_stan_applies": 300,
+    "compare_kind": "visual",
+    "compare_align": "global",
+    "compare_profile": "logical-viewport",
+    "visual_logical_size": [
+        320,
+        240
+    ],
+    "visual_logical_viewport": [
+        0,
+        10,
+        320,
+        220
+    ],
+    "visual_baseline_logical_frame": "active",
+    "visual_test_logical_frame": "full",
+    "visual_regions": [
+        {
+            "name": "pane_burst",
+            "roi": [
+                230,
+                95,
+                130,
+                145
+            ]
+        },
+        {
+            "name": "left_room",
+            "roi": [
+                20,
+                120,
+                210,
+                170
+            ]
+        },
+        {
+            "name": "hud_viewmodel",
+            "roi": [
+                300,
+                250,
+                280,
+                170
+            ]
+        }
+    ],
+    "visual_mask_exclude_regions": [
+        "hud_viewmodel"
+    ],
+    "compare_require_health_match": true,
+    "compare_health_tolerance": 0.001,
+    "compare_damage_show_tolerance": 1,
+    "compare_actor_chrnums": [
+        10,
+        12
+    ],
+    "compare_actor_fields": [
+        "alive",
+        "hidden",
+        "onscreen",
+        "action"
+    ],
+    "compare_actor_frame": "screenshot",
+    "compare_actor_position_tolerance": 25.0,
+    "compare_require_active": true,
+    "compare_max_active_tolerance": 0,
+    "compare_first_position_tolerance": 1.0,
+    "compare_require_prop_destroyed": true,
+    "compare_prop_position_tolerance": 1.0,
+    "compare_max_buffer_len": 200,
+    "description": "Milestone-5 Dam regular-glass actor-clean visual candidate. Fresh native/stock scouting ranks pad 10001 as the least actor-contaminated regular pane and proves this late-warp/late-fire pose can shatter pad 10001 with matching health, active-shard count, shard timer, and visible actor set. It is still a candidate, not a promoted pixel gate: the best organic checkpoint remains actor-contaminated by chr10 action/position drift and a chr12 onscreen-flag mismatch, so the pre-pixel actor guard is expected to reject it until actor composition is isolated.",
+    "native_config": {
+        "Video.AnisotropicFiltering": 1,
+        "Input.ViewmodelSway": 0,
+        "Video.Bloom": 0,
+        "Video.Brightness": 0,
+        "Video.Contrast": 1,
+        "Video.FovY": 60,
+        "Video.Gamma": 1,
+        "Video.GradePresets": 0,
+        "Video.MSAA": 0,
+        "Video.RemasterFX": 0,
+        "Video.RenderScale": 1,
+        "Video.RetroFilter": "on",
+        "Video.Saturation": 1,
+        "Video.Sharpen": 0,
+        "Video.Tonemap": 0,
+        "Video.Vignette": 0,
+        "Video.WindowHeight": 480,
+        "Video.WindowMode": "windowed",
+        "Video.WindowWidth": 640,
+        "Input.ModernCrosshair": 0,
+        "Input.HitMarkers": 0,
+        "Input.ReticleTargetFeedback": 0,
+        "Input.MinimapEnabled": 0
+    },
+    "native_env": {
+        "GE007_DIAG_DISABLE_HIGHDPI": "1",
+        "GE007_DISABLE_LEVEL_INTRO": "1",
+        "GE007_TRACE_GLASS": "1",
+        "GE007_TRACE_GLASS_BUDGET": "1800",
+        "GE007_OBJECT_TRACE": "1",
+        "GE007_OBJECT_TRACE_PAD": "10001",
+        "GE007_OBJECT_TRACE_BUDGET": "2000",
+        "GE007_AUTO_WARP_FRAME": 1385,
+        "GE007_AUTO_WARP_PAD": 10001,
+        "GE007_AUTO_FORCE_PLAYER_SCRIPT": "1390-1650:13659.14:-474.70:2192.46:308.9732:-10.7187:167.31:10001",
+        "GE007_AUTO_AUTOAIM_SCRIPT": "1386:0,1388:0,1397:0",
+        "GE007_AUTO_CROSSHAIR_SCRIPT": "1390-1650:160:120"
+    },
+    "stock_env": {
+        "MGB64_ARES_FORCE_PLAYER_SCRIPT": "1:700:13659.14:-474.70:2192.46:308.9732:-10.7187:167.31:10001",
+        "MGB64_ARES_CROSSHAIR_SCRIPT": "1:700:160:120"
+    },
+    "events": [],
+    "native_events": [
+        {
+            "start": 1398,
+            "len": 170,
+            "buttons": [
+                "fire"
+            ]
+        }
+    ],
+    "stock_events": [
+        {
+            "start": 100,
+            "len": 3,
+            "buttons": [
+                "start"
+            ],
+            "phase": "menu",
+            "repeat": {
+                "every": 240,
+                "until": 2260
+            }
+        },
+        {
+            "start": 160,
+            "len": 3,
+            "buttons": [
+                "a"
+            ],
+            "phase": "menu",
+            "repeat": {
+                "every": 240,
+                "until": 2080
+            }
+        },
+        {
+            "start": 70,
+            "len": 170,
+            "buttons": [
+                "fire"
+            ],
+            "phase": "gameplay"
+        }
+    ]
+}

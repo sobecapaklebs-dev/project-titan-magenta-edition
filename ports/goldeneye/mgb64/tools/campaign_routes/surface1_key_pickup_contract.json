@@ -1,0 +1,78 @@
+{
+  "schema": "mgb64.campaign_route.v1",
+  "name": "surface1_key_pickup_contract",
+  "level": 36,
+  "frames": 180,
+  "route_class": "scripted_contract",
+  "description": "Surface 1 key pickup contract. Bond is deterministically placed on the tagged key's pad, then the normal proximity pickup path collects the key and updates inventory keyflags.",
+  "env": {
+    "GE007_DISABLE_LEVEL_INTRO": 1,
+    "GE007_TRACE_INVENTORY": 1,
+    "GE007_INTERACT_TRACE": 1,
+    "GE007_INTERACT_TRACE_BUDGET": 120
+  },
+  "scripted_events": {
+    "warps": [
+      {"name": "place_on_key_pad", "frame": 40, "pad": 17}
+    ]
+  },
+  "assertions": {
+    "expect_frame_exit": true,
+    "min_records": 175,
+    "no_render_failures": true,
+    "no_front_failure": true,
+    "log_count_assertions": [
+      {
+        "name": "key_collect_begin",
+        "pattern": "^\\[INTERACT_TRACE\\] collect begin .*\\bobjtype=4\\b.*\\bkeyflags=0x00000001\\b",
+        "min_count": 1
+      },
+      {
+        "name": "key_collect_success",
+        "pattern": "^\\[INTERACT_TRACE\\] collect success objtype=4 collectType=4\\b",
+        "min_count": 1
+      }
+    ],
+    "setup_target_milestones": [
+      {
+        "name": "key_setup_target_reached",
+        "frame_at_or_after": 45,
+        "target": {"kind": "object", "type_name": "key", "pad": 17},
+        "max_horizontal_distance": 2.0,
+        "max_abs_y_delta": 20.0
+      }
+    ],
+    "state_milestones": [
+      {
+        "name": "spawn_without_key",
+        "frame_at_or_after": 1,
+        "checks": [
+          {"path": "combat.health.actual_h", "op": ">=", "value": 1.0},
+          {"path": "inv.count", "op": "==", "value": 3},
+          {"path": "inv.keyflags", "op": "==", "value": "0x00000000"},
+          {"path": "front.bond_kia", "op": "==", "value": 0},
+          {"path": "front.mission_failed", "op": "==", "value": 0}
+        ]
+      },
+      {
+        "name": "key_collected",
+        "frame_at_or_after": 45,
+        "checks": [
+          {"path": "inv.count", "op": ">=", "value": 4},
+          {"path": "inv.keyflags", "op": "==", "value": "0x00000001"}
+        ]
+      },
+      {
+        "name": "final_key_stability",
+        "frame_at_or_after": 180,
+        "checks": [
+          {"path": "combat.health.actual_h", "op": ">=", "value": 1.0},
+          {"path": "inv.keyflags", "op": "==", "value": "0x00000001"},
+          {"path": "front.active_stage", "op": "==", "value": 36},
+          {"path": "front.bond_kia", "op": "==", "value": 0},
+          {"path": "front.mission_failed", "op": "==", "value": 0}
+        ]
+      }
+    ]
+  }
+}

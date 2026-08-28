@@ -1,0 +1,10 @@
+Project NES / FCEUmm combined module licensing
+
+Project NES original Titan integration code is available under the MIT License;
+see LICENSE-MIT.txt in this package for that component's terms.
+
+The distributed Project NES module links FCEUmm and is therefore distributed
+as a combined work under GNU GPL-2.0. The complete GNU GPL v2 text applicable
+to FCEUmm and the combined module is included as THIRD_PARTY_FCEUMM_LICENSE.txt.
+
+SPDX-License-Identifier: GPL-2.0-only

@@ -1,0 +1,107 @@
+# Keep local ROMs, extracted assets, and build products out of Docker build
+# context. The Dockerfile does not COPY the tree today, but this prevents future
+# image changes or ad hoc builds from ingesting user-owned game data.
+
+.git/
+.DS_Store
+
+# ROMs and ROM-adjacent data.
+*.z64
+*.n64
+*.v64
+*.rom
+baserom*
+*.cdata*
+*.eeprom
+ge007_eeprom*
+ge007.ini
+goldeneye-soundpack/
+tools/irix/
+tools/ido5.3_recomp/*
+!tools/ido5.3_recomp/.gitignore
+!tools/ido5.3_recomp/README.md
+
+# Extracted assets and ROM-derived media.
+*.bin
+*.rz
+*.ctl
+*.tbl
+*.sbk
+*.seq
+*.aifc
+*.aiff
+*.seg
+assets/animationtable_data.c
+assets/animationtable_entries.c
+assets/rarewarelogo.c
+assets/font_chardatae.c
+assets/font_chardataj.c
+assets/font/fontBankGothic.c
+assets/font/fontZurichBold.c
+assets/images/out/
+assets/images/split/
+assets/obseg/bg/*_all_p.c
+assets/obseg/text/*/*.c
+assets/obseg/em/data/
+
+# Build output.
+build/
+build-*/
+dist/
+bin/*
+!bin/.gitkeep
+*.o
+*.a
+*.so
+*.dll
+*.dylib
+*.exe
+
+# Logs, captures, dumps.
+*.log
+*.jsonl
+*.bmp
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.webp
+*.ppm
+*.raw
+*.wav
+*.mp3
+*.ogg
+*.flac
+*.m4a
+*.aac
+*.mp4
+*.mov
+*.m4v
+*.mkv
+*.avi
+*.webm
+san_output*.txt
+frame_trace*
+screenshot_*
+ref_before_*
+diag_*
+
+# Tooling intermediates.
+__pycache__/
+*.pyc
+tools/extractor/extractor
+tools/n64cksum
+tools/armips
+tools/mktex/build/
+tools/gzipsrc/gzip
+tools/report/report
+
+# Editor / OS / local scripts.
+.vscode/
+.vs/
+.idea/
+*~
+*.tmp
+/my_*.sh
+scripts/local/
+scripts/make/local/

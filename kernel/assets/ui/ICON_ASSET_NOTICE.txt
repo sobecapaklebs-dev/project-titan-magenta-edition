@@ -1,0 +1,13 @@
+PROJECT TITAN ICON ATLAS
+
+The A8 icon atlas in this package was generated from reference images supplied
+by the Project Titan developer during the design session. The original source
+images are not redistributed in this package.
+
+Atlas layout (128x128 cells, 3 columns x 2 rows):
+0 Overview
+1 Applications
+2 Controller
+3 User
+4 Saved Data transfer
+5 Profile Settings

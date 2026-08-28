@@ -1,0 +1,21 @@
+{
+  "_comment": "Train per-level curation (W2.E8.T2; interior + KNOWN sky-leak level). Token ids + routing choices only -- no ROM data, committable. Top-5 hue-ID heroes (RemasterFX=0 pin, coverage): tok0579 42.4% (green train-car wall), tok0265 6.7% (dark tileable floor/shadow), tok0299 5.3% / tok1204 1.6% (small CI decals) -> ride the automatic tree, tok0229 0.6% (gray tile). The train interior surfaces are DESIGNED (painted metal car walls, wood crate/floor), so heroes route to AI upscale (preserves the design); no procedural preset fits an interior car wall. SKY-LEAK NOTE: the train sky leak is N64-FAITHFUL (verdict W4.E3.T1 -- a geometry gap concealed by CRT darkness, NOT a bug); this pack does NOT touch it and QA confirms the GE007_TINT_SKY magenta leak-pad counts are not made worse than stock. tok2228 pinned seam_safe to match dam's global curation (shared pack). See docs/design/remaster-aaa/02-hd-asset-pipeline.md sec 4.2/4.7.",
+  "tok0579": {
+    "source": "ai_upscale",
+    "mode": "whole_image",
+    "model": "realesrgan-x4plus",
+    "_note": "Train car wall (hero #1, 32x32 fmt=2 CI tileable=0 room, avgRGB 89947a green-tan). A DESIGNED painted-metal interior wall (vertical streaks, a smudge decal) -> whole_image AI upscale preserves+sharpens the design; a procedural preset would erase it."
+  },
+  "tok0265": {
+    "source": "ai_upscale",
+    "mode": "seam_safe",
+    "model": "realesrgan-x4plus",
+    "_note": "Train dark floor/shadow band (hero #2, 64x32 fmt=3 IA tileable=1 room, avgRGB 101010). Tileable -> seam_safe AI upscale (auto choice, pinned; preserves the IA alpha and wraps)."
+  },
+  "tok2228": {
+    "source": "ai_upscale",
+    "mode": "seam_safe",
+    "model": "realesrgan-x4plus",
+    "_note": "Curation correction, harmonized with dam/surface1/depot (global token, shared pack). tileable=1 non-'room' token; auto tree routes whole_image which fails validate_pack's seam check -> pin seam_safe."
+  }
+}

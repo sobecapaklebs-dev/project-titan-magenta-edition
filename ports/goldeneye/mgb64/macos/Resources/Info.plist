@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- App identity -->
+	<key>CFBundleName</key>
+	<string>MGB64</string>
+	<key>CFBundleIdentifier</key>
+	<string>com.mgb64.app</string>
+
+	<!-- Version strings -->
+	<key>CFBundleVersion</key>
+	<string>0.1.0</string>
+	<key>CFBundleShortVersionString</key>
+	<string>0.1.0</string>
+
+	<!-- $(EXECUTABLE_NAME) is resolved by Xcode / CMake at build time -->
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleSignature</key>
+	<string>????</string>
+
+	<!-- Icon asset generated into Contents/Resources/AppIcon.icns by build_app_bundle.sh -->
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
+	<key>CFBundleIconName</key>
+	<string>AppIcon</string>
+
+	<!-- Minimum deployment target — Ventura for Metal 3 and modern GameController -->
+	<key>LSMinimumSystemVersion</key>
+	<string>13.0</string>
+
+	<!-- Retina / HiDPI support -->
+	<key>NSHighResolutionCapable</key>
+	<true/>
+
+	<!-- Let macOS pick integrated vs discrete GPU as needed -->
+	<key>NSSupportsAutomaticGraphicsSwitching</key>
+	<true/>
+
+	<key>NSHumanReadableCopyright</key>
+	<string>Copyright &#xA9; 2026. Not affiliated with Nintendo, Rare, Microsoft, MGM, Danjaq LLC, or EON Productions.</string>
+
+	<!-- Register as an alternate handler for N64 ROM files -->
+	<key>CFBundleDocumentTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>N64 ROM</string>
+			<key>CFBundleTypeExtensions</key>
+			<array>
+				<string>z64</string>
+				<string>v64</string>
+				<string>n64</string>
+			</array>
+			<!-- Viewer — we read but never modify ROM files -->
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<!-- Alternate — don't steal the default association from emulators -->
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+		</dict>
+	</array>
+
+	<!-- Programmatic window setup — no NIB/XIB -->
+	<key>NSPrincipalClass</key>
+	<string>NSApplication</string>
+
+	<!-- macOS Sonoma (14+) Game Mode: higher scheduling priority, lower
+	     Bluetooth latency for controllers. Free performance win. -->
+	<key>GCSupportsGameMode</key>
+	<true/>
+
+	</dict>
+	</plist>

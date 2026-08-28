@@ -1,0 +1,74 @@
+{
+  "schema": "mgb64.campaign_route.v1",
+  "name": "bunker1_datathief_equipment_contract",
+  "level": 9,
+  "frames": 520,
+  "route_class": "scripted_contract",
+  "description": "Bunker 1 equipment stability contract for the datathief/debug-dump regression. This uses deterministic inventory/equip hooks and is not an organic pickup route.",
+  "env": {
+    "GE007_TRACE_INVENTORY": 1
+  },
+  "scripted_events": {
+    "add_items": [
+      {"name": "add_datathief", "frame": 80, "item": 55}
+    ],
+    "equip_items": [
+      {"name": "equip_datathief", "frame": 130, "item": 55}
+    ],
+    "debug_dump": {"frame": 220}
+  },
+  "assertions": {
+    "expect_frame_exit": true,
+    "min_records": 520,
+    "no_render_failures": true,
+    "no_front_failure": true,
+    "required_log_patterns": [
+      "[DUMP] Wrote ",
+      "ge007_dump_"
+    ],
+    "state_milestones": [
+      {
+        "name": "spawn_survival",
+        "frame_at_or_after": 1,
+        "checks": [
+          {"path": "combat.health.actual_h", "op": ">=", "value": 1.0},
+          {"path": "front.bond_kia", "op": "==", "value": 0},
+          {"path": "front.mission_failed", "op": "==", "value": 0}
+        ]
+      },
+      {
+        "name": "datathief_equipped",
+        "frame_at_or_after": 160,
+        "checks": [
+          {"path": "inv.count", "op": ">=", "value": 5},
+          {"path": "watch.hands.active[1]", "op": "==", "value": 55},
+          {"path": "watch.hands.weapon[1]", "op": "==", "value": 55},
+          {"path": "wr_raw.weaponnum", "op": "==", "value": 55}
+        ]
+      },
+      {
+        "name": "post_debug_dump_stable",
+        "frame_at_or_after": 230,
+        "checks": [
+          {"path": "combat.health.actual_h", "op": ">=", "value": 1.0},
+          {"path": "watch.hands.active[1]", "op": "==", "value": 55},
+          {"path": "wr_raw.weaponnum", "op": "==", "value": 55},
+          {"path": "front.bond_kia", "op": "==", "value": 0},
+          {"path": "front.mission_failed", "op": "==", "value": 0}
+        ]
+      },
+      {
+        "name": "final_stability",
+        "frame_at_or_after": 520,
+        "checks": [
+          {"path": "combat.health.actual_h", "op": ">=", "value": 1.0},
+          {"path": "watch.hands.active[1]", "op": "==", "value": 55},
+          {"path": "wr_raw.weaponnum", "op": "==", "value": 55},
+          {"path": "front.active_stage", "op": "==", "value": 9},
+          {"path": "front.bond_kia", "op": "==", "value": 0},
+          {"path": "front.mission_failed", "op": "==", "value": 0}
+        ]
+      }
+    ]
+  }
+}

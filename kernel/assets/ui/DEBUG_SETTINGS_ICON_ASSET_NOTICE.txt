@@ -1,0 +1,19 @@
+Project Titan Debug Settings icon
+=================================
+
+The original two-arrow symbol was supplied by the Project Titan project owner
+for the `★debug settings` option.
+
+Processing performed for Titan UI 0.9.28:
+- removed the flat background;
+- converted the symbol to a white alpha mask;
+- centered and normalized the artwork to 128x128;
+- placed it in the previously unused twelfth system-icon atlas cell;
+- preserved a normalized source reference for traceability.
+
+Files:
+- source_debug_settings/debug_settings_reference.png
+- titan_ui_debug_settings.a8
+- titan_ui_debug_settings.png
+- titan_ui_debug_settings_preview.png
+- titan_ui_icons.a8 (cell 11)

@@ -1,0 +1,128 @@
+{
+  "schema": "mgb64.campaign_route.v1",
+  "name": "dam_native_mission_composite_contract",
+  "level": 33,
+  "frames": 980,
+  "route_class": "scripted_mission_composite",
+  "description": "Dam composite route: controller-driven stock-spawn multi-waypoint traversal is followed by scripted objective criteria, mission-report return, and save/reload persistence. This integrates movement, objective, report, and persistence proof without claiming organic objective placement.",
+  "env": {
+    "GE007_TRACE_FLOW_ONLY": 1,
+    "GE007_TRACE_OBJECTIVES": 1,
+    "GE007_STAGEFLAG_TRACE": 1,
+    "GE007_STAGEFLAG_TRACE_MASK": "0x1F00",
+    "GE007_STAGEFLAG_TRACE_BUDGET": 32
+  },
+  "input_segments": [
+    {"name": "spawn_forward_push", "start": 80, "duration": 45, "inputs": ["forward"]},
+    {"name": "spawn_c_right_strafe", "start": 140, "duration": 45, "inputs": ["c_right"]},
+    {"name": "spawn_diagonal_forward_c_right", "start": 200, "duration": 45, "inputs": ["forward", "c_right"]},
+    {"name": "long_forward_left_pad_cluster_push", "start": 260, "duration": 360, "inputs": ["forward", "left"]}
+  ],
+  "scripted_events": {
+    "damage_tags": [
+      {"name": "destroy_alarm_0_after_traversal", "frame": 680, "tag": 0, "amount": 2000},
+      {"name": "destroy_alarm_1_after_traversal", "frame": 682, "tag": 1, "amount": 2000},
+      {"name": "destroy_alarm_2_after_traversal", "frame": 684, "tag": 2, "amount": 2000},
+      {"name": "destroy_alarm_3_after_traversal", "frame": 686, "tag": 3, "amount": 2000}
+    ],
+    "set_stage_flags": [
+      {"name": "modem_flag_after_traversal", "frame": 720, "flags": "0x100"},
+      {"name": "data_flag_after_traversal", "frame": 760, "flags": "0x400"},
+      {"name": "bungee_flag_after_traversal", "frame": 800, "flags": "0x1000"}
+    ],
+    "mission_end": {"frame": 840, "result": "success"},
+    "exit_on_title": {"delay": 80}
+  },
+  "assertions": {
+    "expect_title_exit": true,
+    "min_records": 840,
+    "no_render_failures": true,
+    "success_report": true,
+    "title_return": true,
+    "no_front_failure": true,
+    "require_input_automation": true,
+    "min_moving_records": 480,
+    "setup_target_milestones": [
+      {
+        "name": "early_curve_near_setup_pad_10",
+        "frame_at_or_after": 390,
+        "target": {"kind": "pad", "pad": 10},
+        "max_horizontal_distance": 850.0
+      },
+      {
+        "name": "late_cluster_near_setup_pad_293",
+        "frame_at_or_after": 567,
+        "target": {"kind": "pad", "pad": 293},
+        "max_horizontal_distance": 600.0
+      },
+      {
+        "name": "late_cluster_near_setup_pad_287",
+        "frame_at_or_after": 653,
+        "target": {"kind": "pad", "pad": 287},
+        "max_horizontal_distance": 430.0
+      },
+      {
+        "name": "late_cluster_near_setup_pad_288",
+        "frame_at_or_after": 653,
+        "target": {"kind": "pad", "pad": 288},
+        "max_horizontal_distance": 480.0
+      }
+    ],
+    "position_milestones": [
+      {
+        "name": "early_dam_curve",
+        "frame_at_or_after": 390,
+        "min_horizontal_delta": 1750.0,
+        "min_abs_x_delta": 1700.0
+      },
+      {
+        "name": "late_pad_cluster_approach",
+        "frame_at_or_after": 567,
+        "min_horizontal_delta": 3800.0,
+        "min_abs_x_delta": 3300.0,
+        "min_abs_z_delta": 1600.0
+      },
+      {
+        "name": "late_pad_cluster_contact",
+        "frame_at_or_after": 653,
+        "min_horizontal_delta": 4600.0,
+        "min_abs_x_delta": 4000.0,
+        "min_abs_z_delta": 2200.0
+      },
+      {
+        "name": "post_input_cluster_rest",
+        "frame_at_or_after": 800,
+        "min_horizontal_delta": 4700.0,
+        "min_abs_x_delta": 4000.0,
+        "min_abs_z_delta": 2200.0
+      }
+    ],
+    "objective_milestones": [
+      {"name": "initial", "frame_at_or_after": 1, "statuses": [0, 0, 0, 0]},
+      {"name": "alarms_destroyed_after_traversal", "frame_at_or_after": 695, "statuses": [1, 0, 0, 0]},
+      {"name": "modem_flag_after_traversal", "frame_at_or_after": 725, "statuses": [1, 1, 0, 0]},
+      {"name": "data_flag_after_traversal", "frame_at_or_after": 765, "statuses": [1, 1, 1, 0]},
+      {"name": "bungee_flag_after_traversal", "frame_at_or_after": 805, "statuses": [1, 1, 1, 1]}
+    ],
+    "final_objective": {
+      "statuses": [1, 1, 1, 1],
+      "flags_include": "0x1500",
+      "flags_exclude": "0x2A00"
+    },
+    "required_stageflag_after": ["0x100", "0x500", "0x1500"],
+    "objective_all_complete": true,
+    "title_after_objective_all_complete": true,
+    "save_completion": {
+      "folder": 0,
+      "level": 0,
+      "difficulty": 0
+    },
+    "reload_save_completion": {
+      "folder": 0,
+      "level": 0,
+      "difficulty": 0,
+      "frames": 240,
+      "auto_start": "20:3,80:3,140:3,200:3"
+    }
+  }
+}

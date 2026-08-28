@@ -1,0 +1,238 @@
+{
+  "schema": "mgb64.campaign_route.v1",
+  "name": "bunker1_spawn_two_door_collect_contract",
+  "level": 9,
+  "frames": 820,
+  "route_class": "input_interaction",
+  "description": "Bunker 1 stock-spawn controller route that opens the first corridor door, collects a next-room object, reaches second door object 138, and opens it through real input without warp, force, item injection, or stage-state automation. NOTE (FID-0066): this route pins GE007_FIRE_RATE_AUTHENTIC=0 (legacy fire cadence). Under the faithful default the guard combat stream shifts and a guard deterministically stands in door 138's sweep at the scripted press (collision-blocked, finish-open never reached) - correct door mechanics, unlucky AI positioning. The pin keeps this contract covering door/collect mechanics; guard fire-rate coverage lives in tools/fidelity/guard_fire_rate_symmetry_smoke.sh. NOTE (FID-0117, re-fit 2026-07-15): after the root-motion seeding fix (commit 78d76c6) Bond is no longer nudged out of door 138's sweep by the blocked door's push animation, so the door stayed collision-blocked at his press spot (z~2932, inside the second leaf's sweep) and finish-open never fired. Re-authored: added second_door_clear_sweep (back) after the open press so Bond backs away from the door plane (x -1189.7 -> beyond the ~-1196 slab-clearance edge), letting the already-latched state-1 door displace and finish (finish-open now fires deterministically at frame 606; displace count 124 >= 30). The 5-frame back-step coasts Bond to rest ~(-1232, 2943), so post_second_door_stability_position min_abs_x_delta was re-fit 170 -> 146 (achieved 148.9 from spawn x=-1381.4, ~2% determinism margin); all pad radii, log-count assertions, and the survival milestone are unchanged.",
+  "env": {
+    "GE007_TRACE_FLOW_ONLY": 1,
+    "GE007_DOOR_TRACE": 1,
+    "GE007_DOOR_TRACE_OBJS": "140,138",
+    "GE007_DOOR_TRACE_FRAME_MAX": 810,
+    "GE007_DOOR_TRACE_BUDGET": 2400,
+    "GE007_INTERACT_TRACE": 1,
+    "GE007_INTERACT_TRACE_BUDGET": 650,
+    "GE007_TRACE_INVENTORY": 1,
+    "GE007_FIRE_RATE_AUTHENTIC": 0
+  },
+  "input_segments": [
+    {
+      "name": "corridor_door_approach",
+      "start": 80,
+      "duration": 220,
+      "inputs": [
+        "forward",
+        "right"
+      ]
+    },
+    {
+      "name": "first_door_open_press",
+      "start": 160,
+      "duration": 8,
+      "inputs": [
+        "b"
+      ]
+    },
+    {
+      "name": "next_room_collect_press",
+      "start": 220,
+      "duration": 8,
+      "inputs": [
+        "b"
+      ]
+    },
+    {
+      "name": "second_door_turn_setup",
+      "start": 300,
+      "duration": 180,
+      "inputs": [
+        "look_right"
+      ]
+    },
+    {
+      "name": "second_door_approach",
+      "start": 380,
+      "duration": 145,
+      "inputs": [
+        "forward"
+      ]
+    },
+    {
+      "name": "second_door_face_adjust",
+      "start": 525,
+      "duration": 40,
+      "inputs": [
+        "look_left"
+      ]
+    },
+    {
+      "name": "second_door_open_press",
+      "start": 545,
+      "duration": 6,
+      "inputs": [
+        "b"
+      ]
+    },
+    {
+      "name": "second_door_clear_sweep",
+      "start": 555,
+      "duration": 5,
+      "inputs": [
+        "back"
+      ]
+    }
+  ],
+  "assertions": {
+    "expect_frame_exit": true,
+    "min_records": 815,
+    "no_render_failures": true,
+    "no_front_failure": true,
+    "require_input_automation": true,
+    "no_direct_state_automation": true,
+    "min_moving_records": 320,
+    "min_horizontal_delta": 560.0,
+    "log_count_assertions": [
+      {
+        "name": "real_corridor_door_allow",
+        "pattern": "^\\[INTERACT_TRACE\\] door allow obj=140\\b",
+        "min_count": 1
+      },
+      {
+        "name": "corridor_door_open_transition",
+        "pattern": "^\\[DOOR_TRACE\\] frame=\\d+ obj=140 state obj=140 0->1\\b",
+        "min_count": 1
+      },
+      {
+        "name": "corridor_door_open_displacement",
+        "pattern": "^\\[DOOR_TRACE\\] frame=\\d+ obj=140 displace state=1\\b",
+        "min_count": 45
+      },
+      {
+        "name": "corridor_door_finish_open",
+        "pattern": "^\\[DOOR_TRACE\\] frame=\\d+ obj=140 finish open obj=140\\b",
+        "min_count": 1
+      },
+      {
+        "name": "next_room_collect_begin",
+        "pattern": "^\\[INTERACT_TRACE\\] collect begin .*\\bobjtype=20\\b",
+        "min_count": 1
+      },
+      {
+        "name": "next_room_collect_free",
+        "pattern": "^\\[INTERACT_TRACE\\] collect free objtype=20 collectType=1\\b",
+        "min_count": 1
+      },
+      {
+        "name": "real_second_door_allow",
+        "pattern": "^\\[INTERACT_TRACE\\] door allow obj=138\\b",
+        "min_count": 1
+      },
+      {
+        "name": "second_door_open_transition",
+        "pattern": "^\\[DOOR_TRACE\\] frame=\\d+ obj=138 state obj=138 0->1\\b",
+        "min_count": 1
+      },
+      {
+        "name": "second_door_open_displacement",
+        "pattern": "^\\[DOOR_TRACE\\] frame=\\d+ obj=138 displace state=1\\b",
+        "min_count": 30
+      },
+      {
+        "name": "second_door_finish_open",
+        "pattern": "^\\[DOOR_TRACE\\] frame=\\d+ obj=138 finish open obj=138\\b",
+        "min_count": 1
+      }
+    ],
+    "setup_target_milestones": [
+      {
+        "name": "first_corridor_door_near_setup_pad_16",
+        "frame_at_or_after": 140,
+        "target": {
+          "kind": "object",
+          "type_name": "door",
+          "obj": 140,
+          "pad": 16
+        },
+        "max_horizontal_distance": 60.0,
+        "max_abs_y_delta": 70.0
+      },
+      {
+        "name": "next_room_near_prop_pad_10052",
+        "frame_at_or_after": 300,
+        "target": {
+          "kind": "object",
+          "type_name": "prop",
+          "obj": 32,
+          "pad": 10052
+        },
+        "max_horizontal_distance": 110.0,
+        "max_abs_y_delta": 180.0
+      },
+      {
+        "name": "second_door_near_setup_pad_14",
+        "frame_at_or_after": 545,
+        "target": {
+          "kind": "object",
+          "type_name": "door",
+          "obj": 138,
+          "pad": 14
+        },
+        "max_horizontal_distance": 70.0,
+        "max_abs_y_delta": 130.0
+      }
+    ],
+    "position_milestones": [
+      {
+        "name": "corridor_door_contact",
+        "frame_at_or_after": 140,
+        "min_horizontal_delta": 220.0,
+        "min_abs_z_delta": 220.0
+      },
+      {
+        "name": "next_room_pickup_cluster",
+        "frame_at_or_after": 300,
+        "min_horizontal_delta": 780.0,
+        "min_abs_x_delta": 180.0,
+        "min_abs_z_delta": 740.0
+      },
+      {
+        "name": "second_door_cluster_reach",
+        "frame_at_or_after": 545,
+        "min_horizontal_delta": 560.0,
+        "min_abs_x_delta": 170.0,
+        "min_abs_z_delta": 560.0
+      },
+      {
+        "name": "post_second_door_stability_position",
+        "frame_at_or_after": 760,
+        "min_horizontal_delta": 560.0,
+        "min_abs_x_delta": 146.0,
+        "min_abs_z_delta": 560.0
+      }
+    ],
+    "state_milestones": [
+      {
+        "name": "post_second_door_survival",
+        "frame_at_or_after": 780,
+        "checks": [
+          {
+            "path": "front.active_stage",
+            "op": "==",
+            "value": 9
+          },
+          {
+            "path": "front.bond_kia",
+            "op": "==",
+            "value": 0
+          },
+          {
+            "path": "front.mission_failed",
+            "op": "==",
+            "value": 0
+          }
+        ]
+      }
+    ]
+  }
+}

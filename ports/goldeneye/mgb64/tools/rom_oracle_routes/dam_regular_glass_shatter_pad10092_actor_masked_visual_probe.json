@@ -1,0 +1,184 @@
+{
+    "schema": "mgb64.rom_oracle.route.v1",
+    "name": "dam_regular_glass_shatter_pad10092_actor_masked_visual_probe",
+    "level": "33",
+    "native_frames": 127,
+    "stock_frames": 2600,
+    "stock_screenshot_frame": 2541,
+    "stock_gameplay_start_global": 1147,
+    "stock_require_first_gameplay_global": "",
+    "stock_speedframes": 2,
+    "stock_menu_close_on_player": true,
+    "native_render_audit": true,
+    "stock_min_gameplay_input_records": 5,
+    "stock_max_suppressed_menu_records": 0,
+    "stock_min_menu_to_gameplay_gap": 30,
+    "stock_min_force_player_applies": 300,
+    "stock_min_force_player_stan_applies": 300,
+    "compare_kind": "visual",
+    "compare_align": "global",
+    "compare_profile": "logical-viewport",
+    "visual_logical_size": [
+        320,
+        240
+    ],
+    "visual_logical_viewport": [
+        0,
+        10,
+        320,
+        220
+    ],
+    "visual_baseline_logical_frame": "active",
+    "visual_test_logical_frame": "full",
+    "visual_regions": [
+        {
+            "name": "tower_pane",
+            "roi": [
+                80,
+                115,
+                320,
+                180
+            ]
+        },
+        {
+            "name": "impact_side",
+            "roi": [
+                255,
+                145,
+                120,
+                95
+            ]
+        },
+        {
+            "name": "lower_actor_cluster",
+            "roi": [
+                145,
+                160,
+                215,
+                125
+            ]
+        },
+        {
+            "name": "hud_viewmodel",
+            "roi": [
+                360,
+                300,
+                255,
+                130
+            ]
+        }
+    ],
+    "visual_mask_exclude_regions": [
+        "lower_actor_cluster",
+        "hud_viewmodel"
+    ],
+    "compare_require_health_match": true,
+    "compare_health_tolerance": 0.001,
+    "compare_damage_show_tolerance": 1,
+    "compare_actor_chrnums": [
+        44,
+        7
+    ],
+    "compare_actor_fields": [
+        "alive",
+        "hidden",
+        "onscreen",
+        "action"
+    ],
+    "compare_actor_frame": "screenshot",
+    "compare_actor_position_tolerance": 25.0,
+    "compare_require_active": true,
+    "compare_max_active_tolerance": 0,
+    "compare_first_position_tolerance": 1.0,
+    "compare_require_prop_destroyed": true,
+    "compare_prop_position_tolerance": 1.0,
+    "compare_max_buffer_len": 200,
+    "description": "Dam regular-glass actor-masked visual fixture for the best current actor-light pane. Pad 10092 yaw 315 distance 650 has stock/native glass state parity at stock frame 2541 and native trace frame 126: target pane destroyed, active count 88, first position delta 0, and prop position delta 0. The stricter first-active timer-1 glass proof lives in glass_active_visual_isolation_regression.sh; this route is intentionally not an actor-clean pixel route. chr44 position drift and chr7 onscreen/action drift are expected, so the visual regression wrapper runs no-compare capture and then applies explicit actor/viewmodel masks while preserving unmasked ROI metrics.",
+    "native_config": {
+        "Video.AnisotropicFiltering": 1,
+        "Input.ViewmodelSway": 0,
+        "Video.Bloom": 0,
+        "Video.Brightness": 0,
+        "Video.Contrast": 1,
+        "Video.FovY": 60,
+        "Video.Gamma": 1,
+        "Video.GradePresets": 0,
+        "Video.MSAA": 0,
+        "Video.RemasterFX": 0,
+        "Video.RenderScale": 1,
+        "Video.RetroFilter": "on",
+        "Video.Saturation": 1,
+        "Video.Sharpen": 0,
+        "Video.Tonemap": 0,
+        "Video.Vignette": 0,
+        "Video.WindowHeight": 480,
+        "Video.WindowMode": "windowed",
+        "Video.WindowWidth": 640,
+        "Input.ModernCrosshair": 0,
+        "Input.HitMarkers": 0,
+        "Input.ReticleTargetFeedback": 0,
+        "Input.MinimapEnabled": 0
+    },
+    "native_env": {
+        "GE007_DIAG_DISABLE_HIGHDPI": "1",
+        "GE007_DISABLE_LEVEL_INTRO": "1",
+        "GE007_TRACE_GLASS": "1",
+        "GE007_TRACE_GLASS_BUDGET": "1200",
+        "GE007_OBJECT_TRACE": "1",
+        "GE007_OBJECT_TRACE_PAD": "10092",
+        "GE007_OBJECT_TRACE_BUDGET": "1200",
+        "GE007_AUTO_WARP_FRAME": 40,
+        "GE007_AUTO_WARP_PAD": 10092,
+        "GE007_AUTO_FORCE_PLAYER_SCRIPT": "45-260:16356.85:518.28:19066.15:315.0000:-6.4210:167.31:10092",
+        "GE007_AUTO_AUTOAIM_SCRIPT": "41:0,60:0,69:0",
+        "GE007_AUTO_CROSSHAIR_SCRIPT": "45-260:160:120"
+    },
+    "stock_env": {
+        "MGB64_ARES_FORCE_PLAYER_SCRIPT": "1:900:16356.85:518.28:19066.15:315.0000:-6.4210:167.31:10092",
+        "MGB64_ARES_CROSSHAIR_SCRIPT": "1:900:160:120"
+    },
+    "events": [],
+    "native_events": [
+        {
+            "start": 70,
+            "len": 170,
+            "buttons": [
+                "fire"
+            ]
+        }
+    ],
+    "stock_events": [
+        {
+            "start": 100,
+            "len": 3,
+            "buttons": [
+                "start"
+            ],
+            "phase": "menu",
+            "repeat": {
+                "every": 240,
+                "until": 2260
+            }
+        },
+        {
+            "start": 160,
+            "len": 3,
+            "buttons": [
+                "a"
+            ],
+            "phase": "menu",
+            "repeat": {
+                "every": 240,
+                "until": 2080
+            }
+        },
+        {
+            "start": 70,
+            "len": 170,
+            "buttons": [
+                "fire"
+            ],
+            "phase": "gameplay"
+        }
+    ]
+}

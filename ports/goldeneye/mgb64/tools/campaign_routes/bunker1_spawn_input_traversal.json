@@ -1,0 +1,55 @@
+{
+  "schema": "mgb64.campaign_route.v1",
+  "name": "bunker1_spawn_input_traversal",
+  "level": 9,
+  "frames": 300,
+  "route_class": "input_traversal",
+  "description": "Bunker 1 spawn traversal through the real controller path. The route intentionally asserts the collision-limited forward-right corridor movement seen from spawn instead of overstating objective progress.",
+  "env": {
+    "GE007_TRACE_FLOW_ONLY": 1
+  },
+  "input_segments": [
+    {"name": "corridor_diagonal_push", "start": 80, "duration": 160, "inputs": ["forward", "right"]}
+  ],
+  "assertions": {
+    "expect_frame_exit": true,
+    "min_records": 295,
+    "no_render_failures": true,
+    "no_front_failure": true,
+    "require_input_automation": true,
+    "no_direct_state_automation": true,
+    "min_moving_records": 150,
+    "min_horizontal_delta": 210.0,
+    "setup_target_milestones": [
+      {
+        "name": "corridor_push_near_setup_pad_87",
+        "frame_at_or_after": 140,
+        "target": {"kind": "pad", "pad": 87},
+        "max_horizontal_distance": 170.0
+      }
+    ],
+    "position_milestones": [
+      {
+        "name": "corridor_contact",
+        "frame_at_or_after": 140,
+        "min_horizontal_delta": 210.0,
+        "min_abs_x_delta": 25.0,
+        "min_abs_z_delta": 210.0
+      },
+      {
+        "name": "sustained_collision_push",
+        "frame_at_or_after": 220,
+        "min_horizontal_delta": 210.0,
+        "min_abs_x_delta": 25.0,
+        "min_abs_z_delta": 210.0
+      },
+      {
+        "name": "post_input_coast",
+        "frame_at_or_after": 299,
+        "min_horizontal_delta": 210.0,
+        "min_abs_x_delta": 25.0,
+        "min_abs_z_delta": 210.0
+      }
+    ]
+  }
+}

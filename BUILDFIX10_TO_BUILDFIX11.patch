@@ -1,0 +1,509 @@
+diff -ruN '--exclude=build' '--exclude=dist' /mnt/data/titan_bf10_baseline/apps/project-nes/include/titan_app_sdk.h /mnt/data/titan_bf10_audit/apps/project-nes/include/titan_app_sdk.h
+--- /mnt/data/titan_bf10_baseline/apps/project-nes/include/titan_app_sdk.h	2026-08-11 00:00:00.000000000 +0000
++++ /mnt/data/titan_bf10_audit/apps/project-nes/include/titan_app_sdk.h	2026-08-12 04:12:13.835165171 +0000
+@@ -20,7 +20,7 @@
+  * kernel-private input header, so this public ABI remains self-contained. */
+ #define TITAN_APP_BUTTON_SELECT   0x0001u
+ #define TITAN_APP_BUTTON_L3       0x0002u
+-#define TITAN_APP_BUTTON_R3       0x0004u
++#define TITAN_APP_BUTTON_R3       0x0004u /* reserved by Titan: window/fullscreen toggle */
+ #define TITAN_APP_BUTTON_START    0x0008u
+ #define TITAN_APP_BUTTON_UP       0x0010u
+ #define TITAN_APP_BUTTON_RIGHT    0x0020u
+@@ -110,8 +110,9 @@
+ 
+     /* Media foundation. Audio is decoded PCM S16LE, stereo, 32 kHz. Apps that
+      * port a codec can decode/resample themselves and stream into this queue.
+-     * Video/background frames are RGB565 512x256. The kernel keeps the frame in
+-     * EE RAM and presents it through Titan's renderer; in native 720p it reuses
++     * Video/background frames are conventional RGB565 512x256. The kernel
++     * converts them to the GS native PSMCT16 layout before upload, keeps the
++     * frame in EE RAM and presents it through Titan's renderer; in native 720p it reuses
+      * the existing PSM16 scratch in tiles, so no extra GS surface/VRAM is owned
+      * by the app. Apps never own framebuffer or AUDSRV state directly. */
+     int (*media_begin_audio)(void);
+diff -ruN '--exclude=build' '--exclude=dist' /mnt/data/titan_bf10_baseline/kernel/include/titan_app_sdk.h /mnt/data/titan_bf10_audit/kernel/include/titan_app_sdk.h
+--- /mnt/data/titan_bf10_baseline/kernel/include/titan_app_sdk.h	2026-08-11 00:00:00.000000000 +0000
++++ /mnt/data/titan_bf10_audit/kernel/include/titan_app_sdk.h	2026-08-12 04:12:13.835038062 +0000
+@@ -20,7 +20,7 @@
+  * kernel-private input header, so this public ABI remains self-contained. */
+ #define TITAN_APP_BUTTON_SELECT   0x0001u
+ #define TITAN_APP_BUTTON_L3       0x0002u
+-#define TITAN_APP_BUTTON_R3       0x0004u
++#define TITAN_APP_BUTTON_R3       0x0004u /* reserved by Titan: window/fullscreen toggle */
+ #define TITAN_APP_BUTTON_START    0x0008u
+ #define TITAN_APP_BUTTON_UP       0x0010u
+ #define TITAN_APP_BUTTON_RIGHT    0x0020u
+@@ -110,8 +110,9 @@
+ 
+     /* Media foundation. Audio is decoded PCM S16LE, stereo, 32 kHz. Apps that
+      * port a codec can decode/resample themselves and stream into this queue.
+-     * Video/background frames are RGB565 512x256. The kernel keeps the frame in
+-     * EE RAM and presents it through Titan's renderer; in native 720p it reuses
++     * Video/background frames are conventional RGB565 512x256. The kernel
++     * converts them to the GS native PSMCT16 layout before upload, keeps the
++     * frame in EE RAM and presents it through Titan's renderer; in native 720p it reuses
+      * the existing PSM16 scratch in tiles, so no extra GS surface/VRAM is owned
+      * by the app. Apps never own framebuffer or AUDSRV state directly. */
+     int (*media_begin_audio)(void);
+diff -ruN '--exclude=build' '--exclude=dist' /mnt/data/titan_bf10_baseline/kernel/src/graphics/backends/titan_video_software.inc /mnt/data/titan_bf10_audit/kernel/src/graphics/backends/titan_video_software.inc
+--- /mnt/data/titan_bf10_baseline/kernel/src/graphics/backends/titan_video_software.inc	2026-08-11 00:00:00.000000000 +0000
++++ /mnt/data/titan_bf10_audit/kernel/src/graphics/backends/titan_video_software.inc	2026-08-12 04:09:25.671066566 +0000
+@@ -66,6 +66,20 @@
+ 
+ static TitanVideoState g_video;
+ 
++static unsigned short g_video_media_psm16[
++    TITAN_VIDEO_MEDIA_SURFACE_WIDTH * TITAN_VIDEO_MEDIA_SURFACE_HEIGHT
++];
++
++static unsigned short TitanVideo_Rgb565ToPsm16(unsigned short pixel)
++{
++    unsigned int red = (pixel >> 11u) & 0x1fu;
++    unsigned int green = ((pixel >> 5u) & 0x3fu);
++    unsigned int blue = pixel & 0x1fu;
++    green = (green + 1u) >> 1u;
++    if (green > 0x1fu) green = 0x1fu;
++    return (unsigned short)(red | (green << 5u) | (blue << 10u) | 0x8000u);
++}
++
+ static int TitanVideo_ClampInt(
+     int value,
+     int minimum,
+@@ -1957,8 +1971,28 @@
+ )
+ {
+     TitanResult result;
++    unsigned int row;
++    unsigned int column;
++
++    if (pixels == 0 || width != TITAN_VIDEO_MEDIA_SURFACE_WIDTH ||
++        height != TITAN_VIDEO_MEDIA_SURFACE_HEIGHT || stride < width)
++    {
++        return TITAN_ERROR_INVALID_ARGUMENT;
++    }
+ 
+-    result = TitanVideo_UploadCachedLayer16(pixels, width, height, stride);
++    for (row = 0u; row < height; row++)
++    {
++        const unsigned short *source_row = &pixels[row * stride];
++        unsigned short *destination_row = &g_video_media_psm16[row * width];
++        for (column = 0u; column < width; column++)
++        {
++            destination_row[column] = TitanVideo_Rgb565ToPsm16(source_row[column]);
++        }
++    }
++
++    result = TitanVideo_UploadCachedLayer16(
++        g_video_media_psm16, width, height, width
++    );
+     if (result != TITAN_RESULT_OK)
+     {
+         return result;
+diff -ruN '--exclude=build' '--exclude=dist' /mnt/data/titan_bf10_baseline/kernel/src/graphics/titan_video.c /mnt/data/titan_bf10_audit/kernel/src/graphics/titan_video.c
+--- /mnt/data/titan_bf10_baseline/kernel/src/graphics/titan_video.c	2026-08-11 00:00:00.000000000 +0000
++++ /mnt/data/titan_bf10_audit/kernel/src/graphics/titan_video.c	2026-08-12 04:09:25.670941170 +0000
+@@ -149,6 +149,32 @@
+     TITAN_VIDEO_AVATAR_SCRATCH_HEIGHT
+ ] __attribute__((aligned(64)));
+ 
++/* Public Titan App video is conventional RGB565. GS_PSM_16 is R5G5B5A1,
++ * so raw uploads corrupt both color and alpha. Non-compact modes convert the
++ * whole frame here; compact 720p converts each scratch tile in-place. */
++static unsigned short g_video_media_psm16[
++    TITAN_VIDEO_MEDIA_SURFACE_WIDTH * TITAN_VIDEO_MEDIA_SURFACE_HEIGHT
++] __attribute__((aligned(64)));
++
++static unsigned short TitanVideo_Rgb565ToPsm16(unsigned short pixel)
++{
++    unsigned int red;
++    unsigned int green;
++    unsigned int blue;
++
++    red = (pixel >> 11u) & 0x1fu;
++    green = (pixel >> 5u) & 0x3fu;
++    blue = pixel & 0x1fu;
++
++    /* Round 6-bit green to 5 bits and force texture alpha opaque. */
++    green = (green + 1u) >> 1u;
++    if (green > 0x1fu) green = 0x1fu;
++
++    return (unsigned short)(
++        red | (green << 5u) | (blue << 10u) | 0x8000u
++    );
++}
++
+ 
+ static float TitanVideo_ClampFloat(
+     float value,
+@@ -2625,11 +2651,16 @@
+ 
+     for (row = 0u; row < tile_height; row++)
+     {
+-        memcpy(
+-            &g_video_media_scratch[row * tile_width],
+-            &pixels[(source_y + row) * source_stride + source_x],
+-            tile_width * sizeof(unsigned short)
+-        );
++        unsigned int column;
++        const unsigned short *source_row =
++            &pixels[(source_y + row) * source_stride + source_x];
++        unsigned short *destination_row =
++            &g_video_media_scratch[row * tile_width];
++
++        for (column = 0u; column < tile_width; column++)
++        {
++            destination_row[column] = TitanVideo_Rgb565ToPsm16(source_row[column]);
++        }
+     }
+ 
+     packet2_reset(g_video.upload_packet, 0);
+@@ -2730,9 +2761,22 @@
+     if (!g_video.compact_resources)
+     {
+         TitanResult result;
+-        if (stride != width)
++        unsigned int row;
++        unsigned int column;
++        if (stride < width)
+             return TITAN_ERROR_INVALID_ARGUMENT;
+-        result = TitanVideo_UploadCachedLayerTransient16(pixels);
++
++        for (row = 0u; row < height; row++)
++        {
++            const unsigned short *source_row = &pixels[row * stride];
++            unsigned short *destination_row = &g_video_media_psm16[row * width];
++            for (column = 0u; column < width; column++)
++            {
++                destination_row[column] = TitanVideo_Rgb565ToPsm16(source_row[column]);
++            }
++        }
++
++        result = TitanVideo_UploadCachedLayerTransient16(g_video_media_psm16);
+         if (result != TITAN_RESULT_OK)
+         {
+             return result;
+diff -ruN '--exclude=build' '--exclude=dist' /mnt/data/titan_bf10_baseline/kernel/src/services/titan_app_runtime.c /mnt/data/titan_bf10_audit/kernel/src/services/titan_app_runtime.c
+--- /mnt/data/titan_bf10_baseline/kernel/src/services/titan_app_runtime.c	2026-08-11 00:00:00.000000000 +0000
++++ /mnt/data/titan_bf10_audit/kernel/src/services/titan_app_runtime.c	2026-08-12 04:12:13.834849923 +0000
+@@ -68,6 +68,16 @@
+ #define TITAN_APP_INIT_THREAD_PRIORITY 80
+ #define TITAN_APP_INIT_TIMEOUT_MS 15000u
+ 
++/* Titan-native apps are windowed by default, like Orbis browser/live-area apps.
++ * The app continues to draw in the public 854x448 logical canvas; the renderer
++ * maps that canvas into this viewport. R3 toggles shell-owned fullscreen. */
++#define TITAN_APP_WINDOW_SCALE 0.72f
++#define TITAN_APP_WINDOW_X 119.56f
++#define TITAN_APP_WINDOW_Y 62.72f
++#define TITAN_APP_WINDOW_W 614.88f
++#define TITAN_APP_WINDOW_H 322.56f
++#define TITAN_APP_WINDOW_PAD 18.0f
++
+ typedef struct TitanTmodElfHeader
+ {
+     unsigned char ident[16];
+@@ -176,6 +186,7 @@
+     int background_ready;
+     int media_ready;
+     int storage_exclusive;
++    int fullscreen;
+     volatile int init_done;
+     volatile int init_result;
+     volatile int init_request_pending;
+@@ -2008,8 +2019,20 @@
+     {
+         g_app_runtime.exit_requested = 1;
+     }
++    else if ((app_input.pressed & TITAN_APP_BUTTON_R3) != 0u)
++    {
++        /* Fullscreen is shell chrome, not application state. Keep the toggle
++         * kernel-owned so every Titan App gets identical behavior without an
++         * ABI bump or app-specific code. */
++        g_app_runtime.fullscreen = !g_app_runtime.fullscreen;
++    }
+     else
+     {
++        /* R3 is reserved by the shell for window/fullscreen chrome and is not
++         * forwarded to applications. */
++        app_input.held &= (uint16_t)~TITAN_APP_BUTTON_R3;
++        app_input.pressed &= (uint16_t)~TITAN_APP_BUTTON_R3;
++        app_input.released &= (uint16_t)~TITAN_APP_BUTTON_R3;
+         g_app_runtime.module.update(&app_input, delta_ms);
+     }
+ 
+@@ -2021,31 +2044,48 @@
+ 
+ void TitanAppRuntime_Draw(unsigned int frame)
+ {
++    float window_x;
++    float window_y;
++    float window_w;
++    float window_h;
++
++    (void)frame;
++
+     if (g_app_runtime.launching)
+     {
+-        TitanShellBackground_Draw(frame, 0.0f, 0.0f);
++        /* The shell scene behind us remains visible. Launch progress lives in
++         * the same window chrome that the app will occupy once init succeeds. */
++        window_x = TITAN_APP_WINDOW_X - TITAN_APP_WINDOW_PAD;
++        window_y = TITAN_APP_WINDOW_Y - TITAN_APP_WINDOW_PAD;
++        window_w = TITAN_APP_WINDOW_W + (TITAN_APP_WINDOW_PAD * 2.0f);
++        window_h = TITAN_APP_WINDOW_H + (TITAN_APP_WINDOW_PAD * 2.0f);
++
++        TitanVideo_DrawRoundedRectAlpha(
++            window_x + 5.0f, window_y + 7.0f, window_w, window_h,
++            14.0f, 0, 0, 0, 118
++        );
+         TitanVideo_DrawRoundedRectAlpha(
+-            112.0f, 155.0f, 630.0f, 154.0f,
+-            10.0f, 5, 7, 12, 224
++            window_x, window_y, window_w, window_h,
++            14.0f, 7, 8, 14, 244
+         );
+         TitanVideo_DrawLineAlpha(
+-            112.0f, 155.0f, 742.0f, 155.0f,
++            window_x, window_y, window_x + window_w, window_y,
+             1.0f, 222, 43, 82, 255
+         );
+         TitanFont_DrawTextShadow(
+-            148.0f, 190.0f, 0.88f,
++            window_x + 34.0f, window_y + 67.0f, 0.88f,
+             g_app_runtime.title[0] != '\0' ? g_app_runtime.title : "Titan App",
+             255, 255, 255, 255
+         );
+         TitanFont_DrawTextAlpha(
+-            148.0f, 231.0f, 0.68f,
++            window_x + 34.0f, window_y + 112.0f, 0.64f,
+             g_app_runtime.launch_status[0] != '\0'
+                 ? g_app_runtime.launch_status
+                 : "Preparando aplicativo",
+             225, 225, 230, 255
+         );
+         TitanFont_DrawTextAlpha(
+-            148.0f, 271.0f, 0.55f,
++            window_x + 34.0f, window_y + window_h - 42.0f, 0.48f,
+             "Select + Circulo: cancelar inicializacao",
+             222, 43, 82, 255
+         );
+@@ -2056,6 +2096,64 @@
+         return;
+     }
+ 
++    if (g_app_runtime.fullscreen)
++    {
++        /* Fullscreen means the app owns the content canvas, while global Titan
++         * overlays/notifications are still composed after it by the kernel. */
++        TitanVideo_DrawRectAlpha(
++            0.0f, 0.0f,
++            (float)TITAN_APP_LOGICAL_WIDTH,
++            (float)TITAN_APP_LOGICAL_HEIGHT,
++            0, 0, 0, 255
++        );
++
++        if (g_app_runtime.background_ready && g_app_runtime.background_pixels != 0)
++        {
++            (void)TitanVideo_DrawMediaImage16(
++                g_app_runtime.background_pixels,
++                TITAN_VIDEO_MEDIA_SURFACE_WIDTH,
++                TITAN_VIDEO_MEDIA_SURFACE_HEIGHT,
++                TITAN_VIDEO_MEDIA_SURFACE_WIDTH,
++                0.0f, 0.0f,
++                (float)TITAN_APP_LOGICAL_WIDTH,
++                (float)TITAN_APP_LOGICAL_HEIGHT,
++                255u
++            );
++        }
++
++        TitanVideo_ResetTransform();
++        g_app_runtime.module.draw();
++        TitanVideo_ResetTransform();
++        return;
++    }
++
++    /* Default Orbis-style app window. The Home grid is rendered first by the
++     * shell scene and behaves as a frozen live-area frame around this surface. */
++    window_x = TITAN_APP_WINDOW_X - TITAN_APP_WINDOW_PAD;
++    window_y = TITAN_APP_WINDOW_Y - TITAN_APP_WINDOW_PAD;
++    window_w = TITAN_APP_WINDOW_W + (TITAN_APP_WINDOW_PAD * 2.0f);
++    window_h = TITAN_APP_WINDOW_H + (TITAN_APP_WINDOW_PAD * 2.0f);
++
++    TitanVideo_DrawRoundedRectAlpha(
++        window_x + 6.0f, window_y + 8.0f, window_w, window_h,
++        14.0f, 0, 0, 0, 128
++    );
++    TitanVideo_DrawRoundedRectAlpha(
++        window_x, window_y, window_w, window_h,
++        14.0f, 6, 7, 13, 246
++    );
++    TitanVideo_DrawLineAlpha(
++        window_x, window_y, window_x + window_w, window_y,
++        1.0f, 222, 43, 82, 238
++    );
++
++    TitanVideo_SetTransform(
++        TITAN_APP_WINDOW_SCALE,
++        0.0f, 0.0f,
++        TITAN_APP_WINDOW_X,
++        TITAN_APP_WINDOW_Y
++    );
++
+     if (g_app_runtime.background_ready && g_app_runtime.background_pixels != 0)
+     {
+         (void)TitanVideo_DrawMediaImage16(
+@@ -2069,11 +2167,17 @@
+             255u
+         );
+     }
+-    else
+-    {
+-        TitanShellBackground_Draw(frame, 0.0f, 0.0f);
+-    }
++
+     g_app_runtime.module.draw();
++    TitanVideo_ResetTransform();
++
++    TitanFont_DrawTextAlpha(
++        window_x + window_w - 112.0f,
++        window_y + window_h - 24.0f,
++        0.40f,
++        "R3  Tela cheia",
++        196, 201, 214, 224
++    );
+ }
+ 
+ void TitanAppRuntime_Close(void)
+@@ -2115,6 +2219,11 @@
+     return g_app_runtime.active || g_app_runtime.launching;
+ }
+ 
++int TitanAppRuntime_IsFullscreen(void)
++{
++    return g_app_runtime.active && g_app_runtime.fullscreen;
++}
++
+ const char *TitanAppRuntime_GetTitle(void)
+ {
+     return g_app_runtime.title;
+diff -ruN '--exclude=build' '--exclude=dist' /mnt/data/titan_bf10_baseline/kernel/src/services/titan_app_runtime.h /mnt/data/titan_bf10_audit/kernel/src/services/titan_app_runtime.h
+--- /mnt/data/titan_bf10_baseline/kernel/src/services/titan_app_runtime.h	2026-08-11 00:00:00.000000000 +0000
++++ /mnt/data/titan_bf10_audit/kernel/src/services/titan_app_runtime.h	2026-08-12 04:09:25.668743796 +0000
+@@ -21,6 +21,7 @@
+ int TitanAppRuntime_IsActive(void);
+ int TitanAppRuntime_IsLaunching(void);
+ int TitanAppRuntime_OwnsShell(void);
++int TitanAppRuntime_IsFullscreen(void);
+ const char *TitanAppRuntime_GetTitle(void);
+ const char *TitanAppRuntime_GetLastError(void);
+ 
+diff -ruN '--exclude=build' '--exclude=dist' /mnt/data/titan_bf10_baseline/kernel/src/ui/titan_shell_scene.c /mnt/data/titan_bf10_audit/kernel/src/ui/titan_shell_scene.c
+--- /mnt/data/titan_bf10_baseline/kernel/src/ui/titan_shell_scene.c	2026-08-11 00:00:00.000000000 +0000
++++ /mnt/data/titan_bf10_audit/kernel/src/ui/titan_shell_scene.c	2026-08-12 04:09:25.670722846 +0000
+@@ -13324,6 +13324,21 @@
+ 
+     if (TitanAppRuntime_OwnsShell())
+     {
++        if (!TitanAppRuntime_IsFullscreen())
++        {
++            /* Orbis-style native app composition: keep a frozen Home/live-area
++             * behind the application and use it as the visual frame. Input and
++             * animation state remain owned by the app until it exits. */
++            TitanShellBackground_Draw(frame, 0.0f, 0.0f);
++            TitanShellScene_DrawHeader(frame, input, 188u);
++            TitanShellScene_DrawHome(0.0f, 158u, 1.0f, 1.0f);
++            TitanVideo_DrawRectAlpha(
++                0.0f, 0.0f,
++                (float)TITAN_UI_WIDTH, (float)TITAN_UI_HEIGHT,
++                0, 0, 0, 62u
++            );
++        }
++
+         TitanAppRuntime_Draw(frame);
+         TitanShellScene_DrawDexOverlay();
+         return;
+Binary files /mnt/data/titan_bf10_baseline/kernel/tests/__pycache__/test_renderer_rewrite_contract.cpython-313.pyc and /mnt/data/titan_bf10_audit/kernel/tests/__pycache__/test_renderer_rewrite_contract.cpython-313.pyc differ
+diff -ruN '--exclude=build' '--exclude=dist' /mnt/data/titan_bf10_baseline/kernel/tests/run_host_tests.sh /mnt/data/titan_bf10_audit/kernel/tests/run_host_tests.sh
+--- /mnt/data/titan_bf10_baseline/kernel/tests/run_host_tests.sh	2026-08-11 00:00:00.000000000 +0000
++++ /mnt/data/titan_bf10_audit/kernel/tests/run_host_tests.sh	2026-08-12 04:11:32.972619844 +0000
+@@ -441,6 +441,7 @@
+ 
+ python3 "$kernel_root/tests/test_release_contract.py" "$kernel_root"
+ python3 "$kernel_root/tests/test_renderer_rewrite_contract.py"
++python3 "$kernel_root/tests/test_titan_app_window_media_contract.py" "$kernel_root"
+ python3 "$kernel_root/tests/test_xmb_spline_contract.py"
+ 
+ gcc \
+diff -ruN '--exclude=build' '--exclude=dist' /mnt/data/titan_bf10_baseline/kernel/tests/test_app_runtime_platform_stubs.c /mnt/data/titan_bf10_audit/kernel/tests/test_app_runtime_platform_stubs.c
+--- /mnt/data/titan_bf10_baseline/kernel/tests/test_app_runtime_platform_stubs.c	2026-08-11 00:00:00.000000000 +0000
++++ /mnt/data/titan_bf10_audit/kernel/tests/test_app_runtime_platform_stubs.c	2026-08-12 04:09:53.888627417 +0000
+@@ -104,3 +104,16 @@
+ 
+ void TitanStorageScheduler_SetTitanAppExclusiveMode(int enabled) { (void)enabled; }
+ int TitanStorageScheduler_IsTitanAppWorkerParked(void) { return 1; }
++
++void TitanVideo_SetTransform(
++    float scale,
++    float origin_x,
++    float origin_y,
++    float offset_x,
++    float offset_y
++)
++{
++    (void)scale; (void)origin_x; (void)origin_y; (void)offset_x; (void)offset_y;
++}
++
++void TitanVideo_ResetTransform(void) { }
+diff -ruN '--exclude=build' '--exclude=dist' /mnt/data/titan_bf10_baseline/kernel/tests/test_titan_app_window_media_contract.py /mnt/data/titan_bf10_audit/kernel/tests/test_titan_app_window_media_contract.py
+--- /mnt/data/titan_bf10_baseline/kernel/tests/test_titan_app_window_media_contract.py	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/titan_bf10_audit/kernel/tests/test_titan_app_window_media_contract.py	2026-08-12 04:11:32.525835887 +0000
+@@ -0,0 +1,48 @@
++#!/usr/bin/env python3
++from pathlib import Path
++import sys
++
++root = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(__file__).resolve().parents[1]
++runtime = (root / 'src/services/titan_app_runtime.c').read_text()
++runtime_h = (root / 'src/services/titan_app_runtime.h').read_text()
++shell = (root / 'src/ui/titan_shell_scene.c').read_text()
++video = (root / 'src/graphics/titan_video.c').read_text()
++software = (root / 'src/graphics/backends/titan_video_software.inc').read_text()
++sdk = (root / 'include/titan_app_sdk.h').read_text()
++
++assert '#define TITAN_APP_WINDOW_SCALE 0.72f' in runtime
++assert 'g_app_runtime.fullscreen = !g_app_runtime.fullscreen;' in runtime
++assert 'TITAN_APP_BUTTON_R3' in runtime
++assert 'R3  Tela cheia' in runtime
++assert 'int TitanAppRuntime_IsFullscreen(void);' in runtime_h
++assert 'if (!TitanAppRuntime_IsFullscreen())' in shell
++assert 'TitanShellScene_DrawHome(0.0f, 158u, 1.0f, 1.0f);' in shell
++assert 'TitanVideo_SetTransform(' in runtime and 'TitanVideo_ResetTransform();' in runtime
++
++# The public API remains conventional RGB565. Hardware GS PSMCT16 is R5G5B5A1,
++# so the conversion must reorder channels and force A=1 before DMA upload.
++for source in (video, software):
++    assert 'TitanVideo_Rgb565ToPsm16' in source
++    assert '(pixel >> 11u) & 0x1fu' in source
++    assert '(pixel >> 5u) & 0x3fu' in source
++    assert 'pixel & 0x1fu' in source
++    assert '(blue << 10u) | 0x8000u' in source
++
++assert 'conventional RGB565 512x256' in sdk
++assert 'converts them to the GS native PSMCT16 layout' in sdk
++
++# Known-color oracle for the intended conversion.
++def convert(pixel: int) -> int:
++    red = (pixel >> 11) & 0x1f
++    green = (pixel >> 5) & 0x3f
++    blue = pixel & 0x1f
++    green = min(0x1f, (green + 1) >> 1)
++    return red | (green << 5) | (blue << 10) | 0x8000
++
++assert convert(0x0000) == 0x8000
++assert convert(0xF800) == 0x801F
++assert convert(0x07E0) == 0x83E0
++assert convert(0x001F) == 0xFC00
++assert convert(0xFFFF) == 0xFFFF
++
++print('titan-app-window-media-contract: OK')

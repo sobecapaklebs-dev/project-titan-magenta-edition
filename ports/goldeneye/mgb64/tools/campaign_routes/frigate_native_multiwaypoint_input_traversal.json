@@ -1,0 +1,131 @@
+{
+  "schema": "mgb64.campaign_route.v1",
+  "name": "frigate_native_multiwaypoint_input_traversal",
+  "level": 26,
+  "frames": 900,
+  "route_class": "input_traversal",
+  "description": "Frigate native multi-waypoint traversal from stock spawn. Bond drives from the stern spawn through the pad-150 exterior cluster and across later authored deck pads using only controller input. FID-0117 (commit 78d76c6) corrected root-motion seeding in modelSetAnimFrame2WithChrStuff (unk01 vs legacy unk02). On 2026-07-15 (AUDIT-0017) this route was re-fit. Root-cause: the corrected root motion shifts Bond's far-deck pass EARLIER, not shorter — under the retail-correct sim Bond's global closest approach to pad 145 is 23.70u at frame 644 (BETTER than the 23.96u@653 legacy opt-out control), but the stale far_deck_pad_145 window (frame_at_or_after 653) began its scan 9 frames after Bond had already swept past the pad, reporting an artifactual 100.95u overshoot. The deck-push choreography is unchanged and intact (inputs NOT touched): held-input re-timing experiments (push start 260->269 and duration 520->511) reproduced the identical ~23.7u closest-approach while perturbing the upstream chain (start 269 broke midship_push@460 at 1077.72<1100), confirming the failure is a pure window-timing artifact, not a choreography regression. FIX = frame_at_or_after 653->640 on far_deck_pad_145 only (a small cushion before the recaptured 644 closest-approach frame; the horiz<=85 pass-band spans ~f641-651). max_horizontal 85u KEPT (reachable at 23.70u -- no radius widen). No distance FLOORS re-fit: the early pad chain (176/153/152/151/150/149/144/60) and both far position milestones far_deck_push@653 (2391 vs 2250) and late_far_deck_reach@877 (2865 vs 2800) still pass with margin under the corrected sim; min_horizontal_delta 2800 (achieved 2865) unchanged.",
+  "env": {
+    "GE007_TRACE_FLOW_ONLY": 1
+  },
+  "input_segments": [
+    {
+      "name": "stern_to_pad150_cluster",
+      "start": 80,
+      "duration": 170,
+      "inputs": ["back", "right"]
+    },
+    {
+      "name": "pad150_to_forward_right_deck_push",
+      "start": 260,
+      "duration": 520,
+      "inputs": ["forward", "right"]
+    }
+  ],
+  "assertions": {
+    "expect_frame_exit": true,
+    "min_records": 895,
+    "no_render_failures": true,
+    "no_front_failure": true,
+    "require_input_automation": true,
+    "no_direct_state_automation": true,
+    "min_moving_records": 680,
+    "min_horizontal_delta": 2800.0,
+    "setup_target_milestones": [
+      {
+        "name": "stock_spawn_pad_176",
+        "frame_at_or_after": 1,
+        "target": {"kind": "pad", "pad": 176},
+        "max_horizontal_distance": 5.0
+      },
+      {
+        "name": "stern_side_pad_153",
+        "frame_at_or_after": 118,
+        "target": {"kind": "pad", "pad": 153},
+        "max_horizontal_distance": 70.0
+      },
+      {
+        "name": "stern_side_pad_152",
+        "frame_at_or_after": 125,
+        "target": {"kind": "pad", "pad": 152},
+        "max_horizontal_distance": 60.0
+      },
+      {
+        "name": "lifeboat_cluster_pad_151",
+        "frame_at_or_after": 158,
+        "target": {"kind": "pad", "pad": 151},
+        "max_horizontal_distance": 70.0
+      },
+      {
+        "name": "lifeboat_cluster_pad_150",
+        "frame_at_or_after": 165,
+        "target": {"kind": "pad", "pad": 150},
+        "max_horizontal_distance": 40.0
+      },
+      {
+        "name": "return_cluster_pad_149",
+        "frame_at_or_after": 345,
+        "target": {"kind": "pad", "pad": 149},
+        "max_horizontal_distance": 60.0
+      },
+      {
+        "name": "return_cluster_pad_144",
+        "frame_at_or_after": 353,
+        "target": {"kind": "pad", "pad": 144},
+        "max_horizontal_distance": 75.0
+      },
+      {
+        "name": "midship_pad_60",
+        "frame_at_or_after": 460,
+        "target": {"kind": "pad", "pad": 60},
+        "max_horizontal_distance": 80.0
+      },
+      {
+        "name": "far_deck_pad_145",
+        "frame_at_or_after": 640,
+        "target": {"kind": "pad", "pad": 145},
+        "max_horizontal_distance": 85.0
+      }
+    ],
+    "position_milestones": [
+      {
+        "name": "lifeboat_cluster_reach",
+        "frame_at_or_after": 180,
+        "min_horizontal_delta": 560.0,
+        "min_abs_x_delta": 180.0,
+        "min_abs_z_delta": 540.0
+      },
+      {
+        "name": "midship_push",
+        "frame_at_or_after": 460,
+        "min_horizontal_delta": 1100.0,
+        "min_abs_x_delta": 1050.0
+      },
+      {
+        "name": "far_deck_push",
+        "frame_at_or_after": 653,
+        "min_horizontal_delta": 2250.0,
+        "min_abs_x_delta": 1600.0,
+        "min_abs_z_delta": 1500.0
+      },
+      {
+        "name": "late_far_deck_reach",
+        "frame_at_or_after": 877,
+        "min_horizontal_delta": 2800.0,
+        "min_abs_x_delta": 1600.0,
+        "min_abs_z_delta": 2200.0
+      }
+    ],
+    "state_milestones": [
+      {
+        "name": "late_frigate_state_stable",
+        "frame_at_or_after": 860,
+        "checks": [
+          {"path": "front.active_stage", "op": "==", "value": 26},
+          {"path": "front.bond_kia", "op": "==", "value": 0},
+          {"path": "front.mission_failed", "op": "==", "value": 0}
+        ]
+      }
+    ]
+  }
+}

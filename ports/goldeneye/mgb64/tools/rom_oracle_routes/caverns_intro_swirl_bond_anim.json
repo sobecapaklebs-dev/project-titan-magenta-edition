@@ -1,0 +1,134 @@
+{
+  "schema": "mgb64.rom_oracle.route.v1",
+  "name": "caverns_intro_swirl_bond_anim",
+  "description": "Caverns intro swirl camera and Bond animation comparison aligned by authored intro timer.",
+  "level": "39",
+  "native_frames": 1800,
+  "stock_frames": 6500,
+  "native_env": {
+    "GE007_ENABLE_LEVEL_INTRO": "1",
+    "GE007_INTRO_CAMERA_INDEX": "0"
+  },
+  "native_render_audit": true,
+  "compare_kind": "intro",
+  "compare_align": "per-mode",
+  "compare_profile": "path",
+  "compare_state": true,
+  "compare_selected_camera": true,
+  "compare_intro_setup": true,
+  "compare_bond_anim": true,
+  "compare_min_aligned": 20,
+  "compare_camera_modes": "swirl",
+  "compare_require_frozen": true,
+  "compare_vector_tolerance": 0.15,
+  "compare_direction_tolerance": 0.005,
+  "compare_scalar_tolerance": 0.001,
+  "compare_anim_tolerance": 0.03,
+  "compare_waivers": {},
+  "native_intro_audit": true,
+  "native_intro_require_player": true,
+  "native_intro_require_frozen": true,
+  "native_intro_require_bond_present": true,
+  "native_intro_require_bond_onscreen": true,
+  "native_intro_require_bond_model_mtx": true,
+  "native_intro_require_bond_rendered": true,
+  "native_intro_require_bond_anim": true,
+  "native_intro_require_bond_anim_hash": true,
+  "native_intro_min_active_records": 180,
+  "native_intro_min_present_frames": 180,
+  "native_intro_min_onscreen_frames": 180,
+  "native_intro_min_model_mtx_frames": 180,
+  "native_intro_min_rendered_frames": 180,
+  "native_intro_min_render_count": 180,
+  "native_intro_min_anim_frames": 180,
+  "native_intro_min_anim_hash_frames": 180,
+  "native_intro_min_anim_advance": 1.0,
+  "native_intro_max_first_present_frame": 700,
+  "native_intro_max_first_render_frame": 700,
+  "native_intro_require_h17_swirl_facing": true,
+  "stock_max_suppressed_menu_records": 10,
+  "events": [],
+  "stock_events": [
+    {
+      "start": 100,
+      "len": 3,
+      "buttons": [
+        "start"
+      ],
+      "phase": "menu",
+      "repeat": {
+        "every": 240,
+        "until": 2260
+      }
+    },
+    {
+      "start": 2300,
+      "len": 3,
+      "buttons": [
+        "cleft"
+      ],
+      "phase": "menu"
+    },
+    {
+      "start": 2360,
+      "len": 3,
+      "buttons": [
+        "a"
+      ],
+      "phase": "menu"
+    },
+    {
+      "start": 2500,
+      "len": 40,
+      "buttons": [],
+      "phase": "menu",
+      "right": true
+    },
+    {
+      "start": 2600,
+      "len": 160,
+      "buttons": [],
+      "phase": "menu",
+      "back": true
+    },
+    {
+      "start": 2820,
+      "len": 3,
+      "buttons": [
+        "a"
+      ],
+      "phase": "menu"
+    },
+    {
+      "start": 2920,
+      "len": 60,
+      "buttons": [],
+      "phase": "menu",
+      "forward": true
+    },
+    {
+      "start": 3040,
+      "len": 3,
+      "buttons": [
+        "a"
+      ],
+      "phase": "menu",
+      "repeat": {
+        "every": 40,
+        "count": 3
+      }
+    },
+    {
+      "start": 3220,
+      "len": 3,
+      "buttons": [
+        "start"
+      ],
+      "phase": "menu",
+      "repeat": {
+        "every": 40,
+        "count": 5
+      }
+    }
+  ]
+}

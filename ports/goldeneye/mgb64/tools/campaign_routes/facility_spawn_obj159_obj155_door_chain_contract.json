@@ -1,0 +1,223 @@
+{
+  "schema": "mgb64.campaign_route.v1",
+  "name": "facility_spawn_obj159_obj155_door_chain_contract",
+  "level": 34,
+  "frames": 1400,
+  "route_class": "input_interaction",
+  "description": "Facility stock-spawn two-door chain. Bond opens bathroom door object 159, continues to secondary door object 155, and opens it through real B interaction without force, warp, or stage-state automation.",
+  "env": {
+    "GE007_TRACE_FLOW_ONLY": 1,
+    "GE007_DOOR_TRACE": 1,
+    "GE007_DOOR_TRACE_OBJS": "159,155",
+    "GE007_DOOR_TRACE_FRAME_MIN": 320,
+    "GE007_DOOR_TRACE_FRAME_MAX": 1350,
+    "GE007_DOOR_TRACE_BUDGET": 3600,
+    "GE007_INTERACT_TRACE": 1,
+    "GE007_INTERACT_TRACE_BUDGET": 700
+  },
+  "input_segments": [
+    {
+      "name": "bathroom_door_approach",
+      "start": 80,
+      "duration": 620,
+      "inputs": ["forward", "left"]
+    },
+    {
+      "name": "bathroom_door_view_sweep",
+      "start": 350,
+      "duration": 260,
+      "inputs": ["look_left"]
+    },
+    {
+      "name": "bathroom_door_press_400",
+      "start": 400,
+      "duration": 4,
+      "inputs": ["b"]
+    },
+    {
+      "name": "bathroom_door_press_440",
+      "start": 440,
+      "duration": 4,
+      "inputs": ["b"]
+    },
+    {
+      "name": "bathroom_door_press_480",
+      "start": 480,
+      "duration": 4,
+      "inputs": ["b"]
+    },
+    {
+      "name": "bathroom_door_press_520",
+      "start": 520,
+      "duration": 4,
+      "inputs": ["b"]
+    },
+    {
+      "name": "bathroom_door_press_560",
+      "start": 560,
+      "duration": 4,
+      "inputs": ["b"]
+    },
+    {
+      "name": "bathroom_door_press_600",
+      "start": 600,
+      "duration": 4,
+      "inputs": ["b"]
+    },
+    {
+      "name": "secondary_door_approach_left",
+      "start": 700,
+      "duration": 360,
+      "inputs": ["left"]
+    },
+    {
+      "name": "secondary_door_press_920",
+      "start": 920,
+      "duration": 4,
+      "inputs": ["b"]
+    },
+    {
+      "name": "secondary_door_press_960",
+      "start": 960,
+      "duration": 4,
+      "inputs": ["b"]
+    },
+    {
+      "name": "secondary_door_press_1000",
+      "start": 1000,
+      "duration": 4,
+      "inputs": ["b"]
+    },
+    {
+      "name": "secondary_door_press_1040",
+      "start": 1040,
+      "duration": 4,
+      "inputs": ["b"]
+    },
+    {
+      "name": "secondary_door_press_1080",
+      "start": 1080,
+      "duration": 4,
+      "inputs": ["b"]
+    },
+    {
+      "name": "secondary_door_press_1120",
+      "start": 1120,
+      "duration": 4,
+      "inputs": ["b"]
+    }
+  ],
+  "assertions": {
+    "expect_frame_exit": true,
+    "min_records": 1390,
+    "no_render_failures": true,
+    "no_front_failure": true,
+    "require_input_automation": true,
+    "no_direct_state_automation": true,
+    "min_moving_records": 900,
+    "min_horizontal_delta": 1200.0,
+    "log_count_assertions": [
+      {
+        "name": "real_door_allow_obj159",
+        "pattern": "^\\[INTERACT_TRACE\\] door allow obj=159\\b",
+        "min_count": 1
+      },
+      {
+        "name": "door159_open_transition",
+        "pattern": "^\\[DOOR_TRACE\\] frame=\\d+ obj=159 state obj=159 0->1\\b",
+        "min_count": 1
+      },
+      {
+        "name": "door159_finish_open",
+        "pattern": "^\\[DOOR_TRACE\\] frame=\\d+ obj=159 finish open obj=159\\b",
+        "min_count": 1
+      },
+      {
+        "name": "real_door_allow_obj155",
+        "pattern": "^\\[INTERACT_TRACE\\] door allow obj=155\\b",
+        "min_count": 1
+      },
+      {
+        "name": "door155_open_transition",
+        "pattern": "^\\[DOOR_TRACE\\] frame=\\d+ obj=155 state obj=155 0->1\\b",
+        "min_count": 1
+      },
+      {
+        "name": "door155_open_displacement",
+        "pattern": "^\\[DOOR_TRACE\\] frame=\\d+ obj=155 displace state=1\\b",
+        "min_count": 20
+      },
+      {
+        "name": "door155_finish_open",
+        "pattern": "^\\[DOOR_TRACE\\] frame=\\d+ obj=155 finish open obj=155\\b",
+        "min_count": 1
+      }
+    ],
+    "setup_target_milestones": [
+      {
+        "name": "bathroom_door_cluster_pad_67",
+        "frame_at_or_after": 399,
+        "target": {"kind": "object", "type_name": "door", "obj": 159, "pad": 67},
+        "max_horizontal_distance": 95.0,
+        "max_abs_y_delta": 90.0
+      },
+      {
+        "name": "bathroom_door_cluster_pad_68",
+        "frame_at_or_after": 399,
+        "target": {"kind": "object", "type_name": "door", "obj": 159, "pad": 68},
+        "max_horizontal_distance": 115.0,
+        "max_abs_y_delta": 90.0
+      },
+      {
+        "name": "secondary_door_cluster_pad_75",
+        "frame_at_or_after": 919,
+        "target": {"kind": "object", "type_name": "door", "obj": 155, "pad": 75},
+        "max_horizontal_distance": 60.0,
+        "max_abs_y_delta": 130.0
+      }
+    ],
+    "position_milestones": [
+      {
+        "name": "bathroom_hallway_commit",
+        "frame_at_or_after": 180,
+        "min_horizontal_delta": 260.0,
+        "min_abs_x_delta": 220.0
+      },
+      {
+        "name": "bathroom_door_approach",
+        "frame_at_or_after": 360,
+        "min_horizontal_delta": 700.0,
+        "min_abs_x_delta": 540.0
+      },
+      {
+        "name": "post_object159_area_reach",
+        "frame_at_or_after": 740,
+        "min_horizontal_delta": 1200.0,
+        "min_abs_z_delta": 1200.0
+      },
+      {
+        "name": "secondary_door_approach",
+        "frame_at_or_after": 920,
+        "min_horizontal_delta": 800.0,
+        "min_abs_z_delta": 730.0
+      },
+      {
+        "name": "post_secondary_door_stability_position",
+        "frame_at_or_after": 1240,
+        "min_horizontal_delta": 800.0,
+        "min_abs_z_delta": 730.0
+      }
+    ],
+    "state_milestones": [
+      {
+        "name": "post_secondary_door_stable",
+        "frame_at_or_after": 1240,
+        "checks": [
+          {"path": "front.active_stage", "op": "==", "value": 34},
+          {"path": "front.bond_kia", "op": "==", "value": 0},
+          {"path": "front.mission_failed", "op": "==", "value": 0}
+        ]
+      }
+    ]
+  }
+}

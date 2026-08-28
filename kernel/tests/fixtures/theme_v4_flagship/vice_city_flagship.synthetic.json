@@ -1,0 +1,296 @@
+{
+  "vram_budget": 524288,
+  "ee_ram_budget": 2097152,
+  "reserved_headroom": 393216,
+  "layers": [
+    {
+      "asset": "assets/sunset_sky.rgb565",
+      "width": 64,
+      "height": 32,
+      "z": 0,
+      "priority": "ESSENTIAL",
+      "context": "BOTH",
+      "mode": "STATIC",
+      "x": 0,
+      "y": 0,
+      "alpha": 255,
+      "parallax_x": 0.03,
+      "parallax_y": 0.01,
+      "top": {
+        "translate_y": -2
+      }
+    },
+    {
+      "asset": "assets/clouds.rgb565",
+      "width": 48,
+      "height": 16,
+      "z": 10,
+      "priority": "ENHANCED",
+      "context": "BOTH",
+      "mode": "LOOP",
+      "x": 4,
+      "y": 3,
+      "alpha": 255,
+      "parallax_x": 0.12,
+      "parallax_y": 0.04,
+      "duration_ms": 9000,
+      "phase_ms": 700,
+      "animation": {
+        "translate_x": 18
+      }
+    },
+    {
+      "asset": "assets/skyline.rgb565",
+      "width": 64,
+      "height": 24,
+      "z": 20,
+      "priority": "ESSENTIAL",
+      "context": "BOTH",
+      "mode": "STATIC",
+      "x": 0,
+      "y": 16,
+      "alpha": 255,
+      "parallax_x": 0.08,
+      "parallax_y": 0.02,
+      "top": {
+        "translate_y": -3,
+        "scale_x": 0.02,
+        "scale_y": 0.02
+      }
+    },
+    {
+      "asset": "assets/ocean.rgb565",
+      "width": 64,
+      "height": 20,
+      "z": 30,
+      "priority": "ESSENTIAL",
+      "context": "BOTH",
+      "mode": "PINGPONG",
+      "x": 0,
+      "y": 28,
+      "alpha": 255,
+      "parallax_x": 0.05,
+      "parallax_y": 0.03,
+      "duration_ms": 5500,
+      "phase_ms": 1200,
+      "animation": {
+        "translate_y": 1.5,
+        "alpha": -18
+      }
+    },
+    {
+      "asset": "assets/reflections.rgb565",
+      "width": 48,
+      "height": 12,
+      "z": 40,
+      "priority": "ENHANCED",
+      "context": "BOTH",
+      "mode": "PINGPONG",
+      "x": 8,
+      "y": 31,
+      "alpha": 255,
+      "parallax_x": 0.06,
+      "parallax_y": 0.03,
+      "duration_ms": 3700,
+      "phase_ms": 400,
+      "animation": {
+        "translate_x": 3,
+        "alpha": -40
+      }
+    },
+    {
+      "asset": "assets/palms_back.rgb565",
+      "width": 32,
+      "height": 32,
+      "z": 50,
+      "priority": "ENHANCED",
+      "context": "BOTH",
+      "mode": "PINGPONG",
+      "x": 2,
+      "y": 11,
+      "alpha": 255,
+      "parallax_x": 0.18,
+      "parallax_y": 0.04,
+      "duration_ms": 4200,
+      "phase_ms": 300,
+      "animation": {
+        "rotation": 2.5
+      }
+    },
+    {
+      "asset": "assets/traffic_far.rgb565",
+      "width": 32,
+      "height": 12,
+      "z": 60,
+      "priority": "DECORATIVE",
+      "context": "BOTH",
+      "mode": "LOOP",
+      "x": 4,
+      "y": 25,
+      "alpha": 255,
+      "parallax_x": 0.15,
+      "parallax_y": 0.02,
+      "duration_ms": 7200,
+      "phase_ms": 2400,
+      "animation": {
+        "translate_x": 22
+      }
+    },
+    {
+      "asset": "assets/lucia.rgb565",
+      "width": 28,
+      "height": 48,
+      "z": 70,
+      "priority": "ESSENTIAL",
+      "context": "HOME",
+      "mode": "PINGPONG",
+      "x": 10,
+      "y": 8,
+      "alpha": 255,
+      "parallax_x": 0.08,
+      "parallax_y": 0.01,
+      "duration_ms": 6100,
+      "phase_ms": 500,
+      "animation": {
+        "translate_y": 0.8
+      },
+      "top": {
+        "translate_x": -2,
+        "alpha_delta": -40
+      }
+    },
+    {
+      "asset": "assets/jason.rgb565",
+      "width": 28,
+      "height": 48,
+      "z": 71,
+      "priority": "ESSENTIAL",
+      "context": "HOME",
+      "mode": "PINGPONG",
+      "x": 27,
+      "y": 8,
+      "alpha": 255,
+      "parallax_x": 0.08,
+      "parallax_y": 0.01,
+      "duration_ms": 6700,
+      "phase_ms": 900,
+      "animation": {
+        "translate_y": 0.7
+      },
+      "top": {
+        "translate_x": 2,
+        "alpha_delta": -40
+      }
+    },
+    {
+      "asset": "assets/palms_front.rgb565",
+      "width": 36,
+      "height": 40,
+      "z": 80,
+      "priority": "ENHANCED",
+      "context": "BOTH",
+      "mode": "PINGPONG",
+      "x": 30,
+      "y": 10,
+      "alpha": 255,
+      "parallax_x": 0.25,
+      "parallax_y": 0.06,
+      "duration_ms": 4800,
+      "phase_ms": 1100,
+      "animation": {
+        "rotation": -3.0
+      }
+    },
+    {
+      "asset": "assets/neon.rgb565",
+      "width": 24,
+      "height": 12,
+      "z": 90,
+      "priority": "DECORATIVE",
+      "context": "TOP",
+      "mode": "PINGPONG",
+      "x": 18,
+      "y": 4,
+      "alpha": 255,
+      "parallax_x": 0.04,
+      "parallax_y": 0.01,
+      "duration_ms": 2600,
+      "phase_ms": 300,
+      "animation": {
+        "alpha": -100
+      }
+    },
+    {
+      "asset": "assets/atmosphere.rgb565",
+      "width": 48,
+      "height": 20,
+      "z": 100,
+      "priority": "DECORATIVE",
+      "context": "BOTH",
+      "mode": "PINGPONG",
+      "x": 8,
+      "y": 2,
+      "alpha": 255,
+      "parallax_x": 0.02,
+      "parallax_y": 0.01,
+      "duration_ms": 8300,
+      "phase_ms": 1600,
+      "animation": {
+        "translate_y": 2,
+        "alpha": -45
+      }
+    },
+    {
+      "asset": "assets/vehicle_pass.rgb565",
+      "width": 32,
+      "height": 12,
+      "z": 110,
+      "priority": "DECORATIVE",
+      "context": "BOTH",
+      "mode": "LOOP",
+      "x": 0,
+      "y": 30,
+      "alpha": 255,
+      "parallax_x": 0.2,
+      "parallax_y": 0.0,
+      "duration_ms": 2800,
+      "animation": {
+        "translate_x": 36
+      }
+    },
+    {
+      "asset": "assets/birds.rgb565",
+      "width": 20,
+      "height": 8,
+      "z": 120,
+      "priority": "DECORATIVE",
+      "context": "BOTH",
+      "mode": "LOOP",
+      "x": 8,
+      "y": 5,
+      "alpha": 255,
+      "parallax_x": 0.15,
+      "parallax_y": 0.04,
+      "duration_ms": 2100,
+      "phase_ms": 900,
+      "animation": {
+        "translate_x": 22,
+        "translate_y": -3
+      }
+    }
+  ],
+  "rare_events": [
+    {
+      "layer": 12,
+      "interval_ms": 17000,
+      "duration_ms": 2200,
+      "phase_ms": 2300
+    },
+    {
+      "layer": 13,
+      "interval_ms": 23000,
+      "duration_ms": 1800,
+      "phase_ms": 7000
+    }
+  ]
+}

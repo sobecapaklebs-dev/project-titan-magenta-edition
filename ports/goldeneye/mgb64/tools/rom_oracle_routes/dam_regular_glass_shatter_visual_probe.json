@@ -1,0 +1,172 @@
+{
+    "schema": "mgb64.rom_oracle.route.v1",
+    "name": "dam_regular_glass_shatter_visual_probe",
+    "level": "33",
+    "native_frames": 199,
+    "stock_frames": 2520,
+    "stock_screenshot_frame": 2480,
+    "stock_gameplay_start_global": 1146,
+    "stock_require_first_gameplay_global": 1146,
+    "stock_speedframes": 2,
+    "stock_menu_close_on_player": true,
+    "native_render_audit": true,
+    "stock_min_gameplay_input_records": 5,
+    "stock_max_suppressed_menu_records": 0,
+    "stock_min_menu_to_gameplay_gap": 30,
+    "stock_min_force_player_applies": 300,
+    "stock_min_force_player_stan_applies": 300,
+    "compare_kind": "visual",
+    "compare_align": "global",
+    "compare_profile": "logical-viewport",
+    "visual_logical_size": [
+        320,
+        240
+    ],
+    "visual_logical_viewport": [
+        0,
+        10,
+        320,
+        220
+    ],
+    "visual_baseline_logical_frame": "active",
+    "visual_test_logical_frame": "full",
+    "visual_regions": [
+        {
+            "name": "glass_burst",
+            "roi": [
+                220,
+                150,
+                120,
+                120
+            ]
+        },
+        {
+            "name": "damage_arc",
+            "roi": [
+                40,
+                20,
+                180,
+                280
+            ]
+        },
+        {
+            "name": "hud_viewmodel",
+            "roi": [
+                300,
+                250,
+                280,
+                170
+            ]
+        }
+    ],
+    "visual_mask_exclude_regions": [
+        "damage_arc",
+        "hud_viewmodel"
+    ],
+    "compare_actor_chrnums": [
+        12
+    ],
+    "compare_actor_fields": [
+        "alive",
+        "hidden",
+        "onscreen",
+        "action"
+    ],
+    "compare_actor_frame": "screenshot",
+    "compare_actor_position_tolerance": 25.0,
+    "compare_require_health_match": true,
+    "compare_health_tolerance": 0.001,
+    "compare_damage_show_tolerance": 4,
+    "compare_require_impact_active": true,
+    "compare_require_impact_match": true,
+    "compare_impact_position_tolerance": 5.0,
+    "compare_impact_position_points": "center",
+    "description": "Dam regular glass post-shatter stock/native visual checkpoint. Native uses the deterministic force-player hook to hold the same absolute +Z pose, camera height, and pad anchor as the stock Ares force-player pose, forces the same raised/left crosshair as stock through the shot window, disables route-only autoaim before the shot so the nearby chr12 guard is not killed by the direct-boot setup, and seeds the first shard-size RNG draw to match the renderer-isolation route. Stock keeps the forced pose through the screenshot, forces the same crosshair, fires on the stock global timer, and repeats the pre-shatter gameplay-frame RNG seed on the clean shot frame. The health/HUD guard and chr12 world-position guard fail before pixel artifacts are written when combat phase or foreground actor composition drift. This route is an evidence route rather than a promoted pixel gate: stock/native shard timers/rotation phase and Bond health are not currently matched at the screenshot checkpoint. Keep future route-origin misses, lifecycle phase gaps, actor-composition drift, health/HUD phase gaps, and renderer defects separate.",
+    "native_config": {
+        "Video.AnisotropicFiltering": 1,
+        "Input.ViewmodelSway": 0,
+        "Video.Bloom": 0,
+        "Video.Brightness": 0,
+        "Video.Contrast": 1,
+        "Video.FovY": 60,
+        "Video.Gamma": 1,
+        "Video.GradePresets": 0,
+        "Video.MSAA": 0,
+        "Video.RemasterFX": 0,
+        "Video.RenderScale": 1,
+        "Video.RetroFilter": "on",
+        "Video.Saturation": 1,
+        "Video.Sharpen": 0,
+        "Video.Tonemap": 0,
+        "Video.Vignette": 0,
+        "Video.WindowHeight": 480,
+        "Video.WindowMode": "windowed",
+        "Video.WindowWidth": 640,
+        "Input.ModernCrosshair": 0,
+        "Input.HitMarkers": 0,
+        "Input.ReticleTargetFeedback": 0,
+        "Input.MinimapEnabled": 0
+    },
+    "native_env": {
+        "GE007_DIAG_DISABLE_HIGHDPI": "1",
+        "GE007_DISABLE_LEVEL_INTRO": "1",
+        "GE007_TRACE_GLASS": "1",
+        "GE007_TRACE_GLASS_BUDGET": "400",
+        "GE007_AUTO_WARP_FRAME": 40,
+        "GE007_AUTO_WARP_PAD": 103,
+        "GE007_AUTO_AUTOAIM_SCRIPT": "41:0,60:0,69:0",
+        "GE007_AUTO_RNG_CALL_SEED_SCRIPT": "1702:0x00000001D8F3CC2B",
+        "GE007_AUTO_FORCE_PLAYER_SCRIPT": "45-199:14274.10:-474.70:1900.36:0.00:0.00:167.31:103",
+        "GE007_AUTO_CROSSHAIR_SCRIPT": "45-199:158:114"
+    },
+    "stock_env": {
+        "MGB64_ARES_FORCE_PLAYER_SCRIPT": "1:360:14274.10:-474.70:1900.36:0.00:0.00:167.31:103",
+        "MGB64_ARES_CROSSHAIR_SCRIPT": "1:360:159:114",
+        "MGB64_ARES_RNG_SEED_SCRIPT": "67:0x000000016539D61A",
+        "MGB64_ARES_RNG_SEED_REPEAT": "1"
+    },
+    "events": [],
+    "native_events": [
+        {
+            "start": 70,
+            "len": 5,
+            "buttons": [
+                "fire"
+            ]
+        }
+    ],
+    "stock_events": [
+        {
+            "start": 100,
+            "len": 3,
+            "buttons": [
+                "start"
+            ],
+            "phase": "menu",
+            "repeat": {
+                "every": 240,
+                "until": 2260
+            }
+        },
+        {
+            "start": 160,
+            "len": 3,
+            "buttons": [
+                "a"
+            ],
+            "phase": "menu",
+            "repeat": {
+                "every": 240,
+                "until": 2080
+            }
+        },
+        {
+            "start": 1278,
+            "len": 10,
+            "buttons": [
+                "fire"
+            ],
+            "phase": "global"
+        }
+    ]
+}

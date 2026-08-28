@@ -1,0 +1,125 @@
+# Release build pipeline — Windows + Linux app binaries (asset-free).
+#
+# Produces the portable prebuilt binaries that this Mac can't build natively:
+# a Windows portable .zip and a Linux AppImage + .tar.gz. macOS is built and
+# validated LOCALLY by scripts/release.sh; a maintainer assembles the final
+# GitHub Release from both sources (see docs/RELEASING.md).
+#
+# Manual-only, matching the repo's local-CI posture: a maintainer dispatches
+# this deliberately. The build jobs need no repository secrets and write no
+# repository state — they only compile the ASSET-FREE source and upload the
+# results as workflow artifacts, so they are consistent with the
+# bring-your-own-ROM / no-hosted-auto-triggers provenance policy.
+
+name: Release build (Windows + Linux)
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version label for the artifact names (e.g. v0.3.0)"
+        required: false
+        default: "dev"
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    name: Linux app (AppImage + tar.gz)
+    runs-on: ubuntu-22.04  # oldest-reasonable glibc for broad compatibility
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake pkg-config libsdl2-dev libgl1-mesa-dev \
+            libdbus-1-dev file wget
+      - name: Build the app (MGB64_APP=ON, Release)
+        run: |
+          cmake -B build -DCMAKE_BUILD_TYPE=Release -DMGB64_APP=ON -DPORT_VALIDATION_TESTS=OFF \
+            -DMGB64_VERSION="${{ github.event.inputs.version }}"
+          cmake --build build --target ge007 -j
+      - name: Package AppImage + tar.gz
+        run: ./scripts/package_linux_appimage.sh --binary build/ge007 --version "${{ github.event.inputs.version }}"
+      - name: Stamp provenance (bind assets to this commit)
+        run: |
+          for f in dist/mgb64-linux-*; do
+            case "$f" in *.provenance.json) continue ;; esac
+            ./scripts/release/stamp_provenance.sh "$f" "${{ github.event.inputs.version }}"
+          done
+      - name: Verify asset-free
+        run: ./macos/Scripts/verify_asset_free.sh build/ge007
+      - name: Smoke-launch the ROM-free launcher (headless)
+        run: |
+          sudo apt-get install -y xvfb
+          # WebGPU is the default backend, but a headless CI runner (Xvfb: an X
+          # display with no GPU/Vulkan) can't acquire a wgpu-native adapter, so
+          # the WebGPU bring-up fails here. Drive the smoke through GL — the
+          # documented one-release fallback (GE007_RENDERER=gl; Mesa software GL /
+          # llvmpipe renders under Xvfb, as this smoke did before the WebGPU-default
+          # switch). This validates the packaged app/launcher/assets boot and
+          # render; the WebGPU default path is covered by the browser demo + the
+          # owner's on-hardware gameplay verification.
+          xvfb-run -a env GE007_RENDERER=gl MGB64_APP_SMOKE_FRAMES=30 ./build/ge007 | tee smoke.txt
+          grep -q "smoke: rendered 30 frames" smoke.txt
+      - uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08 # v4
+        with:
+          name: mgb64-linux-${{ github.event.inputs.version }}
+          path: dist/mgb64-linux-*
+
+  windows:
+    name: Windows app (portable .zip)
+    runs-on: windows-latest
+    timeout-minutes: 40
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: msys2/setup-msys2@d40200dc2db4c351366b048a9565ad82919e1c24 # v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-gcc mingw-w64-x86_64-cmake mingw-w64-x86_64-SDL2
+            mingw-w64-x86_64-pkg-config mingw-w64-x86_64-ninja zip
+      - name: Build the app (MGB64_APP=ON, Release)
+        run: |
+          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DMGB64_APP=ON -DPORT_VALIDATION_TESTS=OFF \
+            -DMGB64_VERSION="${{ github.event.inputs.version }}"
+          cmake --build build --target ge007 -j
+      - name: Package portable .zip (ge007.exe + SDL2.dll)
+        run: ./scripts/package_windows_zip.sh --binary build/ge007.exe --version "${{ github.event.inputs.version }}"
+      - name: Stamp provenance (bind assets to this commit)
+        run: |
+          for f in dist/mgb64-windows-*; do
+            case "$f" in *.provenance.json) continue ;; esac
+            ./scripts/release/stamp_provenance.sh "$f" "${{ github.event.inputs.version }}"
+          done
+      - uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08 # v4
+        with:
+          name: mgb64-windows-${{ github.event.inputs.version }}
+          path: dist/mgb64-windows-*
+
+  portmaster:
+    # PortMaster / GLES3 ARM target (PR #25, repaired c486be2) compile gate.
+    # Not a release artifact -- the shippable handheld build is produced on the
+    # ARM device / by the PortMaster community. This job fails the release loudly
+    # if the MGB64_PORTMASTER_GLES target stops configuring or compiling. It does
+    # the real GLES compile+link with Mesa GLES headers on x86_64 Linux (the
+    # buildable engine config, MGB64_APP=OFF); ARM-specific codegen is validated
+    # on-device. Same asset-free, no-repo-state posture as the other jobs.
+    name: PortMaster GLES compile check
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Install GLES/EGL/SDL2 dev packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake g++ pkg-config \
+            libgles2-mesa-dev libegl1-mesa-dev libsdl2-dev libdbus-1-dev
+      - name: Configure + compile the GLES target
+        run: ./tools/portmaster_build_check.sh --require-deep

@@ -1,0 +1,48 @@
+{
+  "schema": "mgb64.campaign_route.v1",
+  "name": "surface2_final_exit_contract",
+  "level": 43,
+  "frames": 520,
+  "route_class": "scripted_contract",
+  "description": "Surface II final pad path completes Agent-relevant objectives, returns to title/menu flow, writes folder 0 Surface II/Agent completion, and reloads that save state from a fresh process.",
+  "env": {
+    "GE007_TRACE_FLOW_ONLY": 1,
+    "GE007_TRACE_OBJECTIVES": 1,
+    "GE007_DISABLE_LEVEL_INTRO": 1
+  },
+  "scripted_events": {
+    "damage_tags": [
+      {"name": "destroy_objective_tag_0", "frame": 60, "tag": 0, "amount": 2000},
+      {"name": "destroy_objective_tag_1", "frame": 61, "tag": 1, "amount": 2000}
+    ],
+    "force_player": [
+      {"name": "final_pad_pose", "frame": 80, "end_frame": 90, "x": 0.0, "y": 277.33, "z": -105.62, "yaw": 180, "pitch": 0, "camera_height": 167.31, "pad": 289}
+    ],
+    "exit_on_title": {"delay": 8}
+  },
+  "input_segments": [
+    {"name": "final_pad_activate", "start": 160, "duration": 162, "inputs": ["a"]}
+  ],
+  "assertions": {
+    "expect_title_exit": true,
+    "min_records": 160,
+    "no_render_failures": true,
+    "objective_all_complete": true,
+    "title_after_objective_all_complete": true,
+    "title_return": true,
+    "no_front_failure": true,
+    "final_statuses": [0, 1, 0, 1],
+    "save_completion": {
+      "folder": 0,
+      "level": 7,
+      "difficulty": 0
+    },
+    "reload_save_completion": {
+      "folder": 0,
+      "level": 7,
+      "difficulty": 0,
+      "frames": 240,
+      "auto_start": "20:3,80:3,140:3,200:3"
+    }
+  }
+}

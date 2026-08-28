@@ -1,0 +1,31 @@
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    # Public launch uses local preflight evidence and starts with no hosted
+    # automation branches. Vulnerability alerts are enabled in repo settings.
+    open-pull-requests-limit: 0
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+    labels:
+      - "build"
+      - "release-hygiene"
+
+  - package-ecosystem: "cargo"
+    directory: "/tools/asm-processor/rust"
+    schedule:
+      interval: "weekly"
+    # Keep version-update PRs disabled until maintainers deliberately enable
+    # hosted automation after launch.
+    open-pull-requests-limit: 0
+    groups:
+      asm-processor-rust:
+        patterns:
+          - "*"
+    labels:
+      - "build"
+      - "provenance"

@@ -1,0 +1,70 @@
+# Surface 1 scene decoration -- W9 M9: the full-level HD pass.
+# All models CC0 Poly Haven photoscans (decimated, snow baked into COLOR_0.a)
+# or first-party generated art. World units ~1cm; y = local floor from pad
+# traces. Model heights: fir_big 18.8u, fir_hd 8.7u, spruce_hd_* 1.0u,
+# boulder_a 0.9u, boulder_b 1.5u, dead_trunk 0.3u tall / 1.5u long.
+model fir_big models/fir_big.glb modern
+model fir_hd models/fir_hd.glb modern
+model boulder_a models/boulder_a.glb modern
+model boulder_b models/boulder_b.glb modern
+model dead_trunk models/dead_trunk.glb modern
+
+# ---- spawn valley run (creek z ~ -11500, banks +/- 350-600) ----
+place fir_big -5600 55 -11950 250 70
+place fir_hd -5350 60 -11150 20 80
+place boulder_b -4900 20 -11800 70 100
+place dead_trunk -5900 22 -11600 340 130
+place fir_hd -6420 45 -12080 130 88
+place boulder_a -6600 40 -11200 10 140
+place fir_hd -6890 55 -10980 300 74
+place fir_big -7480 65 -12060 40 78
+place boulder_b -7700 60 -11250 200 95
+place fir_hd -8050 72 -11020 160 82
+place dead_trunk -8300 70 -11550 120 150
+place fir_hd -8630 78 -11990 210 91
+place boulder_a -8900 75 -11300 280 120
+place fir_hd -9240 82 -11060 330 78
+place fir_hd -7200 88 -12250 80 96
+place fir_hd -8900 98 -10800 40 90
+place fir_hd -10600 95 -11500 10 95
+
+# ---- upper plateau (pad 60 area: floor ~249) ----
+place fir_big -1900 245 -1400 120 65
+place fir_hd -600 248 -2600 200 84
+place fir_hd -1800 250 -2700 40 76
+place boulder_b -900 246 -1500 310 130
+place boulder_a -1600 247 -2200 150 115
+place fir_hd -400 249 -1300 260 88
+
+# ---- hut approach (pad 10 area: floor ~101) ----
+place fir_hd 900 98 -4400 60 78
+place fir_hd 1800 100 -5300 220 86
+place boulder_a 1550 97 -4600 20 125
+place dead_trunk 800 96 -5100 180 140
+place fir_hd 2100 101 -4300 140 83
+
+# ---- M9.1 densify: variety scans + fuller plateau/hut dressing ----
+model boulder_c models/boulder_c.glb modern
+model dead_trunk_b models/dead_trunk_b.glb modern
+# valley extras
+place boulder_c -6100 35 -11900 90 130
+place dead_trunk_b -7000 58 -11750 200 120
+place boulder_c -9600 85 -11350 30 145
+# plateau (floor ~245-250)
+place fir_hd -2300 248 -1200 90 82
+place fir_hd -300 249 -2100 310 74
+place boulder_c -1100 247 -2500 60 120
+place dead_trunk_b -1500 246 -1000 140 130
+place fir_big -150 250 -2900 20 62
+place fir_hd -2100 249 -2400 200 79
+# hut approach (floor ~95-105)
+place fir_hd 400 96 -4700 120 80
+place fir_big 2300 103 -5600 280 58
+place boulder_b 1100 98 -5450 250 105
+place boulder_c 1900 100 -4150 340 115
+place dead_trunk 2200 101 -4900 30 120
+# hero pines (20.3u scan)
+model pine_big models/pine_big.glb modern
+place pine_big -6100 50 -10850 150 85
+place pine_big -2600 250 -2100 40 75
+place pine_big 600 100 -5550 260 68

@@ -1,0 +1,18 @@
+# Project Titan Magenta Edition — RC11 source line, inherited toolchain pins
+project_version=0.3.90-rc11
+ps2dev_repository_commit=0463697a324b3d3c000636e6fd12324b0f2a8df2
+ps2toolchain_repository_commit=6d63befdde76fd695435d16f246a3bde72a8c096
+ps2sdk_repository_commit=06021a615a908360491ddad198ce6fcf0eddcbde
+mips64r5900el_ps2_elf_gcc=15.2.0
+gnu_make=4.4.1
+python_major=3
+pillow_required=yes
+ps2dev_root_env=PS2DEV
+ps2sdk_root_env=PS2SDK
+neutrino_component=modules/titan-neutrino-engine
+opl_component=modules/titan-ul-engine
+neutrino_upstream_record=modules/titan-neutrino-engine/UPSTREAM.md
+opl_upstream_record=modules/titan-ul-engine/UPSTREAM.md
+build_locale=C
+build_timezone=UTC
+source_date_epoch=git-commit-time

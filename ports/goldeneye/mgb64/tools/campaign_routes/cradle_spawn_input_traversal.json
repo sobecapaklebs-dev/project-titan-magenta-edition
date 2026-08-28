@@ -1,0 +1,55 @@
+{
+  "schema": "mgb64.campaign_route.v1",
+  "name": "cradle_spawn_input_traversal",
+  "description": "Cradle native input traversal from the stock spawn using forward movement. This is a high-speed movement regression guard, not an objective-completion route.",
+  "route_class": "input_traversal",
+  "level": 41,
+  "frames": 300,
+  "env": {
+    "GE007_TRACE_FLOW_ONLY": "1"
+  },
+  "input_segments": [
+    {"name": "gantry_forward_push", "start": 80, "duration": 160, "inputs": ["forward"]}
+  ],
+  "assertions": {
+    "expect_frame_exit": true,
+    "min_records": 295,
+    "no_render_failures": true,
+    "no_front_failure": true,
+    "require_input_automation": true,
+    "no_direct_state_automation": true,
+    "min_moving_records": 150,
+    "min_horizontal_delta": 1300.0,
+    "setup_target_milestones": [
+      {
+        "name": "gantry_entry_near_setup_pad_151",
+        "frame_at_or_after": 140,
+        "target": {"kind": "pad", "pad": 151},
+        "max_horizontal_distance": 460.0
+      }
+    ],
+    "position_milestones": [
+      {
+        "name": "gantry_entry_push",
+        "frame_at_or_after": 140,
+        "min_horizontal_delta": 400.0,
+        "min_abs_x_delta": 180.0,
+        "min_abs_z_delta": 330.0
+      },
+      {
+        "name": "sustained_gantry_push",
+        "frame_at_or_after": 220,
+        "min_horizontal_delta": 1000.0,
+        "min_abs_x_delta": 500.0,
+        "min_abs_z_delta": 900.0
+      },
+      {
+        "name": "post_input_coast",
+        "frame_at_or_after": 299,
+        "min_horizontal_delta": 1300.0,
+        "min_abs_x_delta": 650.0,
+        "min_abs_z_delta": 1100.0
+      }
+    ]
+  }
+}

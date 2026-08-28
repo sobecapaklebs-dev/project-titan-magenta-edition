@@ -1,0 +1,144 @@
+ENTRY(_start);
+
+MEMORY {
+	/* Main layout of PS2 EE memory */
+	bios_rom   : ORIGIN = 0x00000000, LENGTH = 512K  /* The ROM overlaps with 512K of RAM. This RAM is used by the BIOS. */
+	bios_ram   : ORIGIN = 0x00080000, LENGTH = 512K  /* Used for BIOS updates, but mostly not used */
+	game_ram   : ORIGIN = 0x00100000, LENGTH =  31M
+	scratchpad : ORIGIN = 0x70000000, LENGTH =  16K
+
+	/*
+	 * BIOS RAM memory layout
+	 * ----------------------
+	 * This huge memory region of 512K is mostly not used. Known exceptions listed here:
+	 * - 0x80000 - 0x82000   8K: idle thread and alarm dispatcher, always used
+	 * - 0x82000 - 0x84000   8K: idle thread and alarm dispatcher, updated version, often used
+	 * -   start - 0x96000  88K: many games use this area, for example:
+	 *                           [SLUS_211.39] GUN
+	 *                           [SCES_511.76] Disneys Treasure Planet
+	 *                           Note that its possible only EELOAD uses this range temporarily
+	 *                           Perhaps with a replaced EELOAD (which we have) its safe to use?
+	 * -   start - end     512K: some games use the entire area and need mode 3 to work, for example:
+	 *                           [SCUS_971.24] Jak and Daxter - The Precursor Legacy
+	 *                           [SCUS_973.30] Jak 3
+	 *                           [SCES_524.60] Jak 3
+	 * - 0xD0000 - end     192K: some games use this area, what games???
+	 */
+	bios_ram80 : ORIGIN = 0x00080000, LENGTH =   8K
+	bios_ram82 : ORIGIN = 0x00082000, LENGTH =   8K
+	bios_ram84 : ORIGIN = 0x00084000, LENGTH = 304K
+	bios_ramD0 : ORIGIN = 0x000D0000, LENGTH = 192K
+
+	/* EE_CORE "84" memory layout */
+	ee_core84   : ORIGIN = 0x00084000, LENGTH =  64K
+	stack84     : ORIGIN = 0x00094000, LENGTH =   4K
+	igr_stack84 : ORIGIN = 0x00095000, LENGTH =   4K
+	modules84   : ORIGIN = 0x00096000, LENGTH = 424K
+
+	/* EE_CORE "96" memory layout */
+	ee_core96  : ORIGIN = 0x00096000, LENGTH =  64K
+	stack96    : ORIGIN = 0x000A6000, LENGTH =   4K
+	modules96  : ORIGIN = 0x000A7000, LENGTH = 356K
+}
+
+REGION_ALIAS("MAIN_REGION", ee_core84);
+REGION_ALIAS("STACK_REGION", stack84);
+REGION_ALIAS("IGR_STACK_REGION", igr_stack84);
+
+PHDRS {
+  text PT_LOAD;
+}
+
+SECTIONS {
+	.text : {
+		_ftext = . ;
+		*(.text)
+		*(.text.*)
+		*(.gnu.linkonce.t*)
+		KEEP(*(.init))
+		KEEP(*(.fini))
+		QUAD(0)
+	} >MAIN_REGION :text
+
+	PROVIDE(_etext = .);
+	PROVIDE(etext = .);
+
+	.reginfo : { *(.reginfo) } >MAIN_REGION
+
+	/* Global/static constructors and deconstructors. */
+	.ctors ALIGN(16): {
+		KEEP(*crtbegin*.o(.ctors))
+		KEEP(*(EXCLUDE_FILE(*crtend*.o) .ctors))
+		KEEP(*(SORT(.ctors.*)))
+		KEEP(*(.ctors))
+	} >MAIN_REGION
+	.dtors ALIGN(16): {
+		KEEP(*crtbegin*.o(.dtors))
+		KEEP(*(EXCLUDE_FILE(*crtend*.o) .dtors))
+		KEEP(*(SORT(.dtors.*)))
+		KEEP(*(.dtors))
+	} >MAIN_REGION
+
+	/* Static data.  */
+	.rodata ALIGN(128): {
+		*(.rodata)
+		*(.rodata.*)
+		*(.gnu.linkonce.r*)
+	} >MAIN_REGION
+
+	.data ALIGN(128): {
+		_fdata = . ;
+		*(.data)
+		*(.data.*)
+		*(.gnu.linkonce.d*)
+		SORT(CONSTRUCTORS)
+	} >MAIN_REGION
+
+	.rdata ALIGN(128): { *(.rdata) } >MAIN_REGION
+	.gcc_except_table ALIGN(128): { *(.gcc_except_table) } >MAIN_REGION
+
+	_gp = ALIGN(128) + 0x7ff0;
+	.lit4 ALIGN(128): { *(.lit4) } >MAIN_REGION
+	.lit8 ALIGN(128): { *(.lit8) } >MAIN_REGION
+
+	.sdata ALIGN(128): {
+		*(.sdata)
+		*(.sdata.*)
+		*(.gnu.linkonce.s*)
+	} >MAIN_REGION
+
+	_edata = .;
+	PROVIDE(edata = .);
+
+	/* Uninitialized data.  */
+	.sbss ALIGN(128) : {
+		_fbss = . ;
+		*(.sbss)
+		*(.sbss.*)
+		*(.gnu.linkonce.sb*)
+		*(.scommon)
+	} >MAIN_REGION
+
+	.bss ALIGN(128) : {
+		*(.bss)
+		*(.bss.*)
+		*(.gnu.linkonce.b*)
+		*(COMMON)
+	} >MAIN_REGION
+	_end_bss = .;
+
+	/* Titan Smart IGR uses a second live EE thread. Keep its 4 KiB stack
+	 * outside ee_core84 .bss and outside the primary EE core stack. */
+	.titan_igr_stack (NOLOAD) : ALIGN(16) {
+		KEEP(*(.titan_igr_stack))
+	} >IGR_STACK_REGION
+
+	_end = .;
+	end = _end;
+
+	_heap_size = -1; /* automatically from _end to _stack */
+
+	_stack = ORIGIN(STACK_REGION);
+	_stack_size = LENGTH(STACK_REGION);
+	_stack_end = _stack + _stack_size;
+}

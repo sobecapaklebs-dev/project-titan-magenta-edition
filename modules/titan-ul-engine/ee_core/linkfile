@@ -1,0 +1,122 @@
+/*
+	Copyright 2009-2010, Ifcaro, jimmikaelkael & Polo
+	Copyright 2006-2008 Polo
+	Licenced under Academic Free License version 3.0
+	Review OPNPS2LD README & LICENSE files for further details.
+
+	Copyright 2001-2004, ps2dev - http://www.ps2dev.org
+	Licenced under Academic Free License version 2.0
+	Review ps2sdk README & LICENSE files for further details.
+
+	Standard linkfile
+*/
+
+ENTRY(_start);
+
+MEMORY {
+	ram84	: ORIGIN = 0x00084000, LENGTH = 77312 /* 0x00084000 - 0x00096E00: core */
+	stack	: ORIGIN = 0x00096E00, LENGTH = 512   /* 0x00096E00 - 0x00097000: primary stack tail */
+	igrstack	: ORIGIN = 0x00097000, LENGTH = 4K    /* 0x00097000 - 0x00098000: Titan IGR worker stack */
+	modules	: ORIGIN = 0x00098000, LENGTH = 224K  /* 0x00098000 - 0x000D0000: module storage */
+	ramD0	: ORIGIN = 0x000D0000, LENGTH = 192K  /* 0x000D0000 - 0x00100000: usually free, but some games use it. */
+}
+
+PHDRS {
+  text PT_LOAD;
+}
+
+
+SECTIONS {
+	.text : {
+		_ftext = . ;
+		*(.text)
+		*(.text.*)
+		*(.gnu.linkonce.t*)
+		KEEP(*(.init))
+		KEEP(*(.fini))
+		QUAD(0)
+	} >ram84 :text
+
+	PROVIDE(_etext = .);
+	PROVIDE(etext = .);
+
+	.reginfo : { *(.reginfo) } >ram84
+
+	/* Global/static constructors and deconstructors. */
+	.ctors ALIGN(16): {
+		KEEP(*crtbegin*.o(.ctors))
+		KEEP(*(EXCLUDE_FILE(*crtend*.o) .ctors))
+		KEEP(*(SORT(.ctors.*)))
+		KEEP(*(.ctors))
+	} >ram84
+	.dtors ALIGN(16): {
+		KEEP(*crtbegin*.o(.dtors))
+		KEEP(*(EXCLUDE_FILE(*crtend*.o) .dtors))
+		KEEP(*(SORT(.dtors.*)))
+		KEEP(*(.dtors))
+	} >ram84
+
+	/* Static data.  */
+	.rodata ALIGN(128): {
+		*(.rodata)
+		*(.rodata.*)
+		*(.gnu.linkonce.r*)
+	} >ram84
+
+	.data ALIGN(128): {
+		_fdata = . ;
+		*(.data)
+		*(.data.*)
+		*(.gnu.linkonce.d*)
+		SORT(CONSTRUCTORS)
+	} >ram84
+
+	.rdata ALIGN(128): { *(.rdata) } >ram84
+	.gcc_except_table ALIGN(128): { *(.gcc_except_table) } >ram84
+
+	_gp = ALIGN(128) + 0x7ff0;
+	.lit4 ALIGN(128): { *(.lit4) } >ram84
+	.lit8 ALIGN(128): { *(.lit8) } >ram84
+
+	.sdata ALIGN(128): {
+		*(.sdata)
+		*(.sdata.*)
+		*(.gnu.linkonce.s*)
+	} >ram84
+
+	_edata = .;
+	PROVIDE(edata = .);
+
+	/* Uninitialized data.  */
+	.sbss ALIGN(128) : {
+		_fbss = . ;
+		*(.sbss)
+		*(.sbss.*)
+		*(.gnu.linkonce.sb*)
+		*(.scommon)
+	} >ram84
+
+	.bss ALIGN(128) : {
+		*(.bss)
+		*(.bss.*)
+		*(.gnu.linkonce.b*)
+		*(COMMON)
+	} >ram84
+	_end_bss = .;
+
+	/* Titan IGR worker stack is resident but must not consume the core .bss budget. */
+	.titan_igr_stack (NOLOAD) : ALIGN(16) {
+		_titan_igr_stack_start = .;
+		KEEP(*(.titan_igr_stack))
+		_titan_igr_stack_end = .;
+	} >igrstack
+	ASSERT(SIZEOF(.titan_igr_stack) <= LENGTH(igrstack), "Titan IGR stack exceeds reserved region")
+
+	/* Symbols needed by crt0.s.  */
+	PROVIDE(_heap_size = -1);
+	PROVIDE(_stack = .);
+	PROVIDE(_stack_size = 0x00097000 - _stack);	/* Remaining core gap up to the dedicated IGR stack is the primary stack. */
+
+	_end = _stack + _stack_size ;
+	PROVIDE(end = _end);
+}

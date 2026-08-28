@@ -1,0 +1,93 @@
+{
+  "schema": "mgb64.campaign_route.v1",
+  "name": "train_native_multiwaypoint_input_traversal",
+  "description": "Train native controller route from stock spawn into the next car/room-3 pad cluster. This proves deeper narrow-car traversal without warp, force, or stage-state automation.",
+  "route_class": "input_traversal",
+  "level": 25,
+  "frames": 900,
+  "env": {
+    "GE007_TRACE_FLOW_ONLY": "1"
+  },
+  "input_segments": [
+    {
+      "name": "car_room3_left_push",
+      "start": 80,
+      "duration": 700,
+      "inputs": ["forward", "left"]
+    }
+  ],
+  "assertions": {
+    "expect_frame_exit": true,
+    "min_records": 895,
+    "no_render_failures": true,
+    "no_front_failure": true,
+    "require_input_automation": true,
+    "no_direct_state_automation": true,
+    "min_moving_records": 700,
+    "min_horizontal_delta": 790.0,
+    "setup_target_milestones": [
+      {
+        "name": "stock_spawn_pad_186",
+        "frame_at_or_after": 80,
+        "target": {"kind": "pad", "pad": 186},
+        "max_horizontal_distance": 5.0,
+        "max_abs_y_delta": 40.0
+      },
+      {
+        "name": "room3_pad12_cluster",
+        "frame_at_or_after": 140,
+        "target": {"kind": "boundpad", "pad": 12, "room": 3},
+        "max_horizontal_distance": 180.0,
+        "max_abs_y_delta": 60.0
+      },
+      {
+        "name": "room3_pad14_cluster",
+        "frame_at_or_after": 220,
+        "target": {"kind": "boundpad", "pad": 14, "room": 3},
+        "max_horizontal_distance": 130.0,
+        "max_abs_y_delta": 60.0
+      }
+    ],
+    "position_milestones": [
+      {
+        "name": "car_entry_swing",
+        "frame_at_or_after": 120,
+        "min_horizontal_delta": 320.0,
+        "min_abs_x_delta": 200.0,
+        "min_abs_z_delta": 240.0
+      },
+      {
+        "name": "room3_mid_car_reach",
+        "frame_at_or_after": 180,
+        "min_horizontal_delta": 750.0,
+        "min_abs_x_delta": 680.0,
+        "min_abs_z_delta": 290.0
+      },
+      {
+        "name": "room3_far_cluster_reach",
+        "frame_at_or_after": 220,
+        "min_horizontal_delta": 790.0,
+        "min_abs_x_delta": 730.0,
+        "min_abs_z_delta": 290.0
+      },
+      {
+        "name": "post_input_room3_hold",
+        "frame_at_or_after": 680,
+        "min_horizontal_delta": 790.0,
+        "min_abs_x_delta": 730.0,
+        "min_abs_z_delta": 290.0
+      }
+    ],
+    "state_milestones": [
+      {
+        "name": "late_train_stable",
+        "frame_at_or_after": 820,
+        "checks": [
+          {"path": "front.active_stage", "op": "==", "value": 25},
+          {"path": "front.bond_kia", "op": "==", "value": 0},
+          {"path": "front.mission_failed", "op": "==", "value": 0}
+        ]
+      }
+    ]
+  }
+}

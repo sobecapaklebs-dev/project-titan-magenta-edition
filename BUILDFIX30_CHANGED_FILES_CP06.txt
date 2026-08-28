@@ -1,0 +1,9 @@
+tools/titan_tins.py
+kernel/tests/run_host_tests.sh
+kernel/tests/test_buildfix30_boot_packaging_contract.py
+TITAN_BOOT_FINAL_ARCHITECTURE.md
+TITAN_EXPLOIT_COMPATIBILITY_MATRIX.md
+TITAN_SYSTEM_PACKAGING.md
+TITAN_RECOVERY.md
+BUILDFIX30_CHECKPOINT_CP06.md
+BUILDFIX30_CP06_VALIDATION.log

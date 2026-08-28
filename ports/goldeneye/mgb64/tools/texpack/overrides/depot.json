@@ -1,0 +1,28 @@
+{
+  "_comment": "Depot per-level curation (W2.E8.T2; night yard, concrete + corrugated-metal). Token ids + routing choices only -- no ROM data, committable. Top-5 hue-ID heroes (RemasterFX=0 pin, coverage): tok0085 16.7% (dark asphalt/concrete ground), tok0732 11.4% (corrugated-metal warehouse wall), tok0086 11.0% (dark wall panel), tok0313 2.7% / tok0385 2.4% (small brown CI tiles -> ride the automatic tree). PRESET NOTE: the metal_panel preset (W2.E5.T2) is NOT landed (only concrete/gravel/rock/sand/snow exist), so the corrugated-metal surfaces route to AI upscale, which preserves the DESIGNED corrugation ridges anyway (a generic metal preset would erase them); the concrete preset is exercised on the ground. tok2228 pinned seam_safe to match dam's global curation (shared pack). See docs/design/remaster-aaa/02-hd-asset-pipeline.md sec 4.2/4.7.",
+  "tok0085": {
+    "source": "procedural",
+    "preset": "concrete",
+    "size": "1024x1024",
+    "tone": {"mode": "match"},
+    "_note": "Depot yard ground (hero #1, 64x64 fmt=4 I-format tileable=1 room, avgRGB 1c1c1c dark asphalt). The dominant tiled ground -> seamless tone-matched CONCRETE synth (dark, tone-locked) reads cleaner than ESRGAN on a 64x64 tile and is the concrete preset exercise for this level. I-format 'alpha' is intensity; synth_inject re-attaches it. tone=match -> Tier B."
+  },
+  "tok0732": {
+    "source": "ai_upscale",
+    "mode": "seam_safe",
+    "model": "realesrgan-x4plus",
+    "_note": "Depot corrugated-metal warehouse wall (hero #2, 32x32 fmt=2 CI tileable=1 room, avgRGB 5f5c66). A DESIGNED metal surface (vertical corrugation ridges) -> AI upscale preserves+sharpens the ridges. No metal_panel preset (W2.E5.T2 unlanded); a generic preset would erase the corrugation. seam_safe keeps the tile wrapping."
+  },
+  "tok0086": {
+    "source": "ai_upscale",
+    "mode": "whole_image",
+    "model": "realesrgan-x4plus",
+    "_note": "Depot dark wall/container panel (hero #3, 64x64 fmt=4 I-format tileable=0 room, avgRGB 444444). Non-tileable designed panel -> whole_image AI upscale (auto choice, pinned as the explicit curation record)."
+  },
+  "tok2228": {
+    "source": "ai_upscale",
+    "mode": "seam_safe",
+    "model": "realesrgan-x4plus",
+    "_note": "Curation correction, harmonized with dam.json/surface1.json (global token, shared pack). tileable=1 non-'room' token; auto tree routes whole_image which fails validate_pack's seam check -> pin seam_safe."
+  }
+}

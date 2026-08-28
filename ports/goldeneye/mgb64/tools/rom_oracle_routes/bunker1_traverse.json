@@ -1,0 +1,35 @@
+{
+ "schema": "mgb64.rom_oracle.route.v1",
+ "name": "bunker1_traverse",
+ "level": "9",
+ "frames": 360,
+ "native_frames": 360,
+ "gate": true,
+ "tape": "bunker1_traverse",
+ "compare_kind": "movement",
+ "compare_align": "move",
+ "compare_profile": "scalar-speed",
+ "compare_min_aligned": 40,
+ "compare_normalize_position": true,
+ "description": "Archetype traversal parity route: indoor alt / escape (Bunker 1, mission 5). Bond walks forward, strafes right, then turns \u2014 deterministic movement exercising the level geometry/collision sim. gate:true: the durable ares-free gate is the paired determinism tape baselines/tapes/bunker1_traverse.ge7tape (3-run byte-exact, gate_routes_smoke.sh). NOTE: the paired ares stock capture does NOT exist yet (FID-0076: needs per-mission menu-nav choreography + unlocked EEPROM); until it lands, this route gates determinism only, and sense_trace_sweep --gate skips its stock comparison loudly. Capture recipe when unblocked: movement_oracle_capture.sh --route bunker1_traverse --native-full-trace, then compare_combat_trace.py --align tick.",
+ "events": [
+  {
+   "start": 60,
+   "len": 180,
+   "forward": true
+  },
+  {
+   "start": 140,
+   "len": 60,
+   "right": true
+  },
+  {
+   "start": 210,
+   "len": 40,
+   "buttons": [
+    "cright"
+   ]
+  }
+ ],
+ "stock_events": []
+}

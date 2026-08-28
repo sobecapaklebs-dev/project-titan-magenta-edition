@@ -1,0 +1,85 @@
+{
+  "schema": "mgb64.campaign_route.v1",
+  "name": "cradle_spawn_armour_collect_contract",
+  "description": "Cradle stock-spawn controller route that backs along the starting gantry and collects body armour at setup pad 124. This proves normal input-driven pickup handling on Cradle without warp, force, item injection, or stage-state automation.",
+  "route_class": "input_interaction",
+  "level": 41,
+  "frames": 440,
+  "env": {
+    "GE007_TRACE_FLOW_ONLY": 1,
+    "GE007_TRACE_INVENTORY": 1,
+    "GE007_INTERACT_TRACE": 1,
+    "GE007_INTERACT_TRACE_BUDGET": 160
+  },
+  "input_segments": [
+    {
+      "name": "spawn_gantry_armour_back_left_push",
+      "start": 80,
+      "duration": 180,
+      "inputs": ["back", "left"]
+    }
+  ],
+  "assertions": {
+    "expect_frame_exit": true,
+    "min_records": 435,
+    "no_render_failures": true,
+    "no_front_failure": true,
+    "require_input_automation": true,
+    "no_direct_state_automation": true,
+    "min_moving_records": 170,
+    "min_horizontal_delta": 650.0,
+    "log_count_assertions": [
+      {
+        "name": "real_cradle_armour_collect_begin",
+        "pattern": "^\\[INTERACT_TRACE\\] collect begin .*\\bobjtype=21\\b",
+        "min_count": 1
+      },
+      {
+        "name": "real_cradle_armour_collect_free",
+        "pattern": "^\\[INTERACT_TRACE\\] collect free objtype=21 collectType=1\\b",
+        "min_count": 1
+      }
+    ],
+    "setup_target_milestones": [
+      {
+        "name": "stock_spawn_near_setup_pad_151",
+        "frame_at_or_after": 1,
+        "target": {"kind": "pad", "pad": 151},
+        "max_horizontal_distance": 5.0,
+        "max_abs_y_delta": 80.0
+      },
+      {
+        "name": "armour_near_setup_pad_124",
+        "frame_at_or_after": 160,
+        "target": {"kind": "object", "type_name": "armour", "obj": 115, "pad": 124},
+        "max_horizontal_distance": 45.0,
+        "max_abs_y_delta": 70.0
+      }
+    ],
+    "position_milestones": [
+      {
+        "name": "armour_gantry_reach",
+        "frame_at_or_after": 180,
+        "min_horizontal_delta": 650.0,
+        "min_abs_z_delta": 630.0
+      },
+      {
+        "name": "post_collect_hold",
+        "frame_at_or_after": 420,
+        "min_horizontal_delta": 650.0,
+        "min_abs_z_delta": 630.0
+      }
+    ],
+    "state_milestones": [
+      {
+        "name": "late_cradle_armour_stable",
+        "frame_at_or_after": 420,
+        "checks": [
+          {"path": "front.active_stage", "op": "==", "value": 41},
+          {"path": "front.bond_kia", "op": "==", "value": 0},
+          {"path": "front.mission_failed", "op": "==", "value": 0}
+        ]
+      }
+    ]
+  }
+}

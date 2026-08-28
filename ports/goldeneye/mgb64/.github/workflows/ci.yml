@@ -1,0 +1,116 @@
+name: CI
+
+on:
+  # Manual-only: the repo enforces a local-CI posture (GitHub Actions hosted
+  # runners are disabled; scripts/ci/check_release_ready.sh forbids automatic
+  # hosted triggers). Contributors run the smoke lanes locally; a maintainer
+  # dispatches this workflow deliberately. Re-add an automatic trigger only
+  # together with a decision to enable hosted Actions (see 08 doc §9 Q2).
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # The most important check for a decompilation project: prove no ROM or
+  # ROM-derived asset data was committed.
+  no-rom-data:
+    name: Release hygiene
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+      - name: Check release hygiene
+        run: |
+          chmod +x scripts/ci/check_release_ready.sh
+          ./scripts/ci/check_release_ready.sh
+      - name: Check ignored artifact hygiene
+        run: ./scripts/ci/check_high_risk_ignored_artifacts.sh
+      - name: Timing lock (R2)
+        run: ./scripts/ci/check_timing_lock.sh
+      - name: Check Docker build context
+        run: docker build --check .
+      - name: Run public static validation
+        run: ./tools/validate_quick.sh --no-spawn
+      - name: Check validation tool syntax
+        run: |
+          python3 -m py_compile \
+            tools/audit_intro_trace.py \
+            tools/audit_oracle_trace.py \
+            tools/audit_render_trace.py \
+            tools/audit_screenshot_health.py \
+            tools/compare_audio.py \
+            tools/compare_audio_reference.py \
+            tools/compare_intro_trace.py \
+            tools/compare_movement_trace.py \
+            tools/compare_screenshots.py \
+            tools/compare_state.py \
+            tools/intro_trace_summary.py \
+            tools/rom_oracle_route.py \
+            tools/summarize_intro_census.py \
+            tools/summarize_build_warnings.py \
+            tools/assert_stub_hits_zero.py \
+            tools/check_markdown_links.py \
+            tools/check_shell_syntax.py \
+            tools/check_github_branch_protection.py \
+            tools/check_github_public_commit_refs.py \
+            tools/check_public_history_paths.py \
+            tools/check_third_party_notices.py \
+            tools/check_sdk_inventory.py \
+            tools/check_native_switch_access.py \
+            tools/check_native_sdk_surface.py \
+            tools/check_native_stub_surface.py \
+            tools/analyze_stock_rdp_command_stream.py \
+            tools/check_stock_rdp_command_stream_regression.py \
+            tools/analyze_stock_rdp_pixel_probe.py \
+            tools/check_stock_rdp_pixel_probe_regression.py \
+            tools/analyze_glass_center_handoff.py \
+            tools/check_glass_center_handoff_regression.py \
+            tools/export_github_launch_items.py \
+            macos/Scripts/generate_app_icon.py
+          python3 tools/check_stock_rdp_command_stream_regression.py
+          python3 tools/check_stock_rdp_pixel_probe_regression.py
+          python3 tools/check_glass_center_handoff_regression.py
+          python3 tools/check_shell_syntax.py
+
+  # Build the native executable without ROM-derived assets. The port loads game
+  # media from the user's ROM at runtime, so this manual hosted mirror can still
+  # compile/link without bundled game data if Actions are deliberately enabled.
+  linux-build:
+    name: CMake build (Linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake pkg-config libsdl2-dev libgl1-mesa-dev python3-pil
+      - name: Configure
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+      - name: Build native port
+        run: |
+          set -o pipefail
+          cmake --build build --parallel 4 2>&1 | tee build/mgb64-build.log
+      - name: Sim/render separation (R1)
+        run: ./scripts/ci/check_sim_render_separation.sh
+      - name: Summarize build warnings
+        if: always()
+        run: |
+          if [ -f build/mgb64-build.log ]; then
+            python3 tools/summarize_build_warnings.py \
+              build/mgb64-build.log \
+              --json-out build/mgb64-build-warnings.json \
+              --max-total 0
+          fi
+      - name: Run ROM-free CTest suite
+        run: ctest --test-dir build --output-on-failure
+      - name: Smoke public source archive
+        run: |
+          scripts/make_public_source_archive.sh --force
+          archive="dist/mgb64-$(git rev-parse --short=12 HEAD).tar.gz"
+          scripts/smoke_public_source_archive.sh "$archive" --jobs 4 --max-warnings 0

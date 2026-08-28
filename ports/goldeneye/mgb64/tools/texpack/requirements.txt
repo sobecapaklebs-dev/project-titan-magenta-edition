@@ -1,0 +1,5 @@
+# build_pack.py: Pillow decodes the engine's .ppm/.pgm texture dumps (optional once
+#   the engine dumps PNG directly).
+# synth_texture.py: numpy for the procedural band-pass/FFT/histogram synthesis.
+Pillow>=10.0
+numpy>=1.24

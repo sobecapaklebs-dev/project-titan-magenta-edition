@@ -1,0 +1,13 @@
+# MGB64 release-manifest public key (minisign)
+#
+# MGB64-PUBKEY-PLACEHOLDER -- NOT THE RELEASE KEY.
+# Owner: replace this whole file with the real minisign public key at the first
+# signed release (mint it on the owner Mac with `minisign -G`; the secret key
+# never leaves that machine -- see docs/RELEASING.md "First signed release").
+#
+# Until then scripts/release/verify_release.sh REFUSES to verify against this
+# file (fail-closed): there is no signed release yet, so nothing can verify.
+#
+# A real minisign public-key file looks like:
+#   untrusted comment: minisign public key <KEYID>
+#   RW<44 more base64 characters>

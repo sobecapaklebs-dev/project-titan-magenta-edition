@@ -1,0 +1,86 @@
+/*
+ * Project Titan / TitanEye native game geometry microprogram.
+ *
+ * EE input is already Fast3D clip-space. VU1 performs the work that was
+ * previously repeated in TitanVideoGame_MapClipVertex + packet construction:
+ *   - reciprocal W / NDC
+ *   - Z clamp and viewport/depth mapping
+ *   - perspective-correct STQ
+ *   - float -> packed GS coordinate/color conversion
+ *   - PATH1 XGKICK
+ *
+ * VU1 data-memory map (qword addresses):
+ *   0      viewport scale  = (vw/2, -vh/2, -32767.5, 0)
+ *   1      viewport offset = (vx+vw/2+2048, vy+vh/2+2048, 32767.5, 0)
+ *   2      constants       = (1/32, 1/2, 1, -1)
+ *   3      vertex count in x lane (integer)
+ *   16     clip XYZW, up to 96 qwords
+ *   112    scaled (S,T,1,0), up to 96 qwords
+ *   208    float GS RGBA, up to 96 qwords
+ *   320    PATH1 material GIF packet (8 state qwords + vertex GIFtag)
+ *   329    generated ST/RGBAQ/XYZ2 stream, up to 288 qwords
+ *
+ * The EE validates complete triangles against the existing +/-2 NDC guard
+ * band without doing divisions. Thus every vertex reaching this program has
+ * positive W and a finite representable clip coordinate.
+ */
+
+.align 4
+.vu
+.global titan_game_vu1_micro_start
+.global titan_game_vu1_micro_end
+
+titan_game_vu1_micro_start:
+    nop                         lq.xyzw vf05, 0(vi00)
+    nop                         lq.xyzw vf06, 1(vi00)
+    nop                         lq.xyzw vf26, 2(vi00)
+    nop                         ilw.x vi05, 3(vi00)
+    nop                         iaddiu vi01, vi00, 16
+    nop                         iaddiu vi02, vi00, 112
+    nop                         iaddiu vi03, vi00, 208
+    nop                         iaddiu vi04, vi00, 329
+    nop                         iaddiu vi07, vi00, 0
+
+TitanGameVu1_Loop:
+    nop                         lq.xyzw vf10, 0(vi01)
+    nop                         lq.xyzw vf16, 0(vi02)
+    nop                         lq.xyzw vf11, 0(vi03)
+    nop                         div Q, vf00w, vf10w
+    nop                         waitq
+
+    mulq.xyzw vf13, vf10, Q     nop
+    maxw.z vf13, vf13, vf26     nop
+    miniz.z vf13, vf13, vf26    nop
+
+    mul.xyzw vf14, vf13, vf05   nop
+    add.xyzw vf14, vf14, vf06   nop
+    addx.xy vf14, vf14, vf26    nop
+    addy.z vf14, vf14, vf26     nop
+    ftoi4.xy vf15, vf14         nop
+    ftoi0.z vf15, vf14          nop
+    sub.w vf15, vf15, vf15      nop
+
+    mulq.xyzw vf17, vf16, Q     nop
+    ftoi0.xyzw vf18, vf11       nop
+
+    nop                         sq.xyzw vf17, 0(vi04)
+    nop                         sq.xyzw vf18, 1(vi04)
+    nop                         sq.xyzw vf15, 2(vi04)
+    nop                         iaddiu vi01, vi01, 1
+    nop                         iaddiu vi02, vi02, 1
+    nop                         iaddiu vi03, vi03, 1
+    nop                         iaddiu vi04, vi04, 3
+    nop                         iaddiu vi07, vi07, 1
+    nop                         ibne vi07, vi05, TitanGameVu1_Loop
+    nop                         nop
+
+    nop                         iaddiu vi08, vi00, 320
+    nop                         xgkick vi08
+    nop                         nop
+    nop                         nop
+    nop                         nop
+    nop                         nop
+    nop[e]                      nop
+    nop                         nop
+
+titan_game_vu1_micro_end:

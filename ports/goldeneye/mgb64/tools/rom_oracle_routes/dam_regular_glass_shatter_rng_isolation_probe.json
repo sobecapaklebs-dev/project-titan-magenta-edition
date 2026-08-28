@@ -1,0 +1,95 @@
+{
+  "schema": "mgb64.rom_oracle.route.v1",
+  "name": "dam_regular_glass_shatter_rng_isolation_probe",
+  "level": "33",
+  "native_frames": 145,
+  "stock_frames": 2520,
+  "stock_screenshot_frame": 2480,
+  "stock_gameplay_start_global": 1146,
+  "stock_require_first_gameplay_global": 1146,
+  "stock_speedframes": 2,
+  "stock_menu_close_on_player": true,
+  "native_render_audit": true,
+  "stock_min_gameplay_input_records": 5,
+  "stock_max_suppressed_menu_records": 0,
+  "stock_min_menu_to_gameplay_gap": 30,
+  "stock_min_force_player_applies": 300,
+  "stock_min_force_player_stan_applies": 300,
+  "compare_kind": "glass",
+  "compare_align": "frame",
+  "compare_profile": "shatter-state",
+  "compare_require_active": true,
+  "compare_require_hash_match": false,
+  "compare_max_active_tolerance": 0,
+  "compare_first_position_tolerance": 1.0,
+  "compare_first_sample_tolerance": 0,
+  "compare_require_prop_destroyed": true,
+  "compare_prop_position_tolerance": 1.0,
+  "compare_max_buffer_len": 200,
+  "description": "Dam regular glass renderer-isolation checkpoint. This route keeps the same pad-103 shot and same-pose stock/native setup as the visual probe, disables route-only native autoaim before the shot so the nearby chr12 guard is not killed by the direct-boot setup, then seeds native immediately before the first shard-size RNG draw so first active glass.sample records must match stock exactly. It is a diagnostic renderer gate, not proof that stock/native gameplay RNG timing is aligned.",
+  "native_config": {
+    "Video.AnisotropicFiltering": 1,
+    "Input.ViewmodelSway": 0,
+    "Video.Bloom": 0,
+    "Video.Brightness": 0,
+    "Video.Contrast": 1,
+    "Video.FovY": 60,
+    "Video.Gamma": 1,
+    "Video.GradePresets": 0,
+    "Video.MSAA": 0,
+    "Video.RemasterFX": 0,
+    "Video.RenderScale": 1,
+    "Video.RetroFilter": "on",
+    "Video.Saturation": 1,
+    "Video.Sharpen": 0,
+    "Video.Tonemap": 0,
+    "Video.Vignette": 0,
+    "Video.WindowHeight": 480,
+    "Video.WindowMode": "windowed",
+    "Video.WindowWidth": 640
+  },
+  "native_env": {
+    "GE007_DIAG_DISABLE_HIGHDPI": "1",
+    "GE007_DISABLE_LEVEL_INTRO": "1",
+    "GE007_TRACE_GLASS": "1",
+    "GE007_TRACE_GLASS_BUDGET": "400",
+    "GE007_AUTO_WARP_FRAME": 40,
+    "GE007_AUTO_WARP_PAD": 103,
+    "GE007_AUTO_FACE_COORD_SCRIPT": "45:14274.10:-474.70:2900.36",
+    "GE007_AUTO_AUTOAIM_SCRIPT": "41:0,60:0,69:0",
+    "GE007_AUTO_RNG_CALL_SEED_SCRIPT": "1702:0x00000001D8F3CC2B"
+  },
+  "stock_env": {
+    "MGB64_ARES_FORCE_PLAYER_SCRIPT": "1:360:14274.10:-474.70:1900.36:0.00:0.00:167.31:103"
+  },
+  "events": [],
+  "native_events": [
+    {
+      "start": 70,
+      "len": 5,
+      "buttons": ["fire"]
+    }
+  ],
+  "stock_events": [
+    {
+      "start": 100,
+      "len": 3,
+      "buttons": ["start"],
+      "phase": "menu",
+      "repeat": { "every": 240, "until": 2260 }
+    },
+    {
+      "start": 160,
+      "len": 3,
+      "buttons": ["a"],
+      "phase": "menu",
+      "repeat": { "every": 240, "until": 2080 }
+    },
+    {
+      "start": 70,
+      "len": 5,
+      "buttons": ["fire"],
+      "phase": "gameplay"
+    }
+  ]
+}

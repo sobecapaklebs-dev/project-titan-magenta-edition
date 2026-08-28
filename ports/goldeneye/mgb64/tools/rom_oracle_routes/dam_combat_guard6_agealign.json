@@ -1,0 +1,79 @@
+{
+    "schema": "mgb64.rom_oracle.route.v1",
+    "name": "dam_combat_guard6_agealign",
+    "level": "33",
+    "frames": 300,
+    "native_frames": 682,
+    "stock_frames": 6500,
+    "stock_screenshot_frame": 2950,
+    "native_speedframes": 3,
+    "stock_speedframes": 3,
+    "stock_gameplay_start_global": 1146,
+    "stock_menu_close_on_player": true,
+    "native_render_audit": false,
+    "native_min_moving_records": 40,
+    "stock_min_moving_records": 40,
+    "stock_min_gameplay_input_records": 40,
+    "stock_max_suppressed_menu_records": 0,
+    "stock_min_menu_to_gameplay_gap": 30,
+    "compare_align": "move-global",
+    "compare_profile": "scalar-speed",
+    "compare_min_aligned": 40,
+    "compare_max_aligned": 120,
+    "compare_normalize_position": true,
+    "description": "dam_combat_guard6 with the native input timeline delayed by 382 frames (1146 sim ticks) so both sides' guards have the SAME AGE at motion onset (FID-0054 guard-age alignment). The stock recipe spends stock_gameplay_start_global=1146 sim ticks in briefing/intro between mission start (g_GlobalTimer=0, all 36 guards spawned byte-identical to native) and gameplay input frame 0; the native direct --level boot spends ~0. That 1145-tick guard-age skew is a capture-RECIPE artifact that inflates every patrolling guard's cross-side position delta under compare_combat_trace --align tick (native onset global 241 vs stock 1386). This route shifts every native event by +382 frames (80->462, 100->482) so native onset lands at global 3*462+1=1387, within 1 tick of stock's 1386 (3-tick frame granularity floor). Residual guard divergence under this route is the SIM-layer component only (WAYMODE_MAGIC patrol semantics, FID-0014/FID-0012 cluster) plus RNG-value differences, with the recipe layer removed. Analysis: movement_oracle_capture.sh --route dam_combat_guard6_agealign --native-full-trace --no-compare, then compare_combat_trace.py --align tick.",
+    "events": [
+        {
+            "start": 462,
+            "len": 120,
+            "forward": true
+        },
+        {
+            "start": 482,
+            "len": 160,
+            "buttons": [
+                "fire"
+            ]
+        }
+    ],
+    "stock_events": [
+        {
+            "start": 100,
+            "len": 3,
+            "buttons": [
+                "start"
+            ],
+            "phase": "menu",
+            "repeat": {
+                "every": 240,
+                "until": 2260
+            }
+        },
+        {
+            "start": 160,
+            "len": 3,
+            "buttons": [
+                "a"
+            ],
+            "phase": "menu",
+            "repeat": {
+                "every": 240,
+                "until": 2080
+            }
+        },
+        {
+            "start": 80,
+            "len": 120,
+            "forward": true,
+            "phase": "gameplay"
+        },
+        {
+            "start": 100,
+            "len": 160,
+            "buttons": [
+                "fire"
+            ],
+            "phase": "gameplay"
+        }
+    ]
+}

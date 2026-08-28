@@ -1,0 +1,55 @@
+{
+  "schema": "mgb64.campaign_route.v1",
+  "name": "frigate_spawn_input_traversal",
+  "description": "Frigate native input traversal from the stock spawn using back+right movement. This is a collision and movement guard, not an objective-completion route.",
+  "route_class": "input_traversal",
+  "level": 26,
+  "frames": 300,
+  "env": {
+    "GE007_TRACE_FLOW_ONLY": "1"
+  },
+  "input_segments": [
+    {"name": "deck_reverse_side_push", "start": 80, "duration": 160, "inputs": ["back", "right"]}
+  ],
+  "assertions": {
+    "expect_frame_exit": true,
+    "min_records": 295,
+    "no_render_failures": true,
+    "no_front_failure": true,
+    "require_input_automation": true,
+    "no_direct_state_automation": true,
+    "min_moving_records": 150,
+    "min_horizontal_delta": 550.0,
+    "setup_target_milestones": [
+      {
+        "name": "deck_push_near_setup_pad_150",
+        "frame_at_or_after": 220,
+        "target": {"kind": "pad", "pad": 150},
+        "max_horizontal_distance": 60.0
+      }
+    ],
+    "position_milestones": [
+      {
+        "name": "deck_clearance",
+        "frame_at_or_after": 140,
+        "min_horizontal_delta": 350.0,
+        "min_abs_x_delta": 100.0,
+        "min_abs_z_delta": 350.0
+      },
+      {
+        "name": "lifeboat_side_push",
+        "frame_at_or_after": 220,
+        "min_horizontal_delta": 550.0,
+        "min_abs_x_delta": 180.0,
+        "min_abs_z_delta": 520.0
+      },
+      {
+        "name": "post_input_coast",
+        "frame_at_or_after": 299,
+        "min_horizontal_delta": 550.0,
+        "min_abs_x_delta": 180.0,
+        "min_abs_z_delta": 520.0
+      }
+    ]
+  }
+}

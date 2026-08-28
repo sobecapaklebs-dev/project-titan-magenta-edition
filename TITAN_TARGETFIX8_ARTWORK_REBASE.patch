@@ -1,0 +1,2181 @@
+--- a/apps/project-nes/Makefile
++++ b/apps/project-nes/Makefile
+@@ -55,6 +55,10 @@
+ 	mkdir -p $(PKG_SOURCE)
+ 	cp $< $@
+ 
++$(PKG_SOURCE)/tile.rgb565: resources/tile.rgb565
++	mkdir -p $(PKG_SOURCE)
++	cp $< $@
++
+ $(PKG_SOURCE)/background.rgb565: resources/background.rgb565
+ 	mkdir -p $(PKG_SOURCE)
+ 	cp $< $@
+@@ -84,7 +88,7 @@
+ 	mkdir -p $(PKG_SOURCE)
+ 	cp $< $@
+ 
+-$(PKG): $(TMOD) $(PKG_SOURCE)/icon.rgb565 $(PKG_SOURCE)/background.rgb565 $(PKG_SOURCE)/data/roms/ProjectNesTest.nes $(PKG_SOURCE)/README.txt $(PKG_SOURCE)/LICENSE.txt $(PKG_SOURCE)/LICENSE-MIT.txt $(PKG_SOURCE)/THIRD_PARTY_FCEUMM_LICENSE.txt $(PKG_SOURCE)/FCEUMM_SOURCE_PROVENANCE.txt
++$(PKG): $(TMOD) $(PKG_SOURCE)/icon.rgb565 $(PKG_SOURCE)/tile.rgb565 $(PKG_SOURCE)/background.rgb565 $(PKG_SOURCE)/data/roms/ProjectNesTest.nes $(PKG_SOURCE)/README.txt $(PKG_SOURCE)/LICENSE.txt $(PKG_SOURCE)/LICENSE-MIT.txt $(PKG_SOURCE)/THIRD_PARTY_FCEUMM_LICENSE.txt $(PKG_SOURCE)/FCEUMM_SOURCE_PROVENANCE.txt
+ 	$(PYTHON) tools/titan_pkg.py build \
+ 		--source $(PKG_SOURCE) \
+ 		--output $(PKG) \
+--- a/apps/wlaunchelf/Makefile
++++ b/apps/wlaunchelf/Makefile
+@@ -28,6 +28,10 @@
+ 	mkdir -p $(PKG_SOURCE)
+ 	cp $< $@
+ 
++$(PKG_SOURCE)/tile.rgb565: resources/tile.rgb565
++	mkdir -p $(PKG_SOURCE)
++	cp $< $@
++
+ $(PKG_SOURCE)/background.rgb565: resources/background.rgb565
+ 	mkdir -p $(PKG_SOURCE)
+ 	cp $< $@
+@@ -49,9 +53,10 @@
+ 		'author=Project Titan / wLaunchELF upstream' \
+ 		'description=Titan-native wLaunchELF file manager port; storage and ELF handoff are owned by Project Titan.' \
+ 		'icon=icon.rgb565' \
++		'tile=tile.rgb565' \
+ 		'background=background.rgb565' > $@
+ 
+-$(PKG): $(TMOD) $(PKG_SOURCE)/icon.rgb565 $(PKG_SOURCE)/background.rgb565 $(PKG_SOURCE)/UPSTREAM_NOTICE.txt
++$(PKG): $(TMOD) $(PKG_SOURCE)/icon.rgb565 $(PKG_SOURCE)/tile.rgb565 $(PKG_SOURCE)/background.rgb565 $(PKG_SOURCE)/UPSTREAM_NOTICE.txt
+ 	$(PYTHON) tools/titan_pkg.py build \
+ 		--source $(PKG_SOURCE) \
+ 		--output $(PKG) \
+--- a/kernel/src/graphics/titan_video.c
++++ b/kernel/src/graphics/titan_video.c
+@@ -4900,6 +4900,85 @@
+     return TITAN_RESULT_OK;
+ }
+ 
++static TitanResult TitanVideo_DrawLegacyMediaTile16(
++    const unsigned short *pixels,
++    unsigned int source_stride,
++    unsigned int source_x,
++    unsigned int source_y,
++    unsigned int tile_width,
++    unsigned int tile_height,
++    float x,
++    float y,
++    float width,
++    float height,
++    unsigned char alpha
++)
++{
++    qword_t *cursor;
++    unsigned int row;
++
++    if (
++        pixels == 0 || tile_width == 0u || tile_height == 0u ||
++        tile_width > TITAN_VIDEO_CACHED_LAYER_WIDTH ||
++        tile_height > TITAN_VIDEO_CACHED_LAYER_HEIGHT ||
++        g_video.compact_resources
++    )
++    {
++        return TITAN_ERROR_INVALID_ARGUMENT;
++    }
++
++    /* The cached-layer allocation is also the primary-background streaming
++     * scratch in 480i/480p. Complete queued sampling before overwriting it. */
++    if (TitanVideo_SubmitPacket(0) != TITAN_RESULT_OK)
++    {
++        return TITAN_ERROR_FRAME_END;
++    }
++
++    for (row = 0u; row < tile_height; row++)
++    {
++        unsigned int column;
++        const unsigned short *source_row =
++            &pixels[(source_y + row) * source_stride + source_x];
++        unsigned short *destination_row =
++            &g_video_media_psm16[row * tile_width];
++
++        for (column = 0u; column < tile_width; column++)
++        {
++            destination_row[column] = TitanVideo_Rgb565ToPsm16(source_row[column]);
++        }
++    }
++
++    packet2_reset(g_video.upload_packet, 0);
++    cursor = g_video.upload_packet->base;
++    cursor = draw_texture_transfer(
++        cursor,
++        g_video_media_psm16,
++        (int)tile_width,
++        (int)tile_height,
++        GS_PSM_16,
++        (int)g_video.cached_layer.address,
++        (int)g_video.cached_layer.width
++    );
++    cursor = draw_texture_flush(cursor);
++    packet2_update(g_video.upload_packet, cursor);
++
++    FlushCache(0);
++    dma_channel_send_packet2(g_video.upload_packet, DMA_CHANNEL_GIF, 1);
++    if (dma_channel_wait(DMA_CHANNEL_GIF, 0) < 0)
++    {
++        return TITAN_ERROR_FRAME_END;
++    }
++
++    g_video.cached_layer_ready = 1;
++    g_video.transient_atlas_uploaded_generation = 0u;
++    g_video.bound_texture = TITAN_VIDEO_TEXTURE_NONE;
++    TitanVideo_DrawCachedLayer16(
++        x, y, width, height,
++        tile_width, tile_height, alpha
++    );
++    return TITAN_RESULT_OK;
++}
++
+ static TitanResult TitanVideo_DrawCompactMediaTile16(
+     const unsigned short *pixels,
+     unsigned int source_stride,
+@@ -5035,11 +5114,19 @@
+ {
+     unsigned int tile_x;
+     unsigned int tile_y;
++    int primary_surface;
++    int legacy_surface;
++
++    primary_surface =
++        width == TITAN_VIDEO_MEDIA_PRIMARY_WIDTH &&
++        height == TITAN_VIDEO_MEDIA_PRIMARY_HEIGHT;
++    legacy_surface =
++        width == TITAN_VIDEO_MEDIA_LEGACY_WIDTH &&
++        height == TITAN_VIDEO_MEDIA_LEGACY_HEIGHT;
+ 
+     if (
+         !g_video.initialized || !g_video.frame_open || pixels == 0 ||
+-        width != TITAN_VIDEO_MEDIA_SURFACE_WIDTH ||
+-        height != TITAN_VIDEO_MEDIA_SURFACE_HEIGHT ||
++        (!primary_surface && !legacy_surface) ||
+         stride < width || draw_width <= 0.0f || draw_height <= 0.0f ||
+         alpha == 0u
+     )
+@@ -5049,36 +5136,77 @@
+ 
+     if (!g_video.compact_resources)
+     {
+-        TitanResult result;
+-        unsigned int row;
+-        unsigned int column;
+-        if (stride < width)
+-            return TITAN_ERROR_INVALID_ARGUMENT;
+-
+-        for (row = 0u; row < height; row++)
++        /* Keep the old single-transfer fast path for 512x256 fallback art. */
++        if (legacy_surface)
+         {
+-            const unsigned short *source_row = &pixels[row * stride];
+-            unsigned short *destination_row = &g_video_media_psm16[row * width];
+-            for (column = 0u; column < width; column++)
++            TitanResult result;
++            unsigned int row;
++            unsigned int column;
++
++            for (row = 0u; row < height; row++)
+             {
+-                destination_row[column] = TitanVideo_Rgb565ToPsm16(source_row[column]);
++                const unsigned short *source_row = &pixels[row * stride];
++                unsigned short *destination_row = &g_video_media_psm16[row * width];
++                for (column = 0u; column < width; column++)
++                {
++                    destination_row[column] =
++                        TitanVideo_Rgb565ToPsm16(source_row[column]);
++                }
+             }
++
++            result = TitanVideo_UploadCachedLayerTransient16(g_video_media_psm16);
++            if (result != TITAN_RESULT_OK)
++            {
++                return result;
++            }
++            TitanVideo_DrawCachedLayer16(
++                x, y, draw_width, draw_height, width, height, alpha
++            );
++            return TITAN_RESULT_OK;
+         }
+ 
+-        result = TitanVideo_UploadCachedLayerTransient16(g_video_media_psm16);
+-        if (result != TITAN_RESULT_OK)
++        /* 640x480 primary background: stream through the existing 512x256 GS
++         * cached-layer allocation in four bounded tiles. This preserves every
++         * one of the 480 source lines without allocating extra GS VRAM. */
++        for (tile_y = 0u; tile_y < height; tile_y += TITAN_VIDEO_CACHED_LAYER_HEIGHT)
+         {
+-            return result;
++            unsigned int tile_height = height - tile_y;
++            if (tile_height > TITAN_VIDEO_CACHED_LAYER_HEIGHT)
++                tile_height = TITAN_VIDEO_CACHED_LAYER_HEIGHT;
++
++            for (tile_x = 0u; tile_x < width; tile_x += TITAN_VIDEO_CACHED_LAYER_WIDTH)
++            {
++                unsigned int tile_width = width - tile_x;
++                float destination_x;
++                float destination_y;
++                float destination_width;
++                float destination_height;
++                TitanResult result;
++
++                if (tile_width > TITAN_VIDEO_CACHED_LAYER_WIDTH)
++                    tile_width = TITAN_VIDEO_CACHED_LAYER_WIDTH;
++
++                destination_x = x + draw_width * ((float)tile_x / (float)width);
++                destination_y = y + draw_height * ((float)tile_y / (float)height);
++                destination_width = draw_width * ((float)tile_width / (float)width);
++                destination_height = draw_height * ((float)tile_height / (float)height);
++
++                result = TitanVideo_DrawLegacyMediaTile16(
++                    pixels, stride, tile_x, tile_y, tile_width, tile_height,
++                    destination_x, destination_y,
++                    destination_width, destination_height, alpha
++                );
++                if (result != TITAN_RESULT_OK)
++                    return result;
++            }
+         }
+-        TitanVideo_DrawCachedLayer16(
+-            x, y, draw_width, draw_height, width, height, alpha
+-        );
+         return TITAN_RESULT_OK;
+     }
+ 
+-    /* Native 720p deliberately reserves zero extra VRAM for media. Stream the
+-     * 512x256 RGB565 frame through the existing 256x64 avatar scratch in eight
+-     * ordered tiles. No framebuffer or resident system asset is sacrificed. */
++    /* Native 720p deliberately reserves zero extra VRAM for media. Stream
++     * either the 640x480 primary frame or 512x256 fallback through the existing
++     * 256x64 avatar scratch. The source contract remains 480-line whenever the
++     * package provides it; the compositor scales it to the active output. */
+     for (tile_y = 0u; tile_y < height; tile_y += TITAN_VIDEO_AVATAR_SCRATCH_HEIGHT)
+     {
+         unsigned int tile_height;
+--- a/kernel/src/graphics/titan_video.h
++++ b/kernel/src/graphics/titan_video.h
+@@ -31,8 +31,15 @@
+ 
+ #define TITAN_VIDEO_CACHED_LAYER_WIDTH 512u
+ #define TITAN_VIDEO_CACHED_LAYER_HEIGHT 256u
+-#define TITAN_VIDEO_MEDIA_SURFACE_WIDTH 512u
+-#define TITAN_VIDEO_MEDIA_SURFACE_HEIGHT 256u
++#define TITAN_VIDEO_MEDIA_PRIMARY_WIDTH 640u
++#define TITAN_VIDEO_MEDIA_PRIMARY_HEIGHT 480u
++#define TITAN_VIDEO_MEDIA_LEGACY_WIDTH 512u
++#define TITAN_VIDEO_MEDIA_LEGACY_HEIGHT 256u
++/* The EE staging surface intentionally stays at the legacy cached-layer size.
++ * 640x480 media is streamed through it in tiles, so primary backgrounds do not
++ * reserve another full-frame buffer or any additional GS VRAM. */
++#define TITAN_VIDEO_MEDIA_SURFACE_WIDTH TITAN_VIDEO_MEDIA_LEGACY_WIDTH
++#define TITAN_VIDEO_MEDIA_SURFACE_HEIGHT TITAN_VIDEO_MEDIA_LEGACY_HEIGHT
+ #define TITAN_VIDEO_AVATAR_ATLAS_WIDTH 512u
+ #define TITAN_VIDEO_AVATAR_ATLAS_HEIGHT 512u
+ #define TITAN_VIDEO_FONT_ATLAS_WIDTH 512u
+@@ -322,10 +329,10 @@
+ );
+ 
+ /* Draws a kernel-owned RGB565 media frame without reserving additional GS
+- * VRAM. Legacy output uses the existing cached-layer texture; native 720p
+- * streams the image through the existing avatar scratch texture in ordered
+- * 256x64 tiles. This keeps the proven 720p double-buffer VRAM contract at
+- * exactly 4 MiB. The media frame is always 512x256. */
++ * VRAM. 640x480 is the primary live-area contract; 512x256 remains a legacy
++ * fallback. Legacy output streams primary media through the existing 512x256
++ * cached-layer allocation, while native 720p uses the existing avatar scratch
++ * texture in ordered 256x64 tiles. The proven 4 MiB VRAM contract is unchanged. */
+ TitanResult TitanVideo_DrawMediaImage16(
+     const unsigned short *pixels,
+     unsigned int width,
+--- a/kernel/src/services/titan_app_runtime.c
++++ b/kernel/src/services/titan_app_runtime.c
+@@ -23,6 +23,7 @@
+ #include "titan_vmc.h"
+ #include "titan_user_profile.h"
+ #include "titan_ingame_overlay.h"
++#include "titan_localization.h"
+ #include "titan_platform_overhead.h"
+ #include "titan_unified_input.h"
+ #include "titan_igr_compatibility.h"
+@@ -37,6 +38,19 @@
+ #include <string.h>
+ #include <strings.h>
+ 
++
++/* Runtime chrome is system UI too. Route its own static/dynamic status strings
++ * through the same compatibility catalog used by the shell. App-provided text
++ * that has no catalog match passes through unchanged. */
++#define TitanFont_MeasureText(scale, text) \
++    TitanFont_MeasureText((scale), TitanLocalization_Compat((text)))
++#define TitanFont_DrawTextAlpha(x, y, scale, text, r, g, b, a) \
++    TitanFont_DrawTextAlpha((x), (y), (scale), TitanLocalization_Compat((text)), (r), (g), (b), (a))
++#define TitanFont_DrawTextShadow(x, y, scale, text, r, g, b, a) \
++    TitanFont_DrawTextShadow((x), (y), (scale), TitanLocalization_Compat((text)), (r), (g), (b), (a))
++#define TitanNotifications_Push(type, title, message) \
++    TitanNotifications_Push((type), TitanLocalization_Compat((title)), TitanLocalization_Compat((message)))
++
+ #if defined(__EE__) || defined(_EE)
+ #include <delaythread.h>
+ #include <kernel.h>
+@@ -83,8 +97,12 @@
+ #define TITAN_TMOD_R_MIPS_26 4u
+ #define TITAN_TMOD_R_MIPS_HI16 5u
+ #define TITAN_TMOD_R_MIPS_LO16 6u
+-#define TITAN_TMOD_BACKGROUND_BYTES \
++#define TITAN_APP_MEDIA_BYTES \
+     (TITAN_VIDEO_MEDIA_SURFACE_WIDTH * TITAN_VIDEO_MEDIA_SURFACE_HEIGHT * 2u)
++#define TITAN_APP_BACKGROUND_PRIMARY_BYTES \
++    (TITAN_VIDEO_MEDIA_PRIMARY_WIDTH * TITAN_VIDEO_MEDIA_PRIMARY_HEIGHT * 2u)
++#define TITAN_APP_BACKGROUND_LEGACY_BYTES \
++    (TITAN_VIDEO_MEDIA_LEGACY_WIDTH * TITAN_VIDEO_MEDIA_LEGACY_HEIGHT * 2u)
+ #define TITAN_APP_INIT_THREAD_STACK_SIZE (64u * 1024u)
+ #define TITAN_APP_INIT_THREAD_PRIORITY 80
+ #define TITAN_APP_GAME_THREAD_STACK_SIZE (256u * 1024u)
+@@ -231,6 +249,8 @@
+     TitanAppLaunchPhase launch_phase;
+     uint64_t launch_started_ms;
+     unsigned short *background_pixels;
++    unsigned int background_width;
++    unsigned int background_height;
+     unsigned short *media_pixels;
+     TitanAppAllocation allocations[TITAN_APP_RUNTIME_MAX_ALLOCATIONS];
+     uint32_t allocation_bytes;
+@@ -297,7 +317,9 @@
+     TitanAppRuntime_CopyText(
+         g_app_runtime.last_error,
+         sizeof(g_app_runtime.last_error),
+-        message != 0 ? message : "Titan App runtime error"
++        TitanLocalization_Compat(
++            message != 0 ? message : "Titan App runtime error"
++        )
+     );
+ }
+ 
+@@ -306,7 +328,9 @@
+     TitanAppRuntime_CopyText(
+         g_app_runtime.launch_status,
+         sizeof(g_app_runtime.launch_status),
+-        message != 0 ? message : "Preparando Titan App"
++        TitanLocalization_Compat(
++            message != 0 ? message : "Preparando Titan App"
++        )
+     );
+ }
+ 
+@@ -1016,7 +1040,7 @@
+             if((rel_offset&3u)!=0u || target_size<sizeof(uint32_t) || rel_offset>target_size-sizeof(uint32_t)) return 0;
+             if(type==TITAN_TMOD_R_MIPS_NONE) continue;
+             symbol_value=TitanTmod_ResolveSymbol(module,symbol_index,allow_game_imports);
+-            if(symbol_value==0u){ const char *name=symbol_index<module->symbol_count?TitanTmod_SymbolName(module,&module->symbols[symbol_index]):0; char error[128]; snprintf(error,sizeof(error),"Import N32 nao resolvido: %.80s",name?name:"<simbolo invalido>"); TitanAppRuntime_SetError(error); return 0; }
++            if(symbol_value==0u){ const char *name=symbol_index<module->symbol_count?TitanTmod_SymbolName(module,&module->symbols[symbol_index]):0; char error[128]; snprintf(error,sizeof(error),TitanLocalization_Compat("Unresolved N32 import: %.80s"),name?name:TitanLocalization_Compat("<invalid symbol>")); TitanAppRuntime_SetError(error); return 0; }
+             target=(uint32_t *)(target_section+rel_offset); word=*target;
+             if(type==TITAN_TMOD_R_MIPS_32){ intptr_t addend=is_rela?(intptr_t)explicit_addend:(intptr_t)(int32_t)word; *target=(uint32_t)((intptr_t)symbol_value+addend); }
+             else if(type==TITAN_TMOD_R_MIPS_26){ intptr_t addend=is_rela?(intptr_t)explicit_addend:(intptr_t)((word&0x03ffffffu)<<2u); uintptr_t value=(uintptr_t)((intptr_t)symbol_value+addend); if((((uintptr_t)target+4u)&0xf0000000u)!=(value&0xf0000000u)){ TitanAppRuntime_SetError("Relocacao N32 R_MIPS_26 fora da regiao de salto"); return 0;} *target=(word&0xfc000000u)|(((uint32_t)value>>2u)&0x03ffffffu); }
+@@ -1662,8 +1686,10 @@
+     }
+     g_app_runtime.draw_rejection_reported = 1;
+     (void)TitanSystemError_Raise(
+-        "Titan App renderer",
+-        "O aplicativo enviou comandos de desenho invalidos; a interface foi protegida."
++        TitanLocalization_Compat("Titan App renderer"),
++        TitanLocalization_Compat(
++            "O aplicativo enviou comandos de desenho invalidos; a interface foi protegida."
++        )
+     );
+ }
+ 
+@@ -2536,7 +2562,7 @@
+     if (g_app_runtime.media_pixels == 0)
+     {
+         g_app_runtime.media_pixels =
+-            (unsigned short *)malloc(TITAN_TMOD_BACKGROUND_BYTES);
++            (unsigned short *)malloc(TITAN_APP_MEDIA_BYTES);
+         if (g_app_runtime.media_pixels == 0)
+             return 0;
+     }
+@@ -2555,6 +2581,8 @@
+      * player never carries two 256 KiB RGB565 frames unnecessarily. */
+     free(g_app_runtime.background_pixels);
+     g_app_runtime.background_pixels = 0;
++    g_app_runtime.background_width = 0u;
++    g_app_runtime.background_height = 0u;
+     g_app_runtime.background_ready = 0;
+     return 1;
+ }
+@@ -2581,7 +2609,7 @@
+         source_size == 0u || source_size > TITAN_APP_IMAGE_SOURCE_MAX)
+         return 0;
+     source = (unsigned char *)malloc((size_t)source_size);
+-    pixels = (unsigned short *)malloc(TITAN_TMOD_BACKGROUND_BYTES);
++    pixels = (unsigned short *)malloc(TITAN_APP_MEDIA_BYTES);
+     if (source == 0 || pixels == 0) goto done;
+     descriptor = TitanStorageIo_Open(absolute_path, TITAN_STORAGE_IO_READ);
+     if (descriptor < 0 ||
+@@ -2602,6 +2630,8 @@
+     g_app_runtime.media_ready = 1;
+     free(g_app_runtime.background_pixels);
+     g_app_runtime.background_pixels = 0;
++    g_app_runtime.background_width = 0u;
++    g_app_runtime.background_height = 0u;
+     g_app_runtime.background_ready = 0;
+     ok = 1;
+ done:
+@@ -2651,6 +2681,16 @@
+     }
+     if (!TitanGameRuntime_SetStorageRoot(g_app_runtime.root_path))
+         return 0;
++
++    /* The launch/live-area background has completed its job by the time a
++     * Titan Native Game asks for the exclusive game runtime. Drop the 640x480
++     * EE allocation before reserving that arena; the game owns the screen from
++     * this boundary onward. */
++    free(g_app_runtime.background_pixels);
++    g_app_runtime.background_pixels = 0;
++    g_app_runtime.background_width = 0u;
++    g_app_runtime.background_height = 0u;
++    g_app_runtime.background_ready = 0;
+     return TitanGameRuntime_Begin(config, game_api);
+ }
+ 
+@@ -2848,16 +2888,38 @@
+ static int TitanAppRuntime_LoadBackground(const char *path)
+ {
+     TitanStorageIoSize size;
++    unsigned int bytes;
++    unsigned int width;
++    unsigned int height;
+     int descriptor;
+ 
++    g_app_runtime.background_width = 0u;
++    g_app_runtime.background_height = 0u;
+     if (path == 0 || path[0] == '\0' ||
+-        !TitanStorageIo_PathInfo64(path, 0, &size) ||
+-        size != TITAN_TMOD_BACKGROUND_BYTES)
++        !TitanStorageIo_PathInfo64(path, 0, &size))
+     {
+         return 0;
+     }
++
++    if (size == (TitanStorageIoSize)TITAN_APP_BACKGROUND_PRIMARY_BYTES)
++    {
++        bytes = TITAN_APP_BACKGROUND_PRIMARY_BYTES;
++        width = TITAN_VIDEO_MEDIA_PRIMARY_WIDTH;
++        height = TITAN_VIDEO_MEDIA_PRIMARY_HEIGHT;
++    }
++    else if (size == (TitanStorageIoSize)TITAN_APP_BACKGROUND_LEGACY_BYTES)
++    {
++        bytes = TITAN_APP_BACKGROUND_LEGACY_BYTES;
++        width = TITAN_VIDEO_MEDIA_LEGACY_WIDTH;
++        height = TITAN_VIDEO_MEDIA_LEGACY_HEIGHT;
++    }
++    else
++    {
++        return 0;
++    }
++
+     g_app_runtime.background_pixels =
+-        (unsigned short *)malloc(TITAN_TMOD_BACKGROUND_BYTES);
++        (unsigned short *)malloc(bytes);
+     if (g_app_runtime.background_pixels == 0)
+     {
+         return 0;
+@@ -2867,7 +2929,7 @@
+         !TitanStorageIo_ReadExact(
+             descriptor,
+             g_app_runtime.background_pixels,
+-            TITAN_TMOD_BACKGROUND_BYTES
++            bytes
+         ))
+     {
+         if (descriptor >= 0) TitanStorageIo_Close(descriptor);
+@@ -2876,6 +2938,8 @@
+         return 0;
+     }
+     TitanStorageIo_Close(descriptor);
++    g_app_runtime.background_width = width;
++    g_app_runtime.background_height = height;
+     return 1;
+ }
+ 
+@@ -3024,6 +3088,8 @@
+     free(g_app_runtime.background_pixels);
+     free(g_app_runtime.media_pixels);
+     g_app_runtime.background_pixels = 0;
++    g_app_runtime.background_width = 0u;
++    g_app_runtime.background_height = 0u;
+     g_app_runtime.media_pixels = 0;
+     g_app_runtime.background_ready = 0;
+     g_app_runtime.media_ready = 0;
+@@ -3458,9 +3524,9 @@
+         {
+             (void)TitanVideo_DrawMediaImage16(
+                 g_app_runtime.background_pixels,
+-                TITAN_VIDEO_MEDIA_SURFACE_WIDTH,
+-                TITAN_VIDEO_MEDIA_SURFACE_HEIGHT,
+-                TITAN_VIDEO_MEDIA_SURFACE_WIDTH,
++                g_app_runtime.background_width,
++                g_app_runtime.background_height,
++                g_app_runtime.background_width,
+                 0.0f, 0.0f,
+                 (float)TITAN_APP_LOGICAL_WIDTH,
+                 (float)TITAN_APP_LOGICAL_HEIGHT,
+@@ -3493,10 +3559,10 @@
+ 
+         TitanFont_DrawTextAlpha(
+             ((float)TITAN_APP_LOGICAL_WIDTH -
+-                TitanFont_MeasureText(0.50f, "Iniciando aplicativo")) * 0.5f,
++                TitanFont_MeasureText(0.50f, "Starting application")) * 0.5f,
+             232.0f,
+             0.50f,
+-            "Iniciando aplicativo",
++            "Starting application",
+             218, 220, 228, content_alpha
+         );
+ 
+@@ -3545,7 +3611,7 @@
+             24.0f,
+             (float)TITAN_APP_LOGICAL_HEIGHT - 31.0f,
+             0.38f,
+-            "Select + Circulo: cancelar",
++            "Select + Circle: cancel",
+             176, 179, 190,
+             (unsigned char)(190.0f * fade)
+         );
+@@ -3571,9 +3637,9 @@
+         {
+             (void)TitanVideo_DrawMediaImage16(
+                 g_app_runtime.background_pixels,
+-                TITAN_VIDEO_MEDIA_SURFACE_WIDTH,
+-                TITAN_VIDEO_MEDIA_SURFACE_HEIGHT,
+-                TITAN_VIDEO_MEDIA_SURFACE_WIDTH,
++                g_app_runtime.background_width,
++                g_app_runtime.background_height,
++                g_app_runtime.background_width,
+                 0.0f, 0.0f,
+                 (float)TITAN_APP_LOGICAL_WIDTH,
+                 (float)TITAN_APP_LOGICAL_HEIGHT,
+@@ -3615,9 +3681,9 @@
+     {
+         (void)TitanVideo_DrawMediaImage16(
+             g_app_runtime.background_pixels,
+-            TITAN_VIDEO_MEDIA_SURFACE_WIDTH,
+-            TITAN_VIDEO_MEDIA_SURFACE_HEIGHT,
+-            TITAN_VIDEO_MEDIA_SURFACE_WIDTH,
++            g_app_runtime.background_width,
++            g_app_runtime.background_height,
++            g_app_runtime.background_width,
+             TITAN_APP_WINDOW_X, TITAN_APP_WINDOW_Y,
+             TITAN_APP_WINDOW_W, TITAN_APP_WINDOW_H,
+             255u
+@@ -3637,7 +3703,7 @@
+         window_x + window_w - 112.0f,
+         window_y + window_h - 24.0f,
+         0.40f,
+-        "R3  Tela cheia",
++        "R3  Full screen",
+         196, 201, 214, 224
+     );
+ }
+--- a/kernel/src/services/titan_applications.c
++++ b/kernel/src/services/titan_applications.c
+@@ -3,6 +3,7 @@
+ #include "titan_app_runtime.h"
+ #include "titan_elf_validate.h"
+ #include "titan_exec_handoff.h"
++#include "titan_localization.h"
+ #include "titan_storage_io.h"
+ #include "titan_sas.h"
+ 
+@@ -1273,17 +1274,17 @@
+ {
+     switch (result)
+     {
+-        case TITAN_APPLICATION_NOT_FOUND: return "Aplicativo nao encontrado";
+-        case TITAN_APPLICATION_INVALID_INDEX: return "Selecao de aplicativo invalida";
+-        case TITAN_APPLICATION_INVALID_ELF: return "Executavel ELF invalido";
+-        case TITAN_APPLICATION_INVALID_TMOD: return "Modulo Titan App invalido ou incompativel";
++        case TITAN_APPLICATION_NOT_FOUND: return TitanLocalization_Compat("Aplicativo nao encontrado");
++        case TITAN_APPLICATION_INVALID_INDEX: return TitanLocalization_Compat("Selecao de aplicativo invalida");
++        case TITAN_APPLICATION_INVALID_ELF: return TitanLocalization_Compat("Executavel ELF invalido");
++        case TITAN_APPLICATION_INVALID_TMOD: return TitanLocalization_Compat("Modulo Titan App invalido ou incompativel");
+         case TITAN_APPLICATION_API_MISMATCH: return "Versao da Titan App API incompativel";
+         case TITAN_APPLICATION_RUNTIME_BUSY: return "Outro Titan App ja esta em execucao";
+-        case TITAN_APPLICATION_HANDOFF_FAILED: return "Falha no handoff do aplicativo";
+-        case TITAN_APPLICATION_EXEC_FAILED: return "O aplicativo retornou sem iniciar";
+-        case TITAN_APPLICATION_NOT_INSTALLED: return "Aplicativo nao foi instalado pelo Titan";
+-        case TITAN_APPLICATION_UNINSTALL_DENIED: return "Desinstalacao nao permitida";
++        case TITAN_APPLICATION_HANDOFF_FAILED: return TitanLocalization_Compat("Falha no handoff do aplicativo");
++        case TITAN_APPLICATION_EXEC_FAILED: return TitanLocalization_Compat("O aplicativo retornou sem iniciar");
++        case TITAN_APPLICATION_NOT_INSTALLED: return TitanLocalization_Compat("Aplicativo nao foi instalado pelo Titan");
++        case TITAN_APPLICATION_UNINSTALL_DENIED: return TitanLocalization_Compat("Desinstalacao nao permitida");
+         case TITAN_APPLICATION_OK:
+-        default: return "Pronto";
++        default: return TitanLocalization_Compat("Pronto");
+     }
+ }
+--- a/kernel/src/services/titan_localization.c
++++ b/kernel/src/services/titan_localization.c
+@@ -42,6 +42,633 @@
+     }
+ };
+ 
++typedef struct TitanLocalizationCompatEntry {
++    const char *english;
++    const char *portuguese;
++    const char *spanish;
++} TitanLocalizationCompatEntry;
++
++static const TitanLocalizationCompatEntry g_compat_strings[] = {
++    { "Open", "Abrir", "Abrir" },
++    { "Start", "Iniciar", "Iniciar" },
++    { "Back", "Voltar", "Volver" },
++    { "Cancel", "Cancelar", "Cancelar" },
++    { "Delete", "Excluir", "Eliminar" },
++    { "Uninstall", "Desinstalar", "Desinstalar" },
++    { "Information", "Informações", "Información" },
++    { "Options", "Opções", "Opciones" },
++    { "Content", "Conteúdo", "Contenido" },
++    { "Select", "Selecionar", "Seleccionar" },
++    { "Select all", "Selecionar todos", "Seleccionar todo" },
++    { "Apply", "Aplicar", "Aplicar" },
++    { "Installed", "Instalado", "Instalado" },
++    { "Preparing", "Preparando", "Preparando" },
++    { "Searching", "Procurando", "Buscando" },
++    { "Available", "Disponível", "Disponible" },
++    { "Error", "Erro", "Error" },
++    { "Connected", "Conectado", "Conectado" },
++    { "Disconnected", "Desconectado", "Desconectado" },
++    { "Connecting...", "Conectando...", "Conectando..." },
++    { "Enabled", "Ativado", "Activado" },
++    { "Disabled", "Desativado", "Desactivado" },
++    { "Automatic", "Automático", "Automático" },
++    { "Not available", "Não disponível", "No disponible" },
++    { "Powered by:", "Desenvolvido por:", "Desarrollado por:" },
++    { "Starting game", "Iniciando jogo", "Iniciando juego" },
++    { "Starting disc", "Iniciando disco", "Iniciando disco" },
++    { "Starting application", "Iniciando aplicativo", "Iniciando aplicación" },
++    { "Failed to start game", "Falha ao iniciar jogo", "No se pudo iniciar el juego" },
++    { "Failed to start disc", "Falha ao iniciar disco", "No se pudo iniciar el disco" },
++    { "Failed to start application", "Falha ao iniciar aplicativo", "No se pudo iniciar la aplicación" },
++    { "Add user", "Adicionar usuário", "Añadir usuario" },
++    { "Profile", "Perfil", "Perfil" },
++    { "Edit profile", "Editar perfil", "Editar perfil" },
++    { "Create profile", "Criar perfil", "Crear perfil" },
++    { "Profile name", "Nome do perfil", "Nombre del perfil" },
++    { "Enter the profile name", "Digite o nome do perfil", "Introduce el nombre del perfil" },
++    { "Enter a name for the profile.", "Digite um nome para o perfil.", "Introduce un nombre para el perfil." },
++    { "A profile with this name already exists.", "Ja existe um perfil com esse nome.", "Ya existe un perfil con ese nombre." },
++    { "Profile saved", "Perfil salvo", "Perfil guardado" },
++    { "Data verified", "Dados verificados", "Datos verificados" },
++    { "Temporary profile", "Perfil temporário", "Perfil temporal" },
++    { "Profile updated", "Perfil atualizado", "Perfil actualizado" },
++    { "Failed to save", "Falha ao salvar", "Error al guardar" },
++    { "No active profile", "Nenhum perfil ativo", "Ningún perfil activo" },
++    { "Profile data", "Dados do perfil", "Datos del perfil" },
++    { "Profiles loaded", "Perfis carregados", "Perfiles cargados" },
++    { "Ready to save", "Pronto para salvar", "Listo para guardar" },
++    { "Protected data", "Dados protegidos", "Datos protegidos" },
++    { "Data preserved", "Dados preservados", "Datos preservados" },
++    { "Service unavailable", "Serviço indisponível", "Servicio no disponible" },
++    { "Invalid file", "Arquivo inválido", "Archivo no válido" },
++    { "Storage offline", "Armazenamento offline", "Almacenamiento sin conexión" },
++    { "Read/write error", "Erro de leitura/gravação", "Error de lectura/escritura" },
++    { "Storage busy", "Armazenamento ocupado", "Almacenamiento ocupado" },
++    { "Wait for the current operation before uninstalling", "Aguarde a operacao atual antes de desinstalar", "Espera a que termine la operación actual antes de desinstalar" },
++    { "Wait for the current storage operation and try again", "Aguarde a operação atual e tente novamente", "Espera a que termine la operación de almacenamiento y vuelve a intentarlo" },
++    { "Wait for the current storage operation", "Aguarde a operação de armazenamento atual", "Espera a que termine la operación de almacenamiento actual" },
++    { "Analyzing the filesystem in the background", "Analisando o sistema de arquivos em segundo plano", "Analizando el sistema de archivos en segundo plano" },
++    { "PS2 filesystem created and verified", "Sistema de arquivos PS2 criado e verificado", "Sistema de archivos PS2 creado y verificado" },
++    { "VMC available", "VMC disponível", "VMC disponible" },
++    { "Format pending", "Formatação pendente", "Formateo pendiente" },
++    { "VMC unavailable", "VMC indisponível", "VMC no disponible" },
++    { "VMC failure", "Falha na VMC", "Fallo de VMC" },
++    { "Format profile VMC?", "Formatar VMC do perfil?", "¿Formatear la VMC del perfil?" },
++    { "A .bak copy will be kept in storage.", "Uma cópia .bak será mantida no armazenamento.", "Se conservará una copia .bak en el almacenamiento." },
++    { "Recreate profile VMC?", "Recriar VMC do perfil?", "¿Recrear la VMC del perfil?" },
++    { "Confirmation unavailable", "Confirmação indisponível", "Confirmación no disponible" },
++    { "Final confirmation", "Confirmação final", "Confirmación final" },
++    { "Formatting", "Formatação", "Formateando" },
++    { "Formatting completed", "Formatação concluída", "Formateo completado" },
++    { "Formatting cancelled", "Formatação cancelada", "Formateo cancelado" },
++    { "Failed to format", "Falha ao formatar", "Error al formatear" },
++    { "Incompatible device", "Dispositivo incompatível", "Dispositivo incompatible" },
++    { "Slot 1 completed", "Slot 1 concluído", "Ranura 1 completada" },
++    { "Slot 2 completed", "Slot 2 concluído", "Ranura 2 completada" },
++    { "Preparing to turn off the PS2...", "Preparando para desligar o PS2...", "Preparando para apagar la PS2..." },
++    { "Do not disconnect the power cable while the", "Do not disconnect the power cable while the", "No desconectes el cable de alimentación mientras el" },
++    { "PS2 indicator is lit or blinking.", "indicador do PS2 estiver aceso ou piscando.", "indicador de la PS2 esté encendido o parpadeando." },
++    { "PS2 game", "Jogo PS2", "Juego de PS2" },
++    { "LEFT/RIGHT Navigate    X Open    SELECT Options    O Back", "LEFT/RIGHT Navegar    X Abrir    SELECT Opcoes    O Voltar", "LEFT/RIGHT Navegar    X Abrir    SELECT Opciones    O Volver" },
++    { "X Confirm     O Cancel", "X Confirmar     O Cancelar", "X Confirmar     O Cancelar" },
++    { "X Mark/Confirm     O Cancel", "X Marcar/Confirmar     O Cancelar", "X Marcar/Confirmar     O Cancelar" },
++    { "Select content", "Selecionar conteudo", "Seleccionar contenido" },
++    { "Accessories", "Acessórios", "Accesorios" },
++    { "Connections, player assignment and Multitap", "Conexões, atribuição de jogadores e Multitap", "Conexiones, asignación de jugadores y Multitap" },
++    { "Wireless accessories", "Acessórios sem fio", "Accesorios inalámbricos" },
++    { "Connect and manage Bluetooth accessories only.", "Conecte e gerencie somente acessórios Bluetooth.", "Conecta y administra únicamente accesorios Bluetooth." },
++    { "Controller assignment", "Atribuição de controles", "Asignación de controles" },
++    { "Choose which devices are Player 1–4.", "Escolha quais dispositivos serão Jogador 1–4.", "Elige qué dispositivos serán Jugador 1–4." },
++    { "Configure the virtual Multitap used by PADEMU when launching games.", "Configura o Multitap virtual usado pelo PADEMU no lançamento de jogos.", "Configura el Multitap virtual que usa PADEMU al iniciar juegos." },
++    { "Bluetooth accessory", "Acessório Bluetooth", "Accesorio Bluetooth" },
++    { "Wireless controller", "Controle sem fio", "Control inalámbrico" },
++    { "Manage wireless accessories and view connected wired devices.", "Gerencie acessórios sem fio e veja dispositivos com fio conectados.", "Administra accesorios inalámbricos y consulta los dispositivos con cable conectados." },
++    { "Bluetooth has its own area; USB/SIO2 accessories appear only here.", "Bluetooth em uma área própria; acessórios USB/SIO2 aparecem somente aqui.", "Bluetooth tiene su propia sección; los accesorios USB/SIO2 aparecen solo aquí." },
++    { "Storage", "Armazenamento", "Almacenamiento" },
++    { "Titan space", "Espaço do Titan", "Espacio de Titan" },
++    { "Applications", "Aplicativos", "Aplicaciones" },
++    { "Titan native games", "Jogos nativos Titan", "Juegos nativos Titan" },
++    { "Themes", "Temas", "Temas" },
++    { "View Titan space and manage applications, native games and themes.", "Veja o espaço do Titan e gerencie aplicativos, jogos nativos e temas.", "Consulta el espacio de Titan y administra aplicaciones, juegos nativos y temas." },
++    { "Total use of the volume where Project Titan is installed.", "Uso total do volume onde o Project Titan está instalado.", "Uso total del volumen donde está instalado Project Titan." },
++    { "Applications installed by Titan and manageable content.", "Aplicativos instalados pelo Titan e conteúdo gerenciável.", "Aplicaciones instaladas por Titan y contenido administrable." },
++    { "Native games executed by Titan Runtime.", "Jogos nativos executados pelo Titan Runtime.", "Juegos nativos ejecutados por Titan Runtime." },
++    { "Installed themes; the active theme remains protected by Theme Service.", "Temas instalados; o tema ativo continua protegido pelo Theme Service.", "Temas instalados; el tema activo sigue protegido por Theme Service." },
++    { "Updating inventory in background...", "Atualizando inventário em background...", "Actualizando inventario en segundo plano..." },
++    { "Installed content and Titan storage usage", "Conteúdo instalado e uso do armazenamento Titan", "Contenido instalado y uso del almacenamiento de Titan" },
++    { "No content installed in this category.", "Nenhum conteúdo instalado nesta categoria.", "No hay contenido instalado en esta categoría." },
++    { "No installed content", "Nenhum conteúdo instalado", "No hay contenido instalado" },
++    { "Titan inventory found no manageable items in this category.", "O inventário do Titan não encontrou itens gerenciáveis nesta categoria.", "El inventario de Titan no encontró elementos administrables en esta categoría." },
++    { "X Options   O Back", "X Opções   O Voltar", "X Opciones   O Volver" },
++    { "Only Bluetooth accessories are shown in this area.", "Somente acessórios Bluetooth são exibidos nesta área.", "En esta sección solo se muestran accesorios Bluetooth." },
++    { "Connect accessory", "Conectar acessório", "Conectar accesorio" },
++    { "On entry, Titan starts Bluetooth discovery automatically.", "Ao entrar, o Titan inicia a busca Bluetooth automaticamente.", "Al entrar, Titan inicia automáticamente la búsqueda Bluetooth." },
++    { "Search and pair", "Buscar e parear", "Buscar y emparejar" },
++    { "Connected accessories", "Acessórios conectados", "Accesorios conectados" },
++    { "View registered accessories, connection state and device options.", "Veja acessórios registrados, estado da conexão e opções do dispositivo.", "Consulta accesorios registrados, estado de conexión y opciones del dispositivo." },
++    { "Initializing Bluetooth... discovery starts automatically when HCI is ready.", "Inicializando Bluetooth... a busca começa automaticamente quando o HCI estiver pronto.", "Inicializando Bluetooth... la búsqueda comienza automáticamente cuando HCI esté listo." },
++    { "Bluetooth discovery failed. The code below will also be recorded in Titan logs.", "A busca Bluetooth falhou. O código abaixo também será registrado nos logs do Titan.", "La búsqueda Bluetooth falló. El código también se registrará en los logs de Titan." },
++    { "Searching for accessories...  DualSense: hold Create + PS.", "Procurando acessórios...  DualSense: segure Create + PS.", "Buscando accesorios...  DualSense: mantén Create + PS." },
++    { "Bluetooth discovery. Select a found accessory to connect.", "Busca Bluetooth. Selecione um acessório encontrado para conectar.", "Búsqueda Bluetooth. Selecciona un accesorio encontrado para conectarlo." },
++    { "Initializing Bluetooth...", "Inicializando Bluetooth...", "Inicializando Bluetooth..." },
++    { "Preparing the dongle to start discovery.", "Preparando o dongle para iniciar a busca.", "Preparando el dongle para iniciar la búsqueda." },
++    { "Failed to start discovery", "Falha ao iniciar busca", "No se pudo iniciar la búsqueda" },
++    { "See the log for the exact HCI stage.", "Consulte o log para o estágio HCI exato.", "Consulta el log para ver la etapa HCI exacta." },
++    { "Searching for accessories...", "Procurando acessórios...", "Buscando accesorios..." },
++    { "Put the accessory in pairing mode.", "Coloque o acessório em modo de pareamento.", "Pon el accesorio en modo de emparejamiento." },
++    { "No accessories found", "Nenhum acessório encontrado", "No se encontraron accesorios" },
++    { "Discovery finished without finding devices.", "A busca terminou sem encontrar dispositivos.", "La búsqueda terminó sin encontrar dispositivos." },
++    { "Bluetooth accessories registered in Titan.", "Acessórios Bluetooth registrados no Titan.", "Accesorios Bluetooth registrados en Titan." },
++    { "No registered accessories", "Nenhum acessório registrado", "No hay accesorios registrados" },
++    { "Use Connect accessory to start the first pairing.", "Use Conectar acessório para iniciar o primeiro pareamento.", "Usa Conectar accesorio para iniciar el primer emparejamiento." },
++    { "Registered / disconnected", "Registrado / desconectado", "Registrado / desconectado" },
++    { "Titan chooses an available controller.", "O Titan escolhe um controle disponível.", "Titan elige un control disponible." },
++    { "Persistent preference / connected", "Preferência persistente / conectado", "Preferencia persistente / conectado" },
++    { "Persistent preference; temporary fallback allowed", "Preferência persistente; fallback temporário permitido", "Preferencia persistente; se permite alternativa temporal" },
++    { "Global configuration applied to the games' PADEMU handoff", "Configuração global aplicada ao handoff PADEMU dos jogos", "Configuración global aplicada al handoff PADEMU de los juegos" },
++    { "Enables four logical slots in the PADEMU backend.", "Habilita quatro slots lógicos no backend PADEMU.", "Habilita cuatro ranuras lógicas en el backend PADEMU." },
++    { "Choose the virtual PS2 port where Multitap will be presented.", "Escolha a porta PS2 virtual na qual o Multitap será apresentado.", "Elige el puerto virtual de PS2 donde se presentará Multitap." },
++    { "Connection: Bluetooth", "Conexão: Bluetooth", "Conexión: Bluetooth" },
++    { "Battery: Not available", "Bateria: Não disponível", "Batería: No disponible" },
++    { "Player: Not assigned", "Jogador: Não atribuído", "Jugador: No asignado" },
++    { "Firmware: Not available", "Firmware: Não disponível", "Firmware: No disponible" },
++    { "Type: Titan theme", "Tipo: Tema Titan", "Tipo: Tema Titan" },
++    { "Titan native game", "Jogo nativo Titan", "Juego nativo Titan" },
++    { "The active or protected theme cannot be deleted", "O tema ativo ou protegido não pode ser excluído", "El tema activo o protegido no se puede eliminar" },
++    { "Could not delete the theme", "Não foi possível excluir o tema", "No se pudo eliminar el tema" },
++    { "Theme deleted", "Tema excluído", "Tema eliminado" },
++    { "Delete content?", "Excluir conteúdo?", "¿Eliminar contenido?" },
++    { "The application/game and its installed files will be removed. Saves will not be deleted.", "O aplicativo/jogo e seus arquivos instalados serão removidos. Saves não serão apagados.", "Se eliminarán la aplicación/juego y sus archivos instalados. Las partidas guardadas no se eliminarán." },
++    { "This item cannot be removed by Package Service", "Este item não pode ser removido pelo Package Service", "Package Service no puede eliminar este elemento" },
++    { "Disconnect", "Desconectar", "Desconectar" },
++    { "Forget accessory", "Esquecer acessório", "Olvidar accesorio" },
++    { "Game data", "Dados de jogos", "Datos de juegos" },
++    { "Operation in progress", "Operação em andamento", "Operación en curso" },
++    { "Install theme", "Instalar tema", "Instalar tema" },
++    { "Preparing installation", "Preparando instalacao", "Preparando instalación" },
++    { "O Cancel installation", "O Cancelar instalacao", "O Cancelar instalación" },
++    { "O Back to packages", "O Voltar para pacotes", "O Volver a paquetes" },
++    { "No valid package found", "Nenhum pacote valido encontrado", "No se encontró ningún paquete válido" },
++    { "Copy .tthm files to mass:/TITAN/packages", "Copie arquivos .tthm para mass:/TITAN/packages", "Copia archivos .tthm a mass:/TITAN/packages" },
++    { "Copy .pkg or .tthm files to mass:/TITAN/packages", "Copie arquivos .pkg ou .tthm para mass:/TITAN/packages", "Copia archivos .pkg o .tthm a mass:/TITAN/packages" },
++    { "TRIANGLE Refresh    O Back", "TRIANGLE Atualizar    O Voltar", "TRIANGLE Actualizar    O Volver" },
++    { "TRIANGLE Refresh    SQUARE Uninstall    O Back", "TRIANGLE Atualizar    SQUARE Desinstalar    O Voltar", "TRIANGLE Actualizar    SQUARE Desinstalar    O Volver" },
++    { "X Install", "X Instalar", "X Instalar" },
++    { "Current version: %s / build %u", "Versao atual: %s / build %u", "Versión actual: %s / build %u" },
++    { "TRIANGLE Search again", "TRIANGLE Procurar novamente", "TRIANGLE Buscar de nuevo" },
++    { "Download game assets", "Baixar assets dos jogos", "Descargar recursos de juegos" },
++    { "Downloads only what is missing. All game icons come first; backgrounds afterward.", "Baixa somente o que estiver ausente. Icones de todos os jogos vêm primeiro; backgrounds depois.", "Descarga solo lo que falta. Primero los iconos de todos los juegos; después los fondos." },
++    { "Update existing assets", "Atualizar assets existentes", "Actualizar recursos existentes" },
++    { "Rebuilds each game's icon and background, one transfer at a time, atomically overwriting the cache.", "Refaz icon e background de cada jogo, uma transferência por vez, sobrescrevendo o cache atomico.", "Vuelve a crear el icono y el fondo de cada juego, una transferencia a la vez, sobrescribiendo la caché de forma atómica." },
++    { "Automatic download", "Download automático", "Descarga automática" },
++    { "Optional. Waits 30 s ONLINE + idle Home; any input pauses. Off by default.", "Opcional. Aguarda 30 s ONLINE + Home ociosa; qualquer input pausa. Desligado por padrão.", "Opcional. Espera 30 s ONLINE + Inicio inactivo; cualquier entrada pausa. Desactivado por defecto." },
++    { "Background", "Background", "Fondo" },
++    { "Icon", "Icone", "Icono" },
++    { "One transfer at a time; UI/input/audio have absolute priority.", "Uma transferência por vez; UI/input/audio têm prioridade absoluta.", "Una transferencia a la vez; UI/entrada/audio tienen prioridad absoluta." },
++    { "Stops the asset session; already published cache remains valid.", "Interrompe a sessão de assets; o cache já publicado permanece válido.", "Detiene la sesión de recursos; la caché ya publicada sigue siendo válida." },
++    { "Automatic search on detection", "Busca automática ao detectar", "Búsqueda automática al detectar" },
++    { "Cable connected", "Cabo conectado", "Cable conectado" },
++    { "Easy", "Fácil", "Fácil" },
++    { "Titan configures IP address, DHCP and DNS automatically.", "O Titan configura endereço IP, DHCP e DNS automaticamente.", "Titan configura automáticamente la dirección IP, DHCP y DNS." },
++    { "Advanced configuration", "Configuração avançada", "Configuración avanzada" },
++    { "Searching for nearby Wi-Fi networks...", "Procurando redes Wi-Fi próximas...", "Buscando redes Wi-Fi cercanas..." },
++    { "Obtain IP address", "Obter endereço IP", "Obtener dirección IP" },
++    { "Address acquisition through the selected interface.", "Aquisição de endereço pela interface selecionada.", "Obtención de dirección mediante la interfaz seleccionada." },
++    { "IP address", "Endereço IP", "Dirección IP" },
++    { "Current ps2ip address.", "Endereço atual do ps2ip.", "Dirección actual de ps2ip." },
++    { "Current IPv4 address.", "Endereço IPv4 atual.", "Dirección IPv4 actual." },
++    { "Cached network list available when detected.", "Lista de redes em cache disponível quando detectada.", "La lista de redes en caché está disponible cuando se detecta." },
++    { "Physical Ethernet link active.", "Link físico Ethernet ativo.", "Enlace físico Ethernet activo." },
++    { "Waiting for physical cable/link.", "Aguardando cabo/link físico.", "Esperando cable/enlace físico." },
++    { "The discovery is already busy; Titan will keep polling the state", "A busca já está ocupada; o Titan continuará consultando o estado", "La búsqueda ya está ocupada; Titan seguirá consultando el estado" },
++    { "Disconnecting accessory...", "Desconectando acessório...", "Desconectando accesorio..." },
++    { "Could not queue disconnection", "Não foi possível enfileirar a desconexão", "No se pudo poner en cola la desconexión" },
++    { "Accessory removed from paired list", "Acessório removido da lista de pareados", "Accesorio eliminado de la lista de emparejados" },
++    { "Could not forget the accessory now", "Não foi possível esquecer o acessório agora", "No se pudo olvidar el accesorio ahora" },
++    { "Delete theme?", "Excluir tema?", "¿Eliminar tema?" },
++    { "The installed theme will be removed from Titan storage.", "O tema instalado será removido do armazenamento Titan.", "El tema instalado se eliminará del almacenamiento de Titan." },
++    { "Finishing discovery; select again in a moment", "Concluindo a busca; selecione novamente em instantes", "Finalizando la búsqueda; vuelve a seleccionar en unos instantes" },
++    { "Connecting and registering accessory...", "Conectando e registrando acessório...", "Conectando y registrando accesorio..." },
++    { "Transport is busy; try again", "O transporte está ocupado; tente novamente", "El transporte está ocupado; inténtalo de nuevo" },
++    { "Asset operation cancelled", "Operação de assets cancelada", "Operación de recursos cancelada" },
++    { "Asset operation continues in background", "Operação de assets continua em segundo plano", "La operación de recursos continúa en segundo plano" },
++    { "Asset operation completed", "Operação de assets concluída", "Operación de recursos completada" },
++    { "Unknown installation failure", "Falha de instalacao desconhecida", "Fallo de instalación desconocido" },
++    { "Saved to mass:/TITAN/debug/titan-debug.txt", "Salvo em mass:/TITAN/debug/titan-debug.txt", "Guardado en mass:/TITAN/debug/titan-debug.txt" },
++    { "Saved to mass:/TITAN/logs/titan-last.txt", "Salvo em mass:/TITAN/logs/titan-last.txt", "Guardado en mass:/TITAN/logs/titan-last.txt" },
++    { "Failed to export diagnostics", "Falha ao exportar diagnostico", "No se pudieron exportar los diagnósticos" },
++    { "Previous boot saved to mass:/TITAN/logs/titan-previous.txt", "Boot anterior salvo em mass:/TITAN/logs/titan-previous.txt", "Arranque anterior guardado en mass:/TITAN/logs/titan-previous.txt" },
++    { "No previous session preserved", "Nenhuma sessao anterior preservada", "No se conservó ninguna sesión anterior" },
++    { "Exit the installer to resume storage access", "Saia do instalador para retomar o acesso ao armazenamento", "Sal del instalador para reanudar el acceso al almacenamiento" },
++    { "Package list updated", "Lista de pacotes atualizada", "Lista de paquetes actualizada" },
++    { "No package found", "Nenhum pacote encontrado", "No se encontró ningún paquete" },
++    { "No package selected", "Nenhum pacote selecionado", "No hay ningún paquete seleccionado" },
++    { "Installing package", "Instalando pacote", "Instalando paquete" },
++    { "Shutting down", "Desligando", "Apagando" },
++    { "Settings restored", "Configuracoes restauradas", "Ajustes restaurados" },
++    { "Tile order and visibility restored to defaults", "Ordem e visibilidade dos tiles voltaram ao padrao", "El orden y la visibilidad de los mosaicos volvieron a los valores predeterminados" },
++    { "Use LEFT/RIGHT and confirm with X; O cancels", "Use LEFT/RIGHT e confirme com X; O cancela", "Usa LEFT/RIGHT y confirma con X; O cancela" },
++    { "Move cancelled", "Movimento cancelado", "Movimiento cancelado" },
++    { "New position saved", "Nova posicao salva", "Nueva posición guardada" },
++    { "Uninstall application?", "Desinstalar aplicativo?", "¿Desinstalar aplicación?" },
++    { "The application and its installed local data will be removed.", "O aplicativo e seus dados locais instalados serão removidos.", "Se eliminarán la aplicación y sus datos locales instalados." },
++    { "This item is not an application installed by Package Installer", "Este item não é um aplicativo instalado pelo Package Installer", "Este elemento no es una aplicación instalada por Package Installer" },
++    { "The tile can be restored from default settings.", "O tile pode ser restaurado pelas configuracoes padrao.", "El mosaico se puede restaurar desde los ajustes predeterminados." },
++    { "Updating devices and library", "Atualizando dispositivos e biblioteca", "Actualizando dispositivos y biblioteca" },
++    { "Active profile", "Perfil ativo", "Perfil activo" },
++    { "Export settings", "Exportar configuracoes", "Exportar ajustes" },
++    { "Import settings", "Importar configuracoes", "Importar ajustes" },
++    { "Failed to write SHELLLAY.EXP", "Falha ao gravar SHELLLAY.EXP", "No se pudo escribir SHELLLAY.EXP" },
++    { "Downloads are disabled in this first internal version", "Downloads ficam desativados nesta primeira versao interna", "Las descargas están desactivadas en esta primera versión interna" },
++    { "TRIANGLE Edit", "TRIANGLE Editar", "TRIANGLE Editar" },
++    { "LEFT/RIGHT Move    X Confirm    O Cancel", "LEFT/RIGHT Mover    X Confirmar    O Cancelar", "LEFT/RIGHT Mover    X Confirmar    O Cancelar" },
++    { "Content unavailable", "Conteudo indisponivel", "Contenido no disponible" },
++    { "Confirmation timed out", "Tempo de confirmação esgotado", "Se agotó el tiempo de confirmación" },
++    { "Cancelled by user", "Cancelado pelo usuário", "Cancelado por el usuario" },
++    { "Titan storage", "Armazenamento Titan", "Almacenamiento de Titan" },
++    { "Inventory: updating in background", "Inventário: atualizando em background", "Inventario: actualizando en segundo plano" },
++    { "Inventory: updated", "Inventário: atualizado", "Inventario: actualizado" },
++    { "Validating theme content", "Validando conteudo do tema", "Validando contenido del tema" },
++    { "Validating application content", "Validando conteudo do aplicativo", "Validando contenido de la aplicación" },
++    { "Invalid entrypoint path", "Caminho do entrypoint invalido", "Ruta de entrypoint no válida" },
++    { "Titan icon, tile or background has an invalid size", "Icone, tile ou background Titan possui tamanho invalido", "El icono, mosaico o fondo Titan tiene un tamaño no válido" },
++    { "Theme preview must be RGB565 256x128", "Preview do tema precisa ser RGB565 256x128", "La vista previa del tema debe ser RGB565 256x128" },
++    { "Unsupported Titan App API version", "Versao da Titan App API nao suportada", "Versión de Titan App API no compatible" },
++    { "Theme contains code or invalid files", "Tema contem codigo ou arquivos invalidos", "El tema contiene código o archivos no válidos" },
++    { "Package executable is not a safe MIPS ELF", "O executavel do pacote nao e um ELF MIPS seguro", "El ejecutable del paquete no es un ELF MIPS seguro" },
++    { "Failed to publish application manifest", "Falha ao publicar o manifesto do aplicativo", "No se pudo publicar el manifiesto de la aplicación" },
++    { "Publishing theme", "Publicando tema", "Publicando tema" },
++    { "Publishing application to Home", "Publicando aplicativo na grade", "Publicando aplicación en Inicio" },
++    { "Could not publish theme", "Nao foi possivel publicar o tema", "No se pudo publicar el tema" },
++    { "Could not publish application", "Nao foi possivel publicar o aplicativo", "No se pudo publicar la aplicación" },
++    { "Theme installed successfully", "Tema instalado com sucesso", "Tema instalado correctamente" },
++    { "Package installed successfully", "Pacote instalado com sucesso", "Paquete instalado correctamente" },
++    { "Preparing: inspecting package", "Preparando: consultando pacote", "Preparando: examinando paquete" },
++    { "Preparing: opening payload", "Preparando: abrindo payload", "Preparando: abriendo payload" },
++    { "Preparing: seeking payload", "Preparando: posicionando payload", "Preparando: posicionando payload" },
++    { "Preparing: loading package into RAM", "Preparando: carregando pacote em RAM", "Preparando: cargando paquete en RAM" },
++    { "Preparing: reading header", "Preparando: lendo cabecalho", "Preparando: leyendo cabecera" },
++    { "Preparing: validating header", "Preparando: validando cabecalho", "Preparando: validando cabecera" },
++    { "Preparing: reading file table", "Preparando: lendo tabela de arquivos", "Preparando: leyendo tabla de archivos" },
++    { "Preparing: validating table", "Preparando: validando tabela", "Preparando: validando tabla" },
++    { "Preparing: reserving destination", "Preparando: reservando destino", "Preparando: reservando destino" },
++    { "Preparing: checking TITAN", "Preparando: verificando TITAN", "Preparando: comprobando TITAN" },
++    { "Preparing: checking themes", "Preparando: verificando themes", "Preparando: comprobando temas" },
++    { "Preparing: checking apps", "Preparando: verificando apps", "Preparando: comprobando aplicaciones" },
++    { "Preparing: checking existing installation", "Preparando: verificando instalacao existente", "Preparando: comprobando instalación existente" },
++    { "Preparing: creating transaction", "Preparando: criando transacao", "Preparando: creando transacción" },
++    { "Extracting package to temporary area", "Extraindo pacote para area temporaria", "Extrayendo paquete al área temporal" },
++    { "Installation cancelled; no tile was published", "Instalacao cancelada; nenhum tile foi publicado", "Instalación cancelada; no se publicó ningún mosaico" },
++    { "Opening application file", "Abrindo arquivo do aplicativo", "Abriendo archivo de la aplicación" },
++    { "Failed to create application file", "Falha ao criar arquivo do aplicativo", "No se pudo crear el archivo de la aplicación" },
++    { "Finishing application file", "Concluindo arquivo do aplicativo", "Finalizando archivo de la aplicación" },
++    { "Failed to finish application file", "Falha ao concluir arquivo do aplicativo", "No se pudo finalizar el archivo de la aplicación" },
++    { "Invalid file checksum", "Checksum de arquivo invalido", "Checksum de archivo no válido" },
++    { "Writing application data", "Gravando dados do aplicativo", "Escribiendo datos de la aplicación" },
++    { "USB write failure", "Falha de escrita USB", "Fallo de escritura USB" },
++    { "Preparing data in RAM", "Preparando dados em RAM", "Preparando datos en RAM" },
++    { "Reading package data", "Lendo dados do pacote", "Leyendo datos del paquete" },
++    { "USB read failure", "Falha de leitura USB", "Fallo de lectura USB" },
++    { "Cancellation requested...", "Cancelamento solicitado...", "Cancelación solicitada..." },
++    { "Invalid package selection", "Selecao de pacote invalida", "Selección de paquete no válida" },
++    { "Invalid or corrupted package", "Pacote invalido ou corrompido", "Paquete no válido o dañado" },
++    { "Package contains unsafe path", "Pacote contem caminho inseguro", "El paquete contiene una ruta insegura" },
++    { "Package checksum failed", "Checksum do pacote falhou", "Falló el checksum del paquete" },
++    { "Application already installed", "Aplicativo ja instalado", "Aplicación ya instalada" },
++    { "USB read or write failure", "Falha de leitura ou escrita USB", "Fallo de lectura o escritura USB" },
++    { "Titan App API incompatible", "Titan App API incompativel", "Titan App API incompatible" },
++    { "Package Installer requires DEX Mode", "Package Installer requer DEX Mode", "Package Installer requiere DEX Mode" },
++    { "Failed to publish application", "Falha ao publicar aplicativo", "No se pudo publicar la aplicación" },
++    { "Installation cancelled", "Instalacao cancelada", "Instalación cancelada" },
++    { "Ready", "Pronto", "Listo" },
++    { "Invalid MIPS ELF executable", "Executavel ELF MIPS invalido", "Ejecutable ELF MIPS no válido" },
++    { "Invalid Titan App module", "Modulo Titan App invalido", "Módulo Titan App no válido" },
++    { "%s / Port %u", "%s / Porta %u", "%s / Puerto %u" },
++    { "Connected / player assigned", "Conectado / jogador atribuído", "Conectado / jugador asignado" },
++    { "%u installed", "%u instalado", "%u instalado" },
++    { "%u items installed", "%u instalados", "%u instalados" },
++    { "%u accessory", "%u acessório", "%u accesorio" },
++    { "%u accessories", "%u acessórios", "%u accesorios" },
++    { "Error %d", "Erro %d", "Error %d" },
++    { "Player %d", "Jogador %d", "Jugador %d" },
++    { "%s / disconnected", "%s / desconectado", "%s / desconectado" },
++    { "Port %u", "Porta %u", "Puerto %u" },
++    { "Connection: %s", "Conexão: %s", "Conexión: %s" },
++    { "Battery: %u%%", "Bateria: %u%%", "Batería: %u%%" },
++    { "Player: %u", "Jogador: %u", "Jugador: %u" },
++    { "State: %s", "Estado: %s", "Estado: %s" },
++    { "Size: %s", "Tamanho: %s", "Tamaño: %s" },
++    { "Location: %s", "Local: %s", "Ubicación: %s" },
++    { "Version: %s", "Versão: %s", "Versión: %s" },
++    { "Type: %s", "Tipo: %s", "Tipo: %s" },
++    { "Game: %u / %u   Downloaded: %u/%u   No art: %u   Errors: %u", "Jogo: %u / %u   Baixados: %u/%u   Sem arte: %u   Erros: %u", "Juego: %u / %u   Descargados: %u/%u   Sin arte: %u   Errores: %u" },
++    { "Library: %u games   Resolved: %u/%u   No art: %u   Errors: %u", "Biblioteca: %u jogos   Resolvidos: %u/%u   Sem arte: %u   Erros: %u", "Biblioteca: %u juegos   Resueltos: %u/%u   Sin arte: %u   Errores: %u" },
++    { "Primary controller assigned to port %d", "Controle principal atribuido a porta %d", "Control principal asignado al puerto %d" },
++    { "Move the primary controller to port %d?", "Mover o controle principal para a porta %d?", "¿Mover el control principal al puerto %d?" },
++    { "Applications: %s", "Aplicativos: %s", "Aplicaciones: %s" },
++    { "Native games: %s", "Jogos nativos: %s", "Juegos nativos: %s" },
++    { "Themes: %s", "Temas: %s", "Temas: %s" },
++    { "Waiting", "Aguardando", "Esperando" },
++    { "Titan usage: %s", "Uso do Titan: %s", "Uso de Titan: %s" },
++    { "Asset download", "Download de assets", "Descarga de recursos" },
++    { "State", "Estado", "Estado" },
++    { "Opening the system application launcher.", "Abrindo o iniciador de aplicativos do sistema.", "Abriendo el iniciador de aplicaciones del sistema." },
++    { "Select at least one item", "Selecione pelo menos um item", "Selecciona al menos un elemento" },
++    { "Items returned to the main grid", "Os itens voltaram para a grade principal", "Los elementos volvieron a la cuadrícula principal" },
++    { "Uninstallation", "Desinstalacao", "Desinstalación" },
++    { "Invalid TITAN.DAT", "TITAN.DAT inválido", "TITAN.DAT no válido" },
++    { "Future version detected", "Versão futura detectada", "Se detectó una versión futura" },
++    { "VMC formatted", "VMC formatada", "VMC formateada" },
++    { "Saving configuration", "Salvando configuração", "Guardando configuración" },
++    { "Writing profile data", "Gravando dados do perfil", "Escribiendo datos del perfil" },
++    { "Progressive test unavailable", "Teste progressivo indisponível", "Prueba progresiva no disponible" },
++    { "Select Component in the PS2 OSD", "Selecione Component no OSD do PS2", "Selecciona Component en el OSD de PS2" },
++    { "Video mode failure", "Falha no modo de vídeo", "Fallo del modo de vídeo" },
++    { "Interlaced mode retained", "Modo interlaçado mantido", "Se mantuvo el modo entrelazado" },
++    { "Format VMC", "Formatar VMC", "Formatear VMC" },
++    { "Formatting VMC", "Formatando VMC", "Formateando VMC" },
++    { "Format Memory Card 2?", "Formatar Memory Card 2?", "¿Formatear Memory Card 2?" },
++    { "Format Memory Card 1?", "Formatar Memory Card 1?", "¿Formatear Memory Card 1?" },
++    { "Choose continue to see the final confirmation.", "Escolha continuar para ver a confirmação final.", "Elige continuar para ver la confirmación final." },
++    { "Memory Card 2 will be completely erased.", "O Memory Card 2 será completamente apagado.", "Memory Card 2 se borrará por completo." },
++    { "Memory Card 1 will be completely erased.", "O Memory Card 1 será completamente apagado.", "Memory Card 1 se borrará por completo." },
++    { "Formatting Memory Card", "Formatando Memory Card", "Formateando Memory Card" },
++    { "Add user", "Adicionar usuario", "Añadir usuario" },
++    { "Notification settings", "Config. de notificacoes", "Ajustes de notificaciones" },
++    { "Switch profile", "Trocar perfil", "Cambiar perfil" },
++    { "Restart Project Titan", "Reiniciar Project Titan", "Reiniciar Project Titan" },
++    { "Restart console", "Reiniciar console", "Reiniciar consola" },
++    { "Turn off console", "Desligar console", "Apagar consola" },
++    { "Titan UL Engine options", "Opcoes do Titan UL Engine", "Opciones de Titan UL Engine" },
++    { "Titan-Neutrino Engine options", "Opcoes do Titan-Neutrino Engine", "Opciones de Titan-Neutrino Engine" },
++    { "View storage", "Ver armazenamento", "Ver almacenamiento" },
++    { "Refresh devices", "Atualizar dispositivos", "Actualizar dispositivos" },
++    { "Test controller", "Testar controle", "Probar control" },
++    { "Reassign port", "Reatribuir porta", "Reasignar puerto" },
++    { "Controller settings", "Config. do controle", "Ajustes del control" },
++    { "Content", "Conteudo", "Contenido" },
++    { "Select Bluetooth, then reboot", "Select Bluetooth, then reboot", "Selecciona Bluetooth y reinicia" },
++    { "Up/Down Select   Left/Right Change backend   X Pair   O Back", "Up/Down Select   Left/Right Change backend   X Pair   O Back", "Arriba/Abajo Seleccionar   Izq/Der Cambiar backend   X Emparejar   O Volver" },
++    { "Errors and storage interruptions remain visible.", "Errors and storage interruptions remain visible.", "Los errores y las interrupciones de almacenamiento permanecen visibles." },
++    { "Erases the selected physical card after two confirmations.", "Erases the selected physical card after two confirmations.", "Borra la tarjeta física seleccionada tras dos confirmaciones." },
++    { "Configure Wi-Fi AR9271 and RJ45 Ethernet connectivity.", "Configure Wi-Fi AR9271 and RJ45 Ethernet connectivity.", "Configura la conectividad Wi-Fi AR9271 y Ethernet RJ45." },
++    { "Configure shell services and renderer behavior.", "Configure shell services and renderer behavior.", "Configura los servicios de la shell y el comportamiento del renderizador." },
++    { "Review Project Titan, bootloader and console information.", "Review Project Titan, bootloader and console information.", "Consulta información de Project Titan, el bootloader y la consola." },
++    { "Choose interface, credentials and connection state.", "Choose interface, credentials and connection state.", "Elige interfaz, credenciales y estado de conexión." },
++    { "Background inventory, information and safe deletion of installed content.", "Inventário em background, informações e exclusão segura de conteúdo instalado.", "Inventario en segundo plano, información y eliminación segura del contenido instalado." },
++    { "Select theme", "Select theme", "Seleccionar tema" },
++    { "X Install theme    O Back    D-pad Select", "X Install theme    O Back    D-pad Select", "X Instalar tema    O Volver    D-pad Seleccionar" },
++    { "X Apply    TRIANGLE Delete    O Back    D-pad Select", "X Aplicar    TRIANGLE Excluir    O Voltar    Direcional Selecionar", "X Aplicar    TRIANGLE Eliminar    O Volver    D-pad Seleccionar" },
++    { "X Apply    O Back    D-pad Select", "X Aplicar    O Voltar    Direcional Selecionar", "X Aplicar    O Volver    D-pad Seleccionar" },
++    { "X Switch device   △ Automatic   O Back", "X Alternar dispositivo   △ Automático   O Voltar", "X Cambiar dispositivo   △ Automático   O Volver" },
++    { "Multitap port", "Porta do Multitap", "Puerto de Multitap" },
++    { "Erase every save and file on the selected physical Memory Card.", "Erase every save and file on the selected physical Memory Card.", "Borra todas las partidas y archivos de la Memory Card física seleccionada." },
++    { "Configure Wi-Fi with automatic scan or an RJ45 connection.", "Configure Wi-Fi with automatic scan or an RJ45 connection.", "Configura Wi-Fi con búsqueda automática o una conexión RJ45." },
++    { "Configured Output", "Configured Output", "Salida configurada" },
++    { "Output preference read from the PlayStation 2 OSD configuration.", "Output preference read from the PlayStation 2 OSD configuration.", "Preferencia de salida leída de la configuración OSD de PlayStation 2." },
++    { "Requires Component output selected in the PS2 OSD.", "Requires Component output selected in the PS2 OSD.", "Requiere salida Component seleccionada en el OSD de PS2." },
++    { "Actual GS render target allocated for the selected output mode.", "Actual GS render target allocated for the selected output mode.", "Render target real de GS asignado al modo de salida seleccionado." },
++    { "Open live PADMAN connection and input information.", "Open live PADMAN connection and input information.", "Abre información en vivo de conexión PADMAN y entrada." },
++    { "DEX validation selector. Optimized 960x540 is the release/default 720p composition; Reference is retained only for A/B diagnostics.", "DEX validation selector. Optimized 960x540 is the release/default 720p composition; Reference is retained only for A/B diagnostics.", "Selector de validación DEX. Optimized 960x540 es la composición 720p predeterminada de release; Reference se conserva solo para diagnósticos A/B." },
++    { ".tthm packages in mass:/TITAN/packages", "Pacotes .tthm em mass:/TITAN/packages", "Paquetes .tthm en mass:/TITAN/packages" },
++    { "O Cancel", "O Cancelar", "O Cancelar" },
++    { "O Back", "O Voltar", "O Volver" },
++    { "Removes TIMG in Storage Scheduler quanta without blocking navigation.", "Remove TIMG em quanta do Storage Scheduler sem bloquear a navegação.", "Elimina TIMG en intervalos de Storage Scheduler sin bloquear la navegación." },
++    { "Use the RJ45 Ethernet port on the Network Adapter / PS2 Slim.", "Use a porta Ethernet RJ45 do Network Adapter / PS2 Slim.", "Usa el puerto Ethernet RJ45 del Network Adapter / PS2 Slim." },
++    { "How do you want to configure the Wi-Fi connection?", "How do you want to configure the Wi-Fi connection?", "¿Cómo quieres configurar la conexión Wi-Fi?" },
++    { "How do you want to configure the LAN connection?", "How do you want to configure the LAN connection?", "¿Cómo quieres configurar la conexión LAN?" },
++    { "Keeps the advanced configuration and interface-selection flow.", "Mantém o fluxo avançado de configuração e seleção da interface.", "Mantiene el flujo avanzado de configuración y selección de interfaz." },
++    { "Currently selected physical interface.", "Currently selected physical interface.", "Interfaz física seleccionada actualmente." },
++    { "Current connection information", "Current connection information", "Información de conexión actual" },
++    { "Selected Wi-Fi network.", "Selected Wi-Fi network.", "Red Wi-Fi seleccionada." },
++    { "Wi-Fi search", "Busca Wi-Fi", "Búsqueda Wi-Fi" },
++    { "Network selected; enter the WPA2 password.", "Network selected; enter the WPA2 password.", "Red seleccionada; introduce la contraseña WPA2." },
++    { "Could not save the Wi-Fi credential to Titan storage", "Could not save the Wi-Fi credential to Titan storage", "No se pudo guardar la credencial Wi-Fi en el almacenamiento de Titan" },
++    { "Connecting with the AR9271 TT1426 driver", "Conectando com o driver AR9271 TT1426", "Conectando con el controlador AR9271 TT1426" },
++    { "Credential saved; AR9271 service is not ready yet", "Credential saved; AR9271 service is not ready yet", "Credencial guardada; el servicio AR9271 aún no está listo" },
++    { "This integration uses the hardware-proven WPA2-PSK path from TT1426", "Esta integração usa o caminho WPA2-PSK hardware-proven do TT1426", "Esta integración usa la ruta WPA2-PSK validada en hardware de TT1426" },
++    { "Could not select the network", "Could not select the network", "No se pudo seleccionar la red" },
++    { "Theme installed; select it in Settings > Themes", "Theme installed; select it in Settings > Themes", "Tema instalado; selecciónalo en Ajustes > Temas" },
++    { "Storage is still busy; operation cancelled", "Storage is still busy; operation cancelled", "El almacenamiento sigue ocupado; operación cancelada" },
++    { "Optimized 960x540 selected", "Optimized 960x540 selected", "Optimized 960x540 seleccionado" },
++    { "Reference selected", "Reference selected", "Reference seleccionado" },
++    { "Folder information", "Folder information", "Información de carpeta" },
++    { "Reassign controller", "Reatribuir controle", "Reasignar control" },
++    { "Connect the controller to the new port before confirming.", "Conecte o controle na nova porta antes de confirmar.", "Conecta el control al nuevo puerto antes de confirmar." },
++    { "Reassign", "Reatribuir", "Reasignar" },
++    { "Layout exported to SHELLLAY.EXP", "Layout exportado para SHELLLAY.EXP", "Layout exportado a SHELLLAY.EXP" },
++    { "Layout imported from SHELLLAY.EXP", "Layout importado de SHELLLAY.EXP", "Layout importado desde SHELLLAY.EXP" },
++    { "Select this before unplugging the AC power cord.", "Select this before unplugging the AC power cord.", "Selecciona esto antes de desconectar el cable de alimentación de CA." },
++    { "Enter a valid HTTP or HTTPS address.", "Digite um endereco HTTP ou HTTPS valido.", "Introduce una dirección HTTP o HTTPS válida." },
++    { "Web address", "Endereco da Web", "Dirección web" },
++    { "Video still needs to be ported to Titan's internal player", "Video ainda precisa ser portado para o player interno do Titan", "El vídeo aún debe portarse al reproductor interno de Titan" },
++    { "L1/R1 History   X Open   TRIANGLE Address   O Back", "L1/R1 Historico   X Abrir   TRIANGLE Endereco   O Voltar", "L1/R1 Historial   X Abrir   TRIANGLE Dirección   O Volver" },
++    { "LEFT/RIGHT Navigate    DOWN Home    X Open    SELECT Options", "LEFT/RIGHT Navigate    DOWN Home    X Open    SELECT Opcoes", "LEFT/RIGHT Navegar    DOWN Inicio    X Abrir    SELECT Opciones" },
++    { "D-Pad Navigate    UP System    X Open    SELECT Options    TRIANGLE Refresh", "D-Pad Navigate    UP System    X Open    SELECT Opcoes    TRIANGLE Refresh", "D-Pad Navegar    UP Sistema    X Abrir    SELECT Opciones    TRIANGLE Actualizar" },
++    { "Installing package    O Cancel", "Installing package    O Cancel", "Instalando paquete    O Cancelar" },
++    { "UP/DOWN Navigate    X Select    O Back", "UP/DOWN Navigate    X Select    O Back", "ARRIBA/ABAJO Navegar    X Seleccionar    O Volver" },
++    { "UP/DOWN Navigate    LEFT/RIGHT Change    X Select    O Back", "UP/DOWN Navigate    LEFT/RIGHT Change    X Select    O Back", "ARRIBA/ABAJO Navegar    IZQ/DER Cambiar    X Seleccionar    O Volver" },
++    { "Bluetooth selected for next boot", "Bluetooth selected for next boot", "Bluetooth seleccionado para el próximo arranque" },
++    { "USB selected for next boot", "USB selected for next boot", "USB seleccionado para el próximo arranque" },
++    { "Bluetooth selected for next boot; reboot Titan, then pair", "Bluetooth selected for next boot; reboot Titan, then pair", "Bluetooth seleccionado para el próximo arranque; reinicia Titan y luego empareja" },
++    { "Could not save the selected theme", "Could not save the selected theme", "No se pudo guardar el tema seleccionado" },
++    { "Missing MIPS header", "Cabecalho MIPS ausente", "Falta la cabecera MIPS" },
++    { "Module was not compiled for R5900; recompile with mips64r5900el-ps2-elf-gcc", "Modulo nao foi compilado para R5900; recompile com mips64r5900el-ps2-elf-gcc", "El módulo no fue compilado para R5900; recompílalo con mips64r5900el-ps2-elf-gcc" },
++    { "Module uses unsupported MIPS16/microMIPS/ASE", "Modulo usa MIPS16/microMIPS/ASE nao suportado", "El módulo usa MIPS16/microMIPS/ASE no compatible" },
++    { "PIC/abicalls module is not supported by Titan App API v1", "Modulo PIC/abicalls nao suportado pela Titan App API v1", "El módulo PIC/abicalls no es compatible con Titan App API v1" },
++    { "Titan Native module requires N32/ABI2; recompile the application", "Modulo Titan Native requer ABI N32/ABI2; recompile o aplicativo", "El módulo Titan Native requiere N32/ABI2; recompila la aplicación" },
++    { "MIPS floating-point ABI is incompatible with EE/R5900", "ABI de ponto flutuante MIPS incompativel com EE/R5900", "La ABI de punto flotante MIPS es incompatible con EE/R5900" },
++    { "N32 R_MIPS_26 relocation is outside the jump region", "Relocacao N32 R_MIPS_26 fora da regiao de salto", "La reubicación N32 R_MIPS_26 está fuera de la región de salto" },
++    { "Invalid Titan App relocation table", "Tabela de relocacoes Titan App invalida", "Tabla de reubicaciones de Titan App no válida" },
++    { "Failed to apply Titan App MIPS relocations", "Falha ao aplicar relocacoes MIPS do Titan App", "No se pudieron aplicar las reubicaciones MIPS de Titan App" },
++    { "Titan App exports are missing or not executable", "Exports Titan App ausentes ou nao executaveis", "Faltan exports de Titan App o no son ejecutables" },
++    { "Unresolved N32 import: %.80s", "Import N32 nao resolvido: %.80s", "Importación N32 sin resolver: %.80s" },
++    { "<invalid symbol>", "<simbolo invalido>", "<símbolo no válido>" },
++    { "Titan App tried to free a pointer it does not own", "Titan App tentou liberar ponteiro nao pertencente ao app", "Titan App intentó liberar un puntero que no le pertenece" },
++    { "Titan App tried to allocate memory during titan_app_init", "Titan App tentou alocar memoria durante titan_app_init", "Titan App intentó asignar memoria durante titan_app_init" },
++    { "Titan App tried to free memory during titan_app_init", "Titan App tentou liberar memoria durante titan_app_init", "Titan App intentó liberar memoria durante titan_app_init" },
++    { "Titan App tried to notify during titan_app_init", "Titan App tentou notificar durante titan_app_init", "Titan App intentó enviar una notificación durante titan_app_init" },
++    { "Titan App tried to read storage during titan_app_init", "Titan App tentou ler storage durante titan_app_init", "Titan App intentó leer almacenamiento durante titan_app_init" },
++    { "Titan App tried to write storage during titan_app_init", "Titan App tentou gravar storage durante titan_app_init", "Titan App intentó escribir en almacenamiento durante titan_app_init" },
++    { "Titan App tried to query storage during titan_app_init", "Titan App tentou consultar storage durante titan_app_init", "Titan App intentó consultar almacenamiento durante titan_app_init" },
++    { "Titan App tried to start audio during titan_app_init", "Titan App tentou iniciar audio durante titan_app_init", "Titan App intentó iniciar audio durante titan_app_init" },
++    { "Titan App tried to stop audio during titan_app_init", "Titan App tentou encerrar audio durante titan_app_init", "Titan App intentó detener audio durante titan_app_init" },
++    { "Titan App runtime is busy", "Titan App runtime is busy", "El runtime de Titan App está ocupado" },
++    { "Preparing Titan App", "Preparando Titan App", "Preparando Titan App" },
++    { "Reserving Titan App resources", "Reservando recursos do Titan App", "Reservando recursos de Titan App" },
++    { "Titan App initialization cancelled", "Inicializacao do Titan App cancelada", "Inicialización de Titan App cancelada" },
++    { "Titan App initialization closed", "Inicializacao do Titan App encerrada", "Inicialización de Titan App cerrada" },
++    { "Parking storage services", "Estacionando servicos de armazenamento", "Estacionando servicios de almacenamiento" },
++    { "Validating module for EE/R5900", "Validando modulo para EE/R5900", "Validando módulo para EE/R5900" },
++    { "Preparing application surface", "Preparando superficie do aplicativo", "Preparando superficie de la aplicación" },
++    { "Starting Titan App in protected context", "Iniciando Titan App em contexto protegido", "Iniciando Titan App en contexto protegido" },
++    { "Could not create Titan App thread", "Nao foi possivel criar a thread do Titan App", "No se pudo crear el hilo de Titan App" },
++    { "Initializing application", "Inicializando aplicativo", "Inicializando aplicación" },
++    { "Titan App requires a newer runtime (update the system)", "Titan App requer um runtime mais novo (atualize o sistema)", "Titan App requiere un runtime más reciente (actualiza el sistema)" },
++    { "titan_app_init rejected the session", "titan_app_init rejeitou a sessao", "titan_app_init rechazó la sesión" },
++    { "Application ready", "Aplicativo pronto", "Aplicación lista" },
++    { "Titan App active", "Titan App ativo", "Titan App activo" },
++    { "Invalid Titan App initialization state", "Estado de inicializacao Titan App invalido", "Estado de inicialización de Titan App no válido" },
++    { "Could not create Titan Game thread", "Nao foi possivel criar a thread do Titan Game", "No se pudo crear el hilo de Titan Game" },
++    { "Failed to start Titan App", "Falha ao iniciar Titan App", "No se pudo iniciar Titan App" },
++    { "Failed to start Titan Game", "Falha ao iniciar Titan Game", "No se pudo iniciar Titan Game" },
++    { "titan_app_init exceeded 15 seconds; session recovered", "titan_app_init excedeu 15 segundos; sessao recuperada", "titan_app_init superó 15 segundos; sesión recuperada" },
++    { "Titan App renderer", "Titan App renderer", "Renderizador de Titan App" },
++    { "The application sent invalid draw commands; the interface was protected.", "O aplicativo enviou comandos de desenho invalidos; a interface foi protegida.", "La aplicación envió comandos de dibujo no válidos; la interfaz fue protegida." },
++    { "Select + Circle: cancel", "Select + Círculo: cancelar", "Select + Círculo: cancelar" },
++    { "R3  Full screen", "R3  Tela cheia", "R3  Pantalla completa" },
++    { "Application not found", "Aplicativo nao encontrado", "Aplicación no encontrada" },
++    { "Invalid application selection", "Selecao de aplicativo invalida", "Selección de aplicación no válida" },
++    { "Invalid ELF executable", "Executavel ELF invalido", "Ejecutable ELF no válido" },
++    { "Invalid or incompatible Titan App module", "Modulo Titan App invalido ou incompativel", "Módulo Titan App no válido o incompatible" },
++    { "Application handoff failed", "Falha no handoff do aplicativo", "Falló la transferencia de la aplicación" },
++    { "Application returned without starting", "O aplicativo retornou sem iniciar", "La aplicación regresó sin iniciarse" },
++    { "Application was not installed by Titan", "Aplicativo nao foi instalado pelo Titan", "La aplicación no fue instalada por Titan" },
++    { "Uninstall not allowed", "Desinstalacao nao permitida", "Desinstalación no permitida" },
++    { " / Installed theme", " / Tema instalado", " / Tema instalado" },
++    { ".tthm via Package Installer", ".tthm pelo Package Installer", ".tthm mediante Package Installer" },
++    { "WPA2 password must be between 8 and 63 characters.", "A senha WPA2 deve ter entre 8 e 63 caracteres.", "La contraseña WPA2 debe tener entre 8 y 63 caracteres." },
++    { "Application installed; catalog updated without a full rescan", "Application installed; catalog updated without a full rescan", "Aplicación instalada; catálogo actualizado sin un escaneo completo" },
++    { "Application uninstalled", "Application uninstalled", "Aplicación desinstalada" },
++    { "Choose installed themes for the system background and visual style.", "Choose installed themes for the system background and visual style.", "Elige temas instalados para el fondo y el estilo visual del sistema." },
++    { "Controller Service", "Controller Service", "Servicio de controles" },
++    { "Development application service placeholder", "Development application service placeholder", "Marcador del servicio de aplicaciones de desarrollo" },
++    { "Enable or disable Project Titan network services.", "Enable or disable Project Titan network services.", "Activa o desactiva los servicios de red de Project Titan." },
++    { "Found", "Encontrado", "Encontrado" },
++    { "Run in background", "Executar em segundo plano", "Ejecutar en segundo plano" },
++    { "Experimental Neutrino handoff mode. Use only for game video compatibility tests.", "Experimental Neutrino handoff mode. Use only for game video compatibility tests.", "Modo experimental de transferencia Neutrino. Úsalo solo para pruebas de compatibilidad de vídeo de juegos." },
++    { "Fast startup, background services and a responsive console interface.", "Fast startup, background services and a responsive console interface.", "Inicio rápido, servicios en segundo plano y una interfaz de consola fluida." },
++    { "Filesystem service", "Filesystem service", "Servicio del sistema de archivos" },
++    { "Future transfer services will use this activity list.", "Future transfer services will use this activity list.", "Los futuros servicios de transferencia usarán esta lista de actividad." },
++    { "Install official Project Titan updates from a .pup package on USB.", "Install official Project Titan updates from a .pup package on USB.", "Instala actualizaciones oficiales de Project Titan desde un paquete .pup en USB." },
++    { "Install packages and access Project Titan diagnostics.", "Install packages and access Project Titan diagnostics.", "Instala paquetes y accede a los diagnósticos de Project Titan." },
++    { "Install verified .pkg applications and .tthm themes from mass:/TITAN/packages.", "Install verified .pkg applications and .tthm themes from mass:/TITAN/packages.", "Instala aplicaciones .pkg y temas .tthm verificados desde mass:/TITAN/packages." },
++    { "Installed bootloader revision detected on this console.", "Installed bootloader revision detected on this console.", "Se detectó la revisión instalada del bootloader en esta consola." },
++    { "Installed theme removed", "Installed theme removed", "Tema instalado eliminado" },
++    { "Library verification now continues after the Home screen is available.", "Library verification now continues after the Home screen is available.", "La verificación de la biblioteca continúa después de que Inicio esté disponible." },
++    { "720p mode kept", "Modo 720p mantido", "Modo 720p conservado" },
++    { "Previous mode restored", "Modo anterior reativado", "Modo anterior restaurado" },
++    { "Network Services Status", "Network Services Status", "Estado de los servicios de red" },
++    { "No applications are installed", "No applications are installed", "No hay aplicaciones instaladas" },
++    { "The previous mode was preserved", "O modo anterior foi preservado", "Se conservó el modo anterior" },
++    { "Package Installer", "Package Installer", "Instalador de paquetes" },
++    { "Path switch rejected; current video state preserved", "Path switch rejected; current video state preserved", "Cambio de ruta rechazado; se conservó el estado de vídeo actual" },
++    { "SHELLLAY.EXP missing or invalid", "SHELLLAY.EXP ausente ou invalido", "SHELLLAY.EXP ausente o no válido" },
++    { "WPA2 password", "Senha WPA2", "Contraseña WPA2" },
++    { "Wi-Fi password", "Senha Wi-Fi", "Contraseña Wi-Fi" },
++    { "Stopping PlayStation 2 services", "Stopping PlayStation 2 services", "Deteniendo los servicios de PlayStation 2" },
++    { "Testing video output", "Testing video output", "Probando la salida de vídeo" },
++    { "This tile now routes to its active service or hub.", "This tile now routes to its active service or hub.", "Este mosaico ahora dirige a su servicio o centro activo." },
++    { "UP/DOWN Navigate    X Install    TRIANGLE Refresh    O Back", "UP/DOWN Navigate    X Install    TRIANGLE Refresh    O Back", "UP/DOWN Navegar    X Instalar    TRIANGLE Actualizar    O Volver" },
++    { "USB configured", "USB configured", "USB configurado" },
++    { "Uninstalling application", "Uninstalling application", "Desinstalando aplicación" },
++    { "VMC busy", "VMC ocupada", "VMC ocupada" },
++    { "VMC verified", "VMC verificada", "VMC verificada" },
++    { "Verifying VMC", "Verificando VMC", "Verificando VMC" },
++    { "Verify VMC", "Verificar VMC", "Verificar VMC" },
++    { "Video output confirmed", "Video output confirmed", "Salida de vídeo confirmada" },
++    { "Video output restored", "Video output restored", "Salida de vídeo restaurada" },
++    { "View Network Services Status", "View Network Services Status", "Ver estado de los servicios de red" },
++    { "★ Package Installer", "★ Package Installer", "★ Instalador de paquetes" },
++    { "Titan App runtime error", "Titan App runtime error", "Error del runtime de Titan App" },
++    { "Invalid system browser entrypoint", "System browser entrypoint invalido", "Entrypoint del navegador del sistema no válido" },
++    { "Create VMC", "Criar VMC", "Crear VMC" },
++    { "Choose your avatar", "Escolha seu avatar", "Elige tu avatar" },
++    { "SSID must be between 1 and 32 characters.", "O SSID deve ter entre 1 e 32 caracteres.", "El SSID debe tener entre 1 y 32 caracteres." },
++    { "The name is too long.", "O nome e muito longo.", "El nombre es demasiado largo." },
++    { "The four-profile limit has been reached.", "O limite de quatro perfis foi atingido.", "Se alcanzó el límite de cuatro perfiles." },
++    { "Use a valid name.", "Use um nome valido.", "Usa un nombre válido." },
++    { "Recreate VMC", "Recriar VMC", "Recrear VMC" },
++    { "Continue", "Continuar", "Continuar" },
++    { "LEFT/RIGHT Navigate    X Confirm", "LEFT/RIGHT Navegar    X Confirmar", "LEFT/RIGHT Navegar    X Confirmar" },
++    { "Move", "Mover", "Mover" },
++    { "Mark all as read", "Marcar todas como lidas", "Marcar todas como leídas" },
++    { "Clear notifications", "Limpar notificacoes", "Borrar notificaciones" },
++    { "Manage saves/VMC", "Gerenciar saves/VMC", "Administrar guardados/VMC" },
++    { "Manage VMCs", "Gerenciar VMCs", "Administrar VMCs" },
++    { "Restore defaults", "Restaurar padroes", "Restaurar valores predeterminados" },
++    { "Name", "Nome", "Nombre" },
++    { "Deselect all", "Desmarcar todos", "Deseleccionar todo" },
++    { "Confirm", "Confirmar", "Confirmar" },
++    { "Waiting for hardware", "Aguardando hardware", "Esperando hardware" },
++    { "Clear asset cache", "Limpar cache de assets", "Limpiar caché de recursos" },
++    { "Cache, temporary files and backup removed", "Cache, temporario e backup removidos", "Caché, archivos temporales y copia de seguridad eliminados" },
++    { "Use Restore defaults in Settings to recover the layout", "Use Restaurar padroes em Settings para recuperar o layout", "Usa Restaurar valores predeterminados en Ajustes para recuperar el diseño" },
++    { "Move tile", "Mover tile", "Mover mosaico" },
++    { "Notifications", "Notificacoes", "Notificaciones" },
++    { "Notification center cleared", "Central de notificacoes limpa", "Centro de notificaciones borrado" },
++    { "Restore defaults?", "Restaurar padroes?", "¿Restaurar valores predeterminados?" },
++    { "Restore", "Restaurar", "Restaurar" },
++    { "Payload in RAM out of bounds", "Payload em RAM fora dos limites", "Payload en RAM fuera de los límites" },
++    { "Folder name", "Nome da pasta", "Nombre de la carpeta" },
++    { "Folder", "Pasta", "Carpeta" },
++    { "Search", "Buscar", "Buscar" },
++    { "Search Library", "Buscar na Biblioteca", "Buscar en Biblioteca" },
++    { "Wi-Fi Network", "Rede Wi-Fi", "Red Wi-Fi" },
++    { "SSID 2.4 GHz", "SSID 2.4 GHz", "SSID 2.4 GHz" },
++    { "item", "item", "elemento" },
++    { "items", "itens", "elementos" },
++    { "%u items", "%u itens", "%u elementos" },
++    { "VMC created", "VMC criada", "VMC creada" },
++    { "Ready to mount", "Pronta para montar", "Lista para montar" },
++    { "VMC protected", "VMC protegida", "VMC protegida" },
++    { "Recreating VMC", "Recriando VMC", "Recreando VMC" },
++    { "Processing Slot 1", "Processando Slot 1", "Procesando ranura 1" },
++    { "Processing Slot 2", "Processando Slot 2", "Procesando ranura 2" },
++    { "Who is using this PS2?", "Quem esta usando este PS2?", "¿Quién está usando esta PS2?" },
++    { "Hide from Home", "Ocultar da grade", "Ocultar de Inicio" },
++    { "Number of items", "Numero de itens", "Número de elementos" },
++    { "AR9271 detected", "AR9271 detectado", "AR9271 detectado" },
++    { "Local cache", "Cache local", "Caché local" },
++    { "Adapter detected", "Adaptador detectado", "Adaptador detectado" },
++    { "Insert SSID manually", "Inserir SSID manualmente", "Introducir SSID manualmente" },
++    { "Channel %u / %d dBm%s", "Canal %u / %d dBm%s", "Canal %u / %d dBm%s" },
++    { " / protected", " / protegida", " / protegida" },
++    { "Passive 2.4 GHz channel scan in progress.", "Varredura passiva de canais 2.4 GHz em andamento.", "Escaneo pasivo de canales de 2.4 GHz en curso." },
++    { "Ready", "Pronta", "Lista" },
++    { "Common layer used by both interfaces.", "Camada comum usada pelas duas interfaces.", "Capa común usada por ambas interfaces." },
++    { "Library cache", "Cache da biblioteca", "Caché de biblioteca" },
++    { "Debug report", "Relatorio de debug", "Informe de depuración" },
++    { "Tile hidden", "Tile oculto", "Mosaico oculto" },
++    { "Home grid", "Grade principal", "Cuadrícula de Inicio" },
++    { "Hide tile?", "Ocultar tile?", "¿Ocultar mosaico?" },
++    { "Hide", "Ocultar", "Ocultar" },
++    { "Items will return to the Home grid.", "Os itens retornarao para a grade principal.", "Los elementos volverán a la cuadrícula de Inicio." },
++    { "All were marked as read", "Todas foram marcadas como lidas", "Todas se marcaron como leídas" },
++    { "Lightweight web inside Project Titan; HTTPS via Titan Stream Bridge", "Web leve dentro do Project Titan; HTTPS via Titan Stream Bridge", "Web ligera dentro de Project Titan; HTTPS mediante Titan Stream Bridge" },
++    { "Titan App contains a COP1 instruction incompatible with EE/R5900", "Titan App contem instrucao COP1 incompativel com EE/R5900", "Titan App contiene una instrucción COP1 incompatible con EE/R5900" },
++    { "Titan App API version incompatible", "Versao da Titan App API incompativel", "Versión de Titan App API incompatible" },
++    { "Another Titan App is already running", "Outro Titan App ja esta em execucao", "Ya hay otra Titan App en ejecución" },
++    { "%u assets processed", "%u assets processados", "%u recursos procesados" },
++    { "Copy a .pup to mass:/TITAN/update or mass:/TITAN/packages.", "Copie um .pup para mass:/TITAN/update ou mass:/TITAN/packages.", "Copia un .pup a mass:/TITAN/update o mass:/TITAN/packages." },
++};
++
++const char *TitanLocalization_Compat(const char *text)
++{
++    unsigned int index;
++    TitanLanguage language;
++
++    if (text == 0)
++        return "";
++
++    language = g_localization.language;
++    for (index = 0u; index < sizeof(g_compat_strings) / sizeof(g_compat_strings[0]); index++)
++    {
++        const TitanLocalizationCompatEntry *entry = &g_compat_strings[index];
++        if (strcmp(text, entry->english) == 0 ||
++            strcmp(text, entry->portuguese) == 0 ||
++            strcmp(text, entry->spanish) == 0)
++        {
++            if (language == TITAN_LANGUAGE_PORTUGUESE)
++                return entry->portuguese;
++            if (language == TITAN_LANGUAGE_SPANISH)
++                return entry->spanish;
++            return entry->english;
++        }
++    }
++    return text;
++}
++
+ static int TitanLocalization_Parse(const char *text, TitanLanguage *language)
+ {
+     if (!text || !language) return 0;
+--- a/kernel/src/services/titan_localization.h
++++ b/kernel/src/services/titan_localization.h
+@@ -51,6 +51,9 @@
+ const char *TitanLocalization_GetLanguageName(void);
+ void TitanLocalization_CycleLanguage(int direction);
+ const char *TitanLocalization_Get(TitanStringId id);
++/* Compatibility translator for legacy shell literals. It accepts an English,
++ * Portuguese or Spanish variant and returns the active-language equivalent. */
++const char *TitanLocalization_Compat(const char *text);
+ int TitanLocalization_HasStorageWork(void);
+ int TitanLocalization_StorageWorkerPump(void);
+ 
+--- a/kernel/src/services/titan_package_installer.c
++++ b/kernel/src/services/titan_package_installer.c
+@@ -5,6 +5,7 @@
+ #include "titan_app_runtime.h"
+ #include "titan_dex.h"
+ #include "titan_elf_validate.h"
++#include "titan_localization.h"
+ #include "titan_storage_io.h"
+ #include "titan_storage_paths.h"
+ #include "titan_storage_scheduler.h"
+@@ -45,10 +46,13 @@
+ #define TITAN_PACKAGE_APP_TYPE_OFFSET 248u
+ #define TITAN_PACKAGE_API_VERSION_OFFSET 252u
+ #define TITAN_PACKAGE_ICON_NAME "icon.rgb565"
++#define TITAN_PACKAGE_TILE_NAME "tile.rgb565"
+ #define TITAN_PACKAGE_BACKGROUND_NAME "background.rgb565"
+ #define TITAN_PACKAGE_META_NAME "titan_meta.ini"
+ #define TITAN_PACKAGE_ICON_BYTES (64u * 64u * 2u)
+-#define TITAN_PACKAGE_BACKGROUND_BYTES (512u * 256u * 2u)
++#define TITAN_PACKAGE_TILE_BYTES (256u * 256u * 2u)
++#define TITAN_PACKAGE_BACKGROUND_PRIMARY_BYTES (640u * 480u * 2u)
++#define TITAN_PACKAGE_BACKGROUND_LEGACY_BYTES (512u * 256u * 2u)
+ #define TITAN_PACKAGE_THEME_CONFIG_NAME "theme.cfg"
+ #define TITAN_PACKAGE_THEME_PREVIEW_NAME "preview.rgb565"
+ #define TITAN_PACKAGE_THEME_PREVIEW_BYTES (256u * 128u * 2u)
+@@ -1069,7 +1073,7 @@
+     TitanPackageInstaller_CopyString(
+         g_package_installer.status.message,
+         sizeof(g_package_installer.status.message),
+-        message
++        TitanLocalization_Compat(message)
+     );
+ }
+ 
+@@ -1166,6 +1170,16 @@
+     return entry == 0 || entry->size == expected_size;
+ }
+ 
++static int TitanPackageInstaller_OptionalBackgroundValid(void)
++{
++    const TitanPackageEntry *entry;
++
++    entry = TitanPackageInstaller_FindEntry(TITAN_PACKAGE_BACKGROUND_NAME);
++    return entry == 0 ||
++        entry->size == TITAN_PACKAGE_BACKGROUND_PRIMARY_BYTES ||
++        entry->size == TITAN_PACKAGE_BACKGROUND_LEGACY_BYTES;
++}
++
+ static const char *TitanPackageInstaller_GetInstallRoot(unsigned int app_type)
+ {
+     return app_type == TITAN_PACKAGE_APP_THEME
+@@ -1233,6 +1247,7 @@
+     char author[TITAN_APPLICATION_AUTHOR_CAPACITY];
+     char description[TITAN_APPLICATION_DESCRIPTION_CAPACITY];
+     const TitanPackageEntry *icon_entry;
++    const TitanPackageEntry *tile_entry;
+     const TitanPackageEntry *background_entry;
+     int descriptor;
+     int length;
+@@ -1243,6 +1258,7 @@
+ 
+     TitanPackageInstaller_ReadMetadata(author, sizeof(author), description, sizeof(description));
+     icon_entry = TitanPackageInstaller_FindEntry(TITAN_PACKAGE_ICON_NAME);
++    tile_entry = TitanPackageInstaller_FindEntry(TITAN_PACKAGE_TILE_NAME);
+     background_entry = TitanPackageInstaller_FindEntry(TITAN_PACKAGE_BACKGROUND_NAME);
+ 
+     if (g_package_installer.header.format_version == TITAN_PACKAGE_FORMAT_VERSION_V1)
+@@ -1257,7 +1273,7 @@
+     else
+     {
+         length = snprintf(contents, sizeof(contents),
+-            "format=2\ntitle_id=%s\ntitle=%s\nversion=%s\ntype=%s\nentrypoint=%s\napi=%u\nauthor=%s\ndescription=%s\n%s%s%s%s",
++            "format=2\ntitle_id=%s\ntitle=%s\nversion=%s\ntype=%s\nentrypoint=%s\napi=%u\nauthor=%s\ndescription=%s\n%s%s%s%s%s%s",
+             g_package_installer.header.title_id,
+             g_package_installer.header.title,
+             g_package_installer.header.version,
+@@ -1273,6 +1289,8 @@
+             description,
+             icon_entry != 0 ? "icon=" : "",
+             icon_entry != 0 ? TITAN_PACKAGE_ICON_NAME "\n" : "",
++            tile_entry != 0 ? "tile=" : "",
++            tile_entry != 0 ? TITAN_PACKAGE_TILE_NAME "\n" : "",
+             background_entry != 0 ? "background=" : "",
+             background_entry != 0 ? TITAN_PACKAGE_BACKGROUND_NAME "\n" : "");
+     }
+@@ -1335,13 +1353,14 @@
+             TITAN_PACKAGE_ICON_BYTES
+         ) ||
+          !TitanPackageInstaller_OptionalAssetValid(
+-            TITAN_PACKAGE_BACKGROUND_NAME,
+-            TITAN_PACKAGE_BACKGROUND_BYTES
+-        )))
++            TITAN_PACKAGE_TILE_NAME,
++            TITAN_PACKAGE_TILE_BYTES
++        ) ||
++         !TitanPackageInstaller_OptionalBackgroundValid()))
+     {
+         TitanPackageInstaller_Fail(
+             TITAN_PACKAGE_INSTALLER_INVALID_PACKAGE,
+-            "Icone ou background Titan possui tamanho invalido"
++            "Icone, tile ou background Titan possui tamanho invalido"
+         );
+         return;
+     }
+@@ -2326,34 +2345,34 @@
+     switch (result)
+     {
+         case TITAN_PACKAGE_INSTALLER_NO_PACKAGES:
+-            return "Nenhum pacote encontrado";
++            return TitanLocalization_Compat("Nenhum pacote encontrado");
+         case TITAN_PACKAGE_INSTALLER_INVALID_INDEX:
+-            return "Selecao de pacote invalida";
++            return TitanLocalization_Compat("Selecao de pacote invalida");
+         case TITAN_PACKAGE_INSTALLER_INVALID_PACKAGE:
+-            return "Pacote invalido ou corrompido";
++            return TitanLocalization_Compat("Pacote invalido ou corrompido");
+         case TITAN_PACKAGE_INSTALLER_UNSAFE_PATH:
+-            return "Pacote contem caminho inseguro";
++            return TitanLocalization_Compat("Pacote contem caminho inseguro");
+         case TITAN_PACKAGE_INSTALLER_CHECKSUM_FAILED:
+-            return "Checksum do pacote falhou";
++            return TitanLocalization_Compat("Checksum do pacote falhou");
+         case TITAN_PACKAGE_INSTALLER_ALREADY_INSTALLED:
+-            return "Aplicativo ja instalado";
++            return TitanLocalization_Compat("Aplicativo ja instalado");
+         case TITAN_PACKAGE_INSTALLER_STORAGE_ERROR:
+-            return "Falha de leitura ou escrita USB";
++            return TitanLocalization_Compat("Falha de leitura ou escrita USB");
+         case TITAN_PACKAGE_INSTALLER_INVALID_ELF:
+-            return "Executavel ELF MIPS invalido";
++            return TitanLocalization_Compat("Executavel ELF MIPS invalido");
+         case TITAN_PACKAGE_INSTALLER_INVALID_TMOD:
+-            return "Modulo Titan App invalido";
++            return TitanLocalization_Compat("Modulo Titan App invalido");
+         case TITAN_PACKAGE_INSTALLER_API_MISMATCH:
+-            return "Titan App API incompativel";
++            return TitanLocalization_Compat("Titan App API incompativel");
+         case TITAN_PACKAGE_INSTALLER_DEX_REQUIRED:
+-            return "Package Installer requer DEX Mode";
++            return TitanLocalization_Compat("Package Installer requer DEX Mode");
+         case TITAN_PACKAGE_INSTALLER_PUBLISH_FAILED:
+-            return "Falha ao publicar aplicativo";
++            return TitanLocalization_Compat("Falha ao publicar aplicativo");
+         case TITAN_PACKAGE_INSTALLER_CANCELLED:
+-            return "Instalacao cancelada";
++            return TitanLocalization_Compat("Instalacao cancelada");
+         case TITAN_PACKAGE_INSTALLER_OK:
+         default:
+-            return "Pronto";
++            return TitanLocalization_Compat("Pronto");
+     }
+ }
+ 
+--- a/kernel/src/ui/titan_shell_scene.c
++++ b/kernel/src/ui/titan_shell_scene.c
+@@ -78,6 +78,30 @@
+ #include <libpwroff.h>
+ #include <loadfile.h>
+ 
++/* Route legacy shell literals through the active language without rewriting
++ * every draw site at release time. Exact runtime/game/user strings pass through
++ * unchanged. Macro self-reference is intentionally suppressed by the C
++ * preprocessor for the replacement invocation, so these still call the real
++ * font/notification APIs. */
++#define TitanFont_MeasureText(scale, text) \
++    TitanFont_MeasureText((scale), TitanLocalization_Compat((text)))
++#define TitanFont_DrawTextAlpha(x, y, scale, text, r, g, b, a) \
++    TitanFont_DrawTextAlpha((x), (y), (scale), TitanLocalization_Compat((text)), (r), (g), (b), (a))
++#define TitanFont_DrawTextShadow(x, y, scale, text, r, g, b, a) \
++    TitanFont_DrawTextShadow((x), (y), (scale), TitanLocalization_Compat((text)), (r), (g), (b), (a))
++#define TitanNotifications_Push(type, title, message) \
++    TitanNotifications_Push((type), TitanLocalization_Compat((title)), TitanLocalization_Compat((message)))
++#define TitanNotifications_OpenInformation(title, line1, line2, line3, line4, line5) \
++    TitanNotifications_OpenInformation( \
++        TitanLocalization_Compat((title)), TitanLocalization_Compat((line1)), \
++        TitanLocalization_Compat((line2)), TitanLocalization_Compat((line3)), \
++        TitanLocalization_Compat((line4)), TitanLocalization_Compat((line5)))
++#define TitanNotifications_OpenConfirmation(title, line1, line2, cancel, confirm, callback, user_data) \
++    TitanNotifications_OpenConfirmation( \
++        TitanLocalization_Compat((title)), TitanLocalization_Compat((line1)), \
++        TitanLocalization_Compat((line2)), TitanLocalization_Compat((cancel)), \
++        TitanLocalization_Compat((confirm)), (callback), (user_data))
++
+ #define TITAN_SHELL_LAYOUT_CAPACITY 15
+ #define TITAN_SHELL_BASE_PREFIX_COUNT 1u
+ #define TITAN_SHELL_STATIC_SUFFIX_COUNT 3u
+@@ -1072,7 +1096,7 @@
+                 32u,
+                 "%u %s",
+                 folder->item_count,
+-                folder->item_count == 1u ? "item" : "itens"
++                folder->item_count == 1u ? TitanLocalization_Compat("item") : TitanLocalization_Compat("items")
+             );
+ 
+             entry->type = TITAN_HOME_ENTRY_FOLDER;
+@@ -1555,6 +1579,8 @@
+ 
+     index = 0u;
+ 
++    text = TitanLocalization_Compat(text);
++
+     while (
+         index + 1u < capacity &&
+         text != 0 &&
+@@ -1990,9 +2016,9 @@
+         return 0;
+     }
+ 
+-    request.title = "Folder name";
++    request.title = TitanLocalization_Compat("Folder name");
+     request.initial_text = g_scene.folder_pending_name;
+-    request.placeholder = "Folder";
++    request.placeholder = TitanLocalization_Compat("Folder");
+     request.maximum_codepoints = 32u;
+     request.field_type = TITAN_TEXT_INPUT_FIELD_TEXT;
+     request.validation_callback = TitanShellScene_ValidateFolderName;
+@@ -3207,7 +3233,7 @@
+         text
+     );
+ 
+-    request.title = "Escolha seu avatar";
++    request.title = TitanLocalization_Compat("Escolha seu avatar");
+     request.profile_name = g_scene.pending_profile_name;
+     request.initial_avatar_id = 0u;
+     request.confirm_callback = TitanShellScene_ConfirmNewProfileAvatar;
+@@ -3292,9 +3318,9 @@
+         return 0;
+     }
+ 
+-    request.title = "Editar perfil";
++    request.title = TitanLocalization_Compat("Editar perfil");
+     request.initial_text = profile->name;
+-    request.placeholder = "Nome do perfil";
++    request.placeholder = TitanLocalization_Compat("Nome do perfil");
+     request.maximum_codepoints = 20u;
+     request.field_type = TITAN_TEXT_INPUT_FIELD_TEXT;
+     request.validation_callback = TitanShellScene_ValidateProfileRename;
+@@ -3312,9 +3338,9 @@
+ 
+     g_scene.pending_profile_name[0] = '\0';
+ 
+-    request.title = "Criar perfil";
++    request.title = TitanLocalization_Compat("Criar perfil");
+     request.initial_text = "";
+-    request.placeholder = "Digite o nome do perfil";
++    request.placeholder = TitanLocalization_Compat("Digite o nome do perfil");
+     request.maximum_codepoints = 20u;
+     request.field_type = TITAN_TEXT_INPUT_FIELD_TEXT;
+     request.validation_callback = TitanShellScene_ValidateNewProfileName;
+@@ -4073,11 +4099,11 @@
+     {
+         /* DS2 welcome affordance: real Cross symbol inside the circular face
+          * button, not a text glyph inside the old 64x44 pill. */
+-        float radius = 22.0f * pulse;
++        float radius = 16.5f * pulse;
+         float center_x = (float)TITAN_UI_WIDTH * 0.5f;
+-        float center_y = 260.0f;
+-        float arm = 8.2f * pulse;
+-        float line = 2.35f * pulse;
++        float center_y = 252.0f;
++        float arm = 5.9f * pulse;
++        float line = 1.95f * pulse;
+ 
+         TitanVideo_DrawCircleAlpha(
+             center_x, center_y, radius,
+@@ -4127,7 +4153,7 @@
+     }
+ 
+     TitanFont_DrawTextShadow(
+-        prompt_x, 304.0f, prompt_scale, prompt, 210, 218, 230, alpha
++        prompt_x, 286.0f, prompt_scale, prompt, 210, 218, 230, alpha
+     );
+ }
+ 
+@@ -6272,7 +6298,7 @@
+             sizeof(count_text),
+             "%u %s",
+             folder->item_count,
+-            folder->item_count == 1u ? "item" : "itens"
++            folder->item_count == 1u ? TitanLocalization_Compat("item") : TitanLocalization_Compat("items")
+         );
+         TitanFont_DrawTextAlpha(
+             145.0f,
+@@ -6637,7 +6663,7 @@
+             continue;
+         }
+         y = 154.0f + ((float)index * 49.0f);
+-        snprintf(item_text, sizeof(item_text), "%u itens", folder->item_count);
++        snprintf(item_text, sizeof(item_text), TitanLocalization_Compat("%u items"), folder->item_count);
+         TitanShellScene_DrawOrbisButton(
+             238.0f,
+             y,
+@@ -8217,9 +8243,9 @@
+ {
+     TitanTextInputRequest request;
+ 
+-    request.title = "Search";
++    request.title = TitanLocalization_Compat("Search");
+     request.initial_text = g_scene.library_search;
+-    request.placeholder = "Search Library";
++    request.placeholder = TitanLocalization_Compat("Search Library");
+     request.maximum_codepoints = 48u;
+     request.field_type = TITAN_TEXT_INPUT_FIELD_TEXT;
+     request.validation_callback = 0;
+@@ -10380,7 +10406,7 @@
+             const TitanInputDeviceDescriptor *p1 = TitanUnifiedInput_GetPlayer(0u);
+             char value[64];
+             snprintf(value, sizeof(value), "%s",
+-                p1 != 0 ? TitanUnifiedInput_DeviceName(p1->type) : "Automático");
++                p1 != 0 ? TitanUnifiedInput_DeviceName(p1->type) : TitanLocalization_Compat("Automatic"));
+             TitanShellScene_DrawSettingsListRow(
+                 TITAN_ICON_INPUT,
+                 "Atribuição de controles",
+@@ -10392,8 +10418,8 @@
+         else if (row == 2)
+         {
+             char value[64];
+-            snprintf(value, sizeof(value), "%s / Porta %u",
+-                TitanControllerAssignment_GetMultitapEnabled() ? "Ativado" : "Desativado",
++            snprintf(value, sizeof(value), TitanLocalization_Compat("%s / Port %u"),
++                TitanLocalization_Compat(TitanControllerAssignment_GetMultitapEnabled() ? "Enabled" : "Disabled"),
+                 TitanControllerAssignment_GetMultitapPort() + 1u);
+             TitanShellScene_DrawSettingsListRow(
+                 TITAN_ICON_INPUT,
+@@ -10413,8 +10439,11 @@
+             snprintf(status, sizeof(status), "%s / %s",
+                 TitanUnifiedInput_TransportName(device->transport),
+                 TitanUnifiedInput_BackendName(device->backend));
+-            snprintf(detail, sizeof(detail), "Conectado%s",
+-                device->player < TITAN_UNIFIED_INPUT_MAX_PLAYERS ? " / jogador atribuído" : "");
++            snprintf(detail, sizeof(detail), "%s",
++                TitanLocalization_Compat(
++                    device->player < TITAN_UNIFIED_INPUT_MAX_PLAYERS
++                        ? "Connected / player assigned"
++                        : "Connected"));
+             TitanShellScene_DrawSettingsListRow(
+                 TITAN_ICON_INPUT,
+                 TitanUnifiedInput_DeviceName(device->type),
+@@ -10443,12 +10472,15 @@
+ 
+     TitanShellScene_FormatStorageBytes(snapshot->titan_bytes,
+         snapshot->titan_bytes_valid && !snapshot->scanning, values[0], sizeof(values[0]));
+-    snprintf(values[1], sizeof(values[1]), "%u instalado%s",
+-        snapshot->application_count, snapshot->application_count == 1u ? "" : "s");
+-    snprintf(values[2], sizeof(values[2]), "%u instalado%s",
+-        snapshot->native_game_count, snapshot->native_game_count == 1u ? "" : "s");
+-    snprintf(values[3], sizeof(values[3]), "%u instalado%s",
+-        snapshot->theme_count, snapshot->theme_count == 1u ? "" : "s");
++    snprintf(values[1], sizeof(values[1]),
++        TitanLocalization_Compat(snapshot->application_count == 1u ? "%u installed" : "%u items installed"),
++        snapshot->application_count);
++    snprintf(values[2], sizeof(values[2]),
++        TitanLocalization_Compat(snapshot->native_game_count == 1u ? "%u installed" : "%u items installed"),
++        snapshot->native_game_count);
++    snprintf(values[3], sizeof(values[3]),
++        TitanLocalization_Compat(snapshot->theme_count == 1u ? "%u installed" : "%u items installed"),
++        snapshot->theme_count);
+ 
+     TitanShellScene_DrawPanelBase(
+         "Armazenamento",
+@@ -10554,8 +10586,9 @@
+ {
+     unsigned int registered = TitanWirelessAccessories_GetRegisteredCount();
+     char registered_text[48];
+-    snprintf(registered_text, sizeof(registered_text), "%u acessório%s",
+-        registered, registered == 1u ? "" : "s");
++    snprintf(registered_text, sizeof(registered_text),
++        TitanLocalization_Compat(registered == 1u ? "%u accessory" : "%u accessories"),
++        registered);
+ 
+     TitanShellScene_DrawPanelBase(
+         "Acessórios sem fio",
+@@ -10610,7 +10643,7 @@
+                 const char *detail;
+                 status_text[0] = 0;
+                 if (!transport_ready) { label = "Inicializando Bluetooth..."; detail = "Preparando o dongle para iniciar a busca."; }
+-                else if (scan_error) { label = "Falha ao iniciar busca"; detail = "Consulte o log para o estágio HCI exato."; snprintf(status_text,sizeof(status_text),"Erro %d",state->last_error); }
++                else if (scan_error) { label = "Falha ao iniciar busca"; detail = "Consulte o log para o estágio HCI exato."; snprintf(status_text,sizeof(status_text),TitanLocalization_Compat("Error %d"),state->last_error); }
+                 else if (state->flags & TITAN_PADEMU_WIRELESS_SCANNING) { label = "Procurando acessórios..."; detail = "Coloque o acessório em modo de pareamento."; }
+                 else { label = "Nenhum acessório encontrado"; detail = "A busca terminou sem encontrar dispositivos."; }
+                 TitanShellScene_DrawSettingsListRow(
+@@ -10708,7 +10741,7 @@
+         float focus = TitanShellScene_Clamp(
+             1.0f - TitanAnimation_Absolute((float)row - g_scene.settings_leaf_row_position),
+             0.0f, 1.0f);
+-        snprintf(title, sizeof(title), "Jogador %d", row + 1);
++        snprintf(title, sizeof(title), TitanLocalization_Compat("Player %d"), row + 1);
+         (void)TitanControllerAssignment_GetBinding((unsigned int)row, &binding);
+         if (!binding.valid) {
+             snprintf(value, sizeof(value), "Automático");
+@@ -10719,7 +10752,7 @@
+                 TitanUnifiedInput_TransportName(connected->transport));
+             detail = "Preferência persistente / conectado";
+         } else {
+-            snprintf(value, sizeof(value), "%s / desconectado",
++            snprintf(value, sizeof(value), TitanLocalization_Compat("%s / disconnected"),
+                 TitanUnifiedInput_DeviceName(binding.type));
+             detail = "Preferência persistente; fallback temporário permitido";
+         }
+@@ -10733,7 +10766,7 @@
+ static void TitanShellScene_DrawMultitapLeaf(float offset_x, unsigned char alpha)
+ {
+     char port[32];
+-    snprintf(port, sizeof(port), "Porta %u", TitanControllerAssignment_GetMultitapPort() + 1u);
++    snprintf(port, sizeof(port), TitanLocalization_Compat("Port %u"), TitanControllerAssignment_GetMultitapPort() + 1u);
+     TitanShellScene_DrawPanelBase(
+         "Multitap",
+         "Configuração global aplicada ao handoff PADEMU dos jogos",
+@@ -10741,7 +10774,7 @@
+     TitanShellScene_DrawSettingsListRow(
+         TITAN_ICON_INPUT, "Multitap",
+         "Habilita quatro slots lógicos no backend PADEMU.",
+-        TitanControllerAssignment_GetMultitapEnabled() ? "Ativado" : "Desativado",
++        TitanLocalization_Compat(TitanControllerAssignment_GetMultitapEnabled() ? "Enabled" : "Disabled"),
+         TITAN_SETTINGS_ROW_TOP, offset_x, alpha,
+         TitanShellScene_Clamp(1.0f - TitanAnimation_Absolute(g_scene.settings_leaf_row_position), 0.0f, 1.0f));
+     TitanShellScene_DrawSettingsListRow(
+@@ -10794,17 +10827,17 @@
+     const TitanInputDeviceDescriptor *device = TitanUnifiedInput_GetDevice(source_index);
+     char connection[96], identity[96], battery[96], backend[96], player[96];
+     if (device == 0 || !device->connected) return;
+-    snprintf(connection, sizeof(connection), "Conexão: %s", TitanUnifiedInput_TransportName(device->transport));
++    snprintf(connection, sizeof(connection), TitanLocalization_Compat("Connection: %s"), TitanUnifiedInput_TransportName(device->transport));
+     snprintf(identity, sizeof(identity), "USB ID: %04X:%04X", (unsigned)device->vendor_id, (unsigned)device->product_id);
+     if (device->battery_valid)
+-        snprintf(battery, sizeof(battery), "Bateria: %u%%", (unsigned)device->battery_percent);
++        snprintf(battery, sizeof(battery), TitanLocalization_Compat("Battery: %u%%"), (unsigned)device->battery_percent);
+     else
+-        snprintf(battery, sizeof(battery), "Bateria: Não disponível");
++        snprintf(battery, sizeof(battery), "%s", TitanLocalization_Compat("Battery: Not available"));
+     snprintf(backend, sizeof(backend), "Backend: %s", TitanUnifiedInput_BackendName(device->backend));
+     if (device->player < TITAN_UNIFIED_INPUT_MAX_PLAYERS)
+-        snprintf(player, sizeof(player), "Jogador: %u", (unsigned)device->player + 1u);
++        snprintf(player, sizeof(player), TitanLocalization_Compat("Player: %u"), (unsigned)device->player + 1u);
+     else
+-        snprintf(player, sizeof(player), "Jogador: Não atribuído");
++        snprintf(player, sizeof(player), "%s", TitanLocalization_Compat("Player: Not assigned"));
+     (void)TitanNotifications_OpenInformation(
+         TitanUnifiedInput_DeviceName(device->type), connection, identity, battery, backend, player);
+ }
+@@ -10816,14 +10849,14 @@
+     char connection[64], status[80], firmware[80], battery[80], backend[80];
+     if (state == 0 || source_index >= state->count) return;
+     accessory = &state->accessories[source_index];
+-    snprintf(connection, sizeof(connection), "Conexão: Bluetooth");
+-    snprintf(status, sizeof(status), "Estado: %s",
+-        (accessory->flags & TITAN_PADEMU_WIRELESS_CONNECTED) ? "Conectado" : "Desconectado");
+-    snprintf(firmware, sizeof(firmware), "Firmware: Não disponível");
++    snprintf(connection, sizeof(connection), "%s", TitanLocalization_Compat("Connection: Bluetooth"));
++    snprintf(status, sizeof(status), TitanLocalization_Compat("State: %s"),
++        (accessory->flags & TITAN_PADEMU_WIRELESS_CONNECTED) ? TitanLocalization_Compat("Connected") : TitanLocalization_Compat("Disconnected"));
++    snprintf(firmware, sizeof(firmware), "%s", TitanLocalization_Compat("Firmware: Not available"));
+     if (accessory->battery_percent > 0u)
+-        snprintf(battery, sizeof(battery), "Bateria: %u%%", (unsigned)accessory->battery_percent);
++        snprintf(battery, sizeof(battery), TitanLocalization_Compat("Battery: %u%%"), (unsigned)accessory->battery_percent);
+     else
+-        snprintf(battery, sizeof(battery), "Bateria: Não disponível");
++        snprintf(battery, sizeof(battery), "%s", TitanLocalization_Compat("Battery: Not available"));
+     snprintf(backend, sizeof(backend), "Backend: Titan PADEMU");
+     (void)TitanNotifications_OpenInformation(
+         TitanShellScene_GetWirelessAccessoryName(accessory),
+@@ -10861,27 +10894,27 @@
+     {
+         char tmp[96];
+         snprintf(tmp, sizeof(tmp), "%s", size_line);
+-        snprintf(size_line, sizeof(size_line), "Tamanho: %s", tmp);
++        snprintf(size_line, sizeof(size_line), TitanLocalization_Compat("Size: %s"), tmp);
+     }
+-    snprintf(location, sizeof(location), "Local: %s", entry->path);
++    snprintf(location, sizeof(location), TitanLocalization_Compat("Location: %s"), entry->path);
+ 
+     if (kind == TITAN_SETTINGS_ACTION_STORAGE_THEME)
+     {
+         const TitanThemeInfo *theme = TitanTheme_Get(source_index);
+         if (theme == 0) return;
+-        snprintf(version, sizeof(version), "Versão: %s", theme->version[0] ? theme->version : "Não disponível");
+-        snprintf(id_line, sizeof(id_line), "ID: %s", theme->id[0] ? theme->id : "Não disponível");
+-        snprintf(type_line, sizeof(type_line), "Tipo: Tema Titan");
++        snprintf(version, sizeof(version), TitanLocalization_Compat("Version: %s"), theme->version[0] ? theme->version : TitanLocalization_Compat("Not available"));
++        snprintf(id_line, sizeof(id_line), "ID: %s", theme->id[0] ? theme->id : TitanLocalization_Compat("Not available"));
++        snprintf(type_line, sizeof(type_line), "%s", TitanLocalization_Compat("Type: Titan theme"));
+         (void)TitanNotifications_OpenInformation(theme->name, version, id_line, type_line, size_line, location);
+     }
+     else
+     {
+         const TitanApplication *app = TitanApplications_Get(source_index);
+         if (app == 0) return;
+-        snprintf(version, sizeof(version), "Versão: %s", app->version[0] ? app->version : "Não disponível");
+-        snprintf(id_line, sizeof(id_line), "Title ID: %s", app->title_id[0] ? app->title_id : "Não disponível");
+-        snprintf(type_line, sizeof(type_line), "Tipo: %s",
+-            kind == TITAN_SETTINGS_ACTION_STORAGE_GAME ? "Jogo nativo Titan" :
++        snprintf(version, sizeof(version), TitanLocalization_Compat("Version: %s"), app->version[0] ? app->version : TitanLocalization_Compat("Not available"));
++        snprintf(id_line, sizeof(id_line), "Title ID: %s", app->title_id[0] ? app->title_id : TitanLocalization_Compat("Not available"));
++        snprintf(type_line, sizeof(type_line), TitanLocalization_Compat("Type: %s"),
++            kind == TITAN_SETTINGS_ACTION_STORAGE_GAME ? TitanLocalization_Compat("Titan native game") :
+             TitanApplications_GetClassificationName(app->classification));
+         (void)TitanNotifications_OpenInformation(app->title, version, id_line, type_line, size_line, location);
+     }
+@@ -11807,7 +11840,7 @@
+         alpha
+     );
+ 
+-    snprintf(current, sizeof(current), "Versao atual: %s / build %u",
++    snprintf(current, sizeof(current), TitanLocalization_Compat("Current version: %s / build %u"),
+         TITAN_KERNEL_VERSION_STRING, TITAN_SYSTEM_UPDATE_CURRENT_BUILD);
+     TitanFont_DrawTextAlpha(108.0f + offset_x, 74.0f, 0.54f, current,
+         218, 223, 233, alpha);
+@@ -11962,23 +11995,23 @@
+         unsigned int total = assets != 0 ? assets->session_total_assets : 0u;
+         if (assets != 0 && assets->current_game_index < TitanNeutrino_GetGameCount())
+             current_game = TitanNeutrino_GetGame(assets->current_game_index);
+-        snprintf(line0,sizeof(line0),"%s",assets != 0 ? TitanAssetService_GetManualPhaseName(assets->manual_phase) : "Aguardando");
++        snprintf(line0,sizeof(line0),"%s",assets != 0 ? TitanAssetService_GetManualPhaseName(assets->manual_phase) : TitanLocalization_Compat("Waiting"));
+         if (assets != 0 && assets->current_game_ordinal > 0u && assets->session_games > 0u)
+-            snprintf(line1,sizeof(line1),"Jogo: %u / %u   Baixados: %u/%u   Sem arte: %u   Erros: %u",
++            snprintf(line1,sizeof(line1),TitanLocalization_Compat("Game: %u / %u   Downloaded: %u/%u   No art: %u   Errors: %u"),
+                 assets->current_game_ordinal, assets->session_games,
+                 assets->session_completed_assets, assets->session_total_assets,
+                 assets->session_unavailable_assets, assets->session_failed_assets);
+         else
+-            snprintf(line1,sizeof(line1),"Biblioteca: %u jogos   Resolvidos: %u/%u   Sem arte: %u   Erros: %u",
++            snprintf(line1,sizeof(line1),TitanLocalization_Compat("Library: %u games   Resolved: %u/%u   No art: %u   Errors: %u"),
+                 assets != 0 ? assets->session_games : 0u, done, total,
+                 assets != 0 ? assets->session_unavailable_assets : 0u,
+                 assets != 0 ? assets->session_failed_assets : 0u);
+         if (current_game != 0)
+             snprintf(line2,sizeof(line2),"%s  |  %s  |  %s",current_game->title,
+-                assets->current_kind == TITAN_ASSET_KIND_BACKGROUND ? "Background" : "Icone",
+-                assets->provider[0] ? assets->provider : "Preparando");
++                assets->current_kind == TITAN_ASSET_KIND_BACKGROUND ? TitanLocalization_Compat("Background") : TitanLocalization_Compat("Icon"),
++                assets->provider[0] ? assets->provider : TitanLocalization_Compat("Preparing"));
+         else
+-            snprintf(line2,sizeof(line2),"Uma transferência por vez; UI/input/audio têm prioridade absoluta.");
++            snprintf(line2,sizeof(line2),"%s",TitanLocalization_Compat("One transfer at a time; UI/input/audio have absolute priority."));
+         TitanShellScene_DrawPanelBase("Download de assets",line0,offset_x,alpha);
+         TitanShellScene_DrawSettingsListRow(TITAN_ICON_SYSTEM,"Estado",line1,line2,
+             TITAN_SETTINGS_ROW_TOP,offset_x,alpha,1.0f);
+@@ -12062,9 +12095,9 @@
+                 snprintf(value,sizeof(value),"%s  %u%%",
+                     TitanNetwork_GetWifiSecurityName(ap->security),
+                     TitanNetwork_GetWifiSignalPercent(ap));
+-                snprintf(detail,sizeof(detail),"Canal %u / %d dBm%s",
++                snprintf(detail,sizeof(detail),TitanLocalization_Compat("Channel %u / %d dBm%s"),
+                     (unsigned int)ap->channel,(int)ap->rssi_dbm,
+-                    ap->security == TITAN_NETWORK_WIFI_WPA2 ? " / protegida" : "");
++                    ap->security == TITAN_NETWORK_WIFI_WPA2 ? TitanLocalization_Compat(" / protected") : "");
+                 TitanShellScene_DrawSettingsListRow(
+                     TITAN_ICON_SYSTEM,
+                     ap->ssid[0] ? ap->ssid : "Hidden network",
+@@ -12790,9 +12823,9 @@
+ {
+     TitanTextInputRequest request;
+     const TitanNetworkStatus *network = TitanNetwork_GetStatus();
+-    request.title = "Wi-Fi Network";
++    request.title = TitanLocalization_Compat("Wi-Fi Network");
+     request.initial_text = network != 0 ? network->ssid : "";
+-    request.placeholder = "SSID 2.4 GHz";
++    request.placeholder = TitanLocalization_Compat("SSID 2.4 GHz");
+     request.maximum_codepoints = 32u;
+     request.field_type = TITAN_TEXT_INPUT_FIELD_TEXT;
+     request.validation_callback = TitanShellScene_ValidateWifiSsid;
+@@ -12860,9 +12893,9 @@
+ static int TitanShellScene_OpenWifiPasswordInput(void)
+ {
+     TitanTextInputRequest request;
+-    request.title = "Senha Wi-Fi";
++    request.title = TitanLocalization_Compat("Senha Wi-Fi");
+     request.initial_text = "";
+-    request.placeholder = "Senha WPA2";
++    request.placeholder = TitanLocalization_Compat("Senha WPA2");
+     request.maximum_codepoints = 63u;
+     request.field_type = TITAN_TEXT_INPUT_FIELD_PASSWORD;
+     request.validation_callback = TitanShellScene_ValidateWifiPassword;
+@@ -13910,7 +13943,7 @@
+         snprintf(
+             message,
+             sizeof(message),
+-            "Controle principal atribuido a porta %d",
++            TitanLocalization_Compat("Primary controller assigned to port %d"),
+             target_port + 1
+         );
+         TitanNotifications_Push(
+@@ -14390,7 +14423,7 @@
+             snprintf(
+                 line,
+                 sizeof(line),
+-                "Mover o controle principal para a porta %d?",
++                TitanLocalization_Compat("Move the primary controller to port %d?"),
+                 target_port + 1
+             );
+             (void)TitanNotifications_OpenConfirmation(
+@@ -14878,7 +14911,7 @@
+     const TitanBrowserSnapshot *browser;
+ 
+     browser = TitanBrowser_GetSnapshot();
+-    request.title = "Endereco da Web";
++    request.title = TitanLocalization_Compat("Endereco da Web");
+     request.initial_text =
+         browser != 0 && browser->url != 0 &&
+         strncmp(browser->url, "titan://", 8u) != 0
+@@ -15955,11 +15988,10 @@
+     g_scene.selected_hold_frames = 0u;
+     g_scene.detail_visibility = 0.0f;
+ 
+-    /* The 640x480 live-area buffer is useful while browsing HOME but must not
+-     * compete with a Titan Native Game runtime arena. The selected 256 tile can
+-     * remain until the app takes ownership; only the large background is
+-     * released at launch start. */
+-    TitanAppAssets_ReleaseSelectedBackground();
++    /* Keep the selected app live-area resident for the launch choreography.
++     * It is released only at the runtime handoff, so Titan Native apps enter
++     * with the same visual continuity as ISO/UL titles instead of flashing the
++     * shell waves back in at frame zero. */
+ 
+     TitanNotifications_Push(
+         TITAN_NOTIFICATION_ACTIVITY,
+@@ -15976,9 +16008,13 @@
+     {
+         unsigned int application_index = g_scene.game_launch_application_index;
+ 
+-        /* Animation is complete. Drop the shell launch-state before opening an
+-         * in-process Titan runtime so TitanAppRuntime becomes the sole visual
+-         * owner on the next frame. */
++        /* Animation is complete. Release the 640x480 live-area only now, at
++         * the ownership boundary, so the runtime arena gets the memory without
++         * making the app launch animation visually diverge from ISO/UL. */
++        TitanAppAssets_ReleaseSelectedBackground();
++
++        /* Drop the shell launch-state before opening an in-process Titan
++         * runtime so TitanAppRuntime becomes the sole visual owner next frame. */
+         g_scene.game_launch_active = 0;
+         g_scene.game_launch_frames = 0u;
+         g_scene.game_launch_application = 0;
+@@ -16025,6 +16061,52 @@
+     }
+ }
+ 
++static int TitanShellScene_DrawApplicationLiveBackground(
++    unsigned int frame,
++    unsigned int application_index,
++    unsigned char alpha
++)
++{
++    const TitanApplication *application;
++
++    application = TitanApplications_Get(application_index);
++    if (application == 0 || application->background_path[0] == '\0')
++        return 0;
++
++    if (TitanAppAssets_DrawSelectedBackground(
++            application_index,
++            0.0f, 0.0f,
++            (float)TITAN_UI_WIDTH, (float)TITAN_UI_HEIGHT,
++            alpha))
++    {
++        return 1;
++    }
++
++    if (TitanAppAssets_IsSelectionLoading())
++    {
++        /* A declared app background owns the live-area as soon as selection
++         * begins. Never reveal waves/ribbons while its 480-line image streams
++         * from storage: use the shell's existing loading-symbol animation on a
++         * neutral backing until the buffer is published. */
++        TitanVideo_DrawRectAlpha(
++            0.0f, 0.0f,
++            (float)TITAN_UI_WIDTH, (float)TITAN_UI_HEIGHT,
++            5, 6, 10, alpha
++        );
++        TitanShellScene_DrawShutdownSymbolCluster(
++            frame,
++            (float)TITAN_UI_WIDTH * 0.5f,
++            (float)TITAN_UI_HEIGHT * 0.5f,
++            TitanShellScene_ModulateAlpha(230u, alpha)
++        );
++        return 1;
++    }
++
++    /* Missing/corrupt legacy art is a real fallback case; only then allow the
++     * configured shell background to return. */
++    return 0;
++}
++
+ static float TitanShellScene_GameLaunchProgress(unsigned int start, unsigned int end)
+ {
+     if (!g_scene.game_launch_active || end <= start)
+@@ -16056,14 +16138,14 @@
+     unsigned char blue;
+     unsigned char panel_alpha;
+     const char *engine_prefix;
+-    int append_engine;
++    const char *engine_word;
+     int native_badge;
+ 
+     if (alpha <= 4u)
+         return;
+ 
+     native_badge = g_scene.game_launch_application != 0;
+-    append_engine = native_badge ? 0 : 1;
++    engine_word = "ENGINE";
+     height = 50.0f;
+ 
+     if (native_badge)
+@@ -16077,7 +16159,8 @@
+         red = 238u;
+         green = 45u;
+         blue = 88u;
+-        engine_prefix = native_game ? "TITAN NATIVE GAME" : "TITAN NATIVE";
++        engine_prefix = native_game ? "TITAN NATIVE" : "TITAN";
++        engine_word = native_game ? "GAME" : "NATIVE";
+         width = native_game ? 246.0f : 214.0f;
+     }
+     else if (g_scene.game_launch_disc)
+@@ -16146,7 +16229,7 @@
+     text_x = x + 52.0f;
+     TitanFont_DrawTextAlpha(
+         text_x, y + 7.0f, 0.40f,
+-        native_badge ? "Classification:" : "Powered by:",
++        "Powered by:",
+         205, 208, 216, alpha
+     );
+     TitanFont_DrawTextAlpha(
+@@ -16155,15 +16238,12 @@
+         246, 247, 250, alpha
+     );
+ 
+-    if (append_engine)
+-    {
+-        engine_prefix_width = TitanFont_MeasureText(0.44f, engine_prefix);
+-        engine_word_x = text_x + engine_prefix_width + 5.0f;
+-        TitanFont_DrawTextAlpha(
+-            engine_word_x, y + 25.0f, 0.44f,
+-            "ENGINE", red, green, blue, alpha
+-        );
+-    }
++    engine_prefix_width = TitanFont_MeasureText(0.44f, engine_prefix);
++    engine_word_x = text_x + engine_prefix_width + 5.0f;
++    TitanFont_DrawTextAlpha(
++        engine_word_x, y + 25.0f, 0.44f,
++        engine_word, red, green, blue, alpha
++    );
+ }
+ 
+ static int TitanShellScene_UpdateFolderUi(
+@@ -17890,13 +17970,13 @@
+                             char total[80], apps[80], games[80], themes[80];
+                             TitanShellScene_FormatStorageBytes(snapshot->titan_bytes,
+                                 snapshot->titan_bytes_valid && !snapshot->scanning, total, sizeof(total));
+-                            { char tmp[80]; snprintf(tmp, sizeof(tmp), "%s", total); snprintf(total, sizeof(total), "Uso do Titan: %s", tmp); }
++                            { char tmp[80]; snprintf(tmp, sizeof(tmp), "%s", total); snprintf(total, sizeof(total), TitanLocalization_Compat("Titan usage: %s"), tmp); }
+                             TitanShellScene_FormatStorageBytes(snapshot->application_bytes, !snapshot->scanning, apps, sizeof(apps));
+-                            { char tmp[80]; snprintf(tmp, sizeof(tmp), "%s", apps); snprintf(apps, sizeof(apps), "Aplicativos: %s", tmp); }
++                            { char tmp[80]; snprintf(tmp, sizeof(tmp), "%s", apps); snprintf(apps, sizeof(apps), TitanLocalization_Compat("Applications: %s"), tmp); }
+                             TitanShellScene_FormatStorageBytes(snapshot->native_game_bytes, !snapshot->scanning, games, sizeof(games));
+-                            { char tmp[80]; snprintf(tmp, sizeof(tmp), "%s", games); snprintf(games, sizeof(games), "Jogos nativos: %s", tmp); }
++                            { char tmp[80]; snprintf(tmp, sizeof(tmp), "%s", games); snprintf(games, sizeof(games), TitanLocalization_Compat("Native games: %s"), tmp); }
+                             TitanShellScene_FormatStorageBytes(snapshot->theme_bytes, !snapshot->scanning, themes, sizeof(themes));
+-                            { char tmp[80]; snprintf(tmp, sizeof(tmp), "%s", themes); snprintf(themes, sizeof(themes), "Temas: %s", tmp); }
++                            { char tmp[80]; snprintf(tmp, sizeof(tmp), "%s", themes); snprintf(themes, sizeof(themes), TitanLocalization_Compat("Themes: %s"), tmp); }
+                             (void)TitanNotifications_OpenInformation("Armazenamento Titan", total, apps, games, themes,
+                                 snapshot->scanning ? "Inventário: atualizando em background" : "Inventário: atualizado");
+                         }
+@@ -18956,7 +19036,14 @@
+         );
+         badge_visibility = badge_in * (1.0f - badge_out);
+ 
+-        TitanShellBackground_Draw(frame, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
++        if (!(g_scene.game_launch_application &&
++              TitanShellScene_DrawApplicationLiveBackground(
++                  frame,
++                  g_scene.game_launch_application_index,
++                  255u)))
++        {
++            TitanShellBackground_Draw(frame, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
++        }
+ 
+         /* Orbis live-area takeover: the wallpaper recedes before the selected
+            content settles in place. This remains render-only; no engine is
+@@ -19157,10 +19244,9 @@
+             selected_home.type == TITAN_HOME_ENTRY_APPLICATION)
+         {
+             selected_app_background_drawn =
+-                TitanAppAssets_DrawSelectedBackground(
++                TitanShellScene_DrawApplicationLiveBackground(
++                    frame,
+                     selected_home.application_index,
+-                    0.0f, 0.0f,
+-                    (float)TITAN_UI_WIDTH, (float)TITAN_UI_HEIGHT,
+                     255u
+                 );
+         }
+--- a/kernel/tools/titan_pkg.py
++++ b/kernel/tools/titan_pkg.py
+@@ -30,10 +30,16 @@
+ THEME_ENTRYPOINT = "@theme"
+ TITAN_APP_API_VERSION = 1
+ ICON_NAME = "icon.rgb565"
++TILE_NAME = "tile.rgb565"
+ BACKGROUND_NAME = "background.rgb565"
+ META_NAME = "titan_meta.ini"
+ ICON_BYTES = 64 * 64 * 2
+-BACKGROUND_BYTES = 512 * 256 * 2
++TILE_BYTES = 256 * 256 * 2
++APP_BACKGROUND_PRIMARY_BYTES = 640 * 480 * 2
++APP_BACKGROUND_LEGACY_BYTES = 512 * 256 * 2
++# scene-v2 themes retain their established storage contract. Application
++# live-area backgrounds use the 480-line primary contract above.
++THEME_SCENE_BYTES = 512 * 256 * 2
+ THEME_CONFIG_NAME = "theme.cfg"
+ THEME_PREVIEW_NAME = "preview.rgb565"
+ THEME_PREVIEW_BYTES = 256 * 128 * 2
+@@ -129,9 +135,15 @@
+     by_name = dict(files)
+     if ICON_NAME in by_name and len(by_name[ICON_NAME]) != ICON_BYTES:
+         raise ValueError(f"{ICON_NAME} must be exactly 64x64 RGB565 ({ICON_BYTES} bytes)")
+-    if BACKGROUND_NAME in by_name and len(by_name[BACKGROUND_NAME]) != BACKGROUND_BYTES:
++    if TILE_NAME in by_name and len(by_name[TILE_NAME]) != TILE_BYTES:
++        raise ValueError(f"{TILE_NAME} must be exactly 256x256 RGB565 ({TILE_BYTES} bytes)")
++    if BACKGROUND_NAME in by_name and len(by_name[BACKGROUND_NAME]) not in (
++        APP_BACKGROUND_PRIMARY_BYTES, APP_BACKGROUND_LEGACY_BYTES
++    ):
+         raise ValueError(
+-            f"{BACKGROUND_NAME} must be exactly 512x256 RGB565 ({BACKGROUND_BYTES} bytes)"
++            f"{BACKGROUND_NAME} must be 640x480 RGB565 primary "
++            f"({APP_BACKGROUND_PRIMARY_BYTES} bytes) or 512x256 RGB565 legacy fallback "
++            f"({APP_BACKGROUND_LEGACY_BYTES} bytes)"
+         )
+ 
+ 
+@@ -195,8 +207,8 @@
+             raise ValueError(f"{relative} must be exactly 512x256 RGB565 ({expected_size} bytes)")
+         return relative
+ 
+-    require_asset("scene_home", BACKGROUND_BYTES)
+-    require_asset("scene_top", BACKGROUND_BYTES)
++    require_asset("scene_home", THEME_SCENE_BYTES)
++    require_asset("scene_top", THEME_SCENE_BYTES)
+     try:
+         transition_count = int(cfg.get("scene_transition_count", "0"), 10)
+     except ValueError as exc:
+@@ -204,7 +216,7 @@
+     if not 0 <= transition_count <= 6:
+         raise ValueError("scene_transition_count must be 0..6")
+     for index in range(transition_count):
+-        require_asset(f"scene_transition_{index}", BACKGROUND_BYTES)
++        require_asset(f"scene_transition_{index}", THEME_SCENE_BYTES)
+ 
+     def parse_idle_count(key: str) -> int:
+         try:
+@@ -223,7 +235,7 @@
+         raise ValueError("scene-v2 idle loops require shell_api=3")
+     for state, count in (("home", home_idle_count), ("top", top_idle_count)):
+         for index in range(count):
+-            require_asset(f"scene_{state}_idle_{index}", BACKGROUND_BYTES)
++            require_asset(f"scene_{state}_idle_{index}", THEME_SCENE_BYTES)
+         if count:
+             ms_key = f"scene_{state}_idle_ms"
+             try:
+@@ -445,7 +457,11 @@
+         raise ValueError("package payload contains unreferenced bytes")
+     if ICON_NAME in file_sizes and file_sizes[ICON_NAME] != ICON_BYTES:
+         raise ValueError(f"invalid {ICON_NAME} size")
+-    if BACKGROUND_NAME in file_sizes and file_sizes[BACKGROUND_NAME] != BACKGROUND_BYTES:
++    if TILE_NAME in file_sizes and file_sizes[TILE_NAME] != TILE_BYTES:
++        raise ValueError(f"invalid {TILE_NAME} size")
++    if BACKGROUND_NAME in file_sizes and file_sizes[BACKGROUND_NAME] not in (
++        APP_BACKGROUND_PRIMARY_BYTES, APP_BACKGROUND_LEGACY_BYTES
++    ):
+         raise ValueError(f"invalid {BACKGROUND_NAME} size")
+     if version == FORMAT_V2 and app_type != APP_THEME and ICON_NAME not in file_sizes:
+         raise ValueError(f"TPKG v2 package is missing {ICON_NAME}")
+--- a/ports/goldeneye/Makefile.titan
++++ b/ports/goldeneye/Makefile.titan
+@@ -170,10 +170,10 @@
+ 	$(PYTHON) $(ROOT)/tools/check_titan_native_n32.py $@
+ 	$(PYTHON) tools/check_titaneye_tmod.py $@
+ 
+-$(PKG): $(TMOD) resources/icon.rgb565 resources/background.rgb565
++$(PKG): $(TMOD) resources/icon.rgb565 resources/tile.rgb565 resources/background.rgb565
+ 	@test -n "$(ROM)" || { echo "Use: make -f Makefile.titan package ROM=/path/to/GoldenEye\\ 007.z64" >&2; exit 1; }
+ 	$(PYTHON) tools/build_private_package.py \
+-		--module $(TMOD) --rom "$(ROM)" --icon resources/icon.rgb565 --background resources/background.rgb565 \
++		--module $(TMOD) --rom "$(ROM)" --icon resources/icon.rgb565 --tile resources/tile.rgb565 --background resources/background.rgb565 \
+ 		--package-source $(PKG_SOURCE) --output $@
+ 
+ verify: $(PKG)
+--- a/ports/goldeneye/tools/build_private_package.py
++++ b/ports/goldeneye/tools/build_private_package.py
+@@ -32,6 +32,7 @@
+     parser.add_argument("--module", type=Path, required=True)
+     parser.add_argument("--rom", type=Path, required=True)
+     parser.add_argument("--icon", type=Path, required=True)
++    parser.add_argument("--tile", type=Path, required=True)
+     parser.add_argument("--background", type=Path, required=False)
+     parser.add_argument("--package-source", type=Path, required=True)
+     parser.add_argument("--output", type=Path, required=True)
+@@ -42,8 +43,10 @@
+         raise ValueError(f"module not found: {args.module}")
+     if args.icon.stat().st_size != 64 * 64 * 2:
+         raise ValueError("icon must be 64x64 RGB565")
+-    if args.background is not None and args.background.stat().st_size != 512 * 256 * 2:
+-        raise ValueError("background must be 512x256 RGB565")
++    if args.tile.stat().st_size != 256 * 256 * 2:
++        raise ValueError("tile must be 256x256 RGB565")
++    if args.background is not None and args.background.stat().st_size not in (640 * 480 * 2, 512 * 256 * 2):
++        raise ValueError("background must be 640x480 RGB565 primary or 512x256 legacy fallback")
+ 
+     source = args.package_source
+     if source.exists():
+@@ -60,6 +63,7 @@
+         shutil.copyfile(args.module, source / "titaneye.tmod")
+         shutil.copyfile(args.rom, source / "rom" / "GoldenEye 007.z64")
+         shutil.copyfile(args.icon, source / "icon.rgb565")
++        shutil.copyfile(args.tile, source / "tile.rgb565")
+         if args.background is not None:
+             shutil.copyfile(args.background, source / "background.rgb565")
+ 

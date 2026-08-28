@@ -1,0 +1,143 @@
+# Windows EXECUTION validation lane (backlog MW.3).
+#
+# The credibility gate that proves the Windows build RUNS, not just compiles.
+# MW.2 (tools/mingw_cross_check.sh) proves compile+link from this Mac; this lane
+# closes the "verified by execution" gap named in docs/WINDOWS_CONFIDENCE.md §5:
+# it builds ge007.exe on a real windows-latest kernel via MSYS2 (mirroring the
+# release.yml Windows job exactly), then EXERCISES it:
+#
+#   1. Import-table guard on real Windows — the libgcc_s_seh regression class
+#      (a non-self-contained exe that dies "DLL not found" on a player's PC) is
+#      caught here, on the actual toolchain, not on a player's machine.
+#   2. Headless execution smoke — drives the ROM-free surfaces (config-schema
+#      self-check, --dump-config automation path, the update-check self-test)
+#      with SDL dummy drivers. This exercises real Windows process startup, the
+#      config load, and the schema/diag logic on a real kernel. No ROM, no GPU.
+#   3. ROM-free CTest subset — the compiled C/C++ unit tests (arg triage, ROM
+#      header validation, update-check semver, env-flag accessors, sim-state
+#      hash, room-normals builder) run as native Windows executables.
+#   4. Asset-free verify + upload the .exe artifact.
+#
+# Manual-only (workflow_dispatch), matching the repo's deliberate no-auto-trigger
+# posture (see ci.yml / release.yml `on:`). A maintainer dispatches this and it
+# must be GREEN before a release cut (see docs backlog M8.3/RX.9). It needs no
+# secrets and writes no repository state — it only compiles the ASSET-FREE source
+# and uploads the result, consistent with the bring-your-own-ROM provenance policy.
+
+name: Windows validate (execution)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-validate:
+    name: Windows build + execute (windows-latest / MSYS2)
+    runs-on: windows-latest
+    timeout-minutes: 40
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      # Mirror release.yml's Windows toolchain EXACTLY (same MINGW64 msystem,
+      # same package set) so the build half is known-good by construction. `python`
+      # is added for the asset-free verifier's ROM-magic byte scan (a Python
+      # heredoc); it is not needed by the build.
+      - uses: msys2/setup-msys2@d40200dc2db4c351366b048a9565ad82919e1c24 # v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-gcc mingw-w64-x86_64-cmake mingw-w64-x86_64-SDL2
+            mingw-w64-x86_64-pkg-config mingw-w64-x86_64-ninja zip python
+
+      # Same CMake config as the release.yml Windows job, plus BUILD_TESTING (ON
+      # by default) so the ROM-free CTest unit exes are produced. The shipping
+      # binary is the GUI-subsystem (-mwindows) exe with the static GCC runtimes;
+      # under a CI pipe its stdout is still captured (WINDOWS_CONFIDENCE.md §6).
+      - name: Build the app + ROM-free test exes (MGB64_APP=ON, Release)
+        run: |
+          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DMGB64_APP=ON \
+            -DPORT_VALIDATION_TESTS=OFF -DMGB64_VERSION="ci-validate"
+          cmake --build build --target ge007 \
+            test_arg_triage test_rom_validate test_update_check \
+            test_port_env test_sim_state_hash test_room_normals -j
+          test -f build/ge007.exe || { echo "FAIL: build/ge007.exe missing"; exit 1; }
+          file build/ge007.exe
+
+      # Import-table guard (the same check tools/mingw_cross_check.sh runs, here on
+      # the REAL Windows toolchain's objdump). The exe must import only Windows
+      # system DLLs + the SDL2.dll shipped beside it. Any libgcc_s_seh-1 /
+      # libstdc++-6 / libwinpthread-1 leak (present on the runner, absent on stock
+      # Windows) fails the lane HERE, not on a player's machine.
+      - name: Import-table guard (self-contained on stock Windows)
+        run: |
+          objdump -p build/ge007.exe | grep -i "DLL Name" || true
+          BAD="$(objdump -p build/ge007.exe | awk '/DLL Name/{print $3}' \
+            | grep -viE '^(KERNEL32.dll|USER32.dll|SHELL32.dll|ole32.dll|GDI32.dll|ADVAPI32.dll|WS2_32.dll|IMM32.dll|OLEAUT32.dll|SETUPAPI.dll|VERSION.dll|WINMM.dll|OPENGL32.dll|SDL2.dll|api-ms-win-.*)$' || true)"
+          if [ -n "$BAD" ]; then
+            echo "FAIL: non-system, non-SDL2 DLL imports (would not run on stock Windows):"
+            echo "$BAD"
+            exit 1
+          fi
+          echo "PASS: ge007.exe is self-contained (system DLLs + SDL2.dll only)."
+
+      # Headless EXECUTION smoke: prove the exe RUNS on a real kernel without a
+      # ROM. SDL dummy drivers so no display/GPU is required. Each command must
+      # exit 0 and print its expected marker. These exercise: process startup +
+      # CRT + static runtimes, config init/load, the config-schema enumeration,
+      # the automation-flag allow-list -> headless engine path, and the gated
+      # update-check state machine (negative control, no network).
+      - name: Headless execution smoke (ROM-free surfaces)
+        env:
+          SDL_VIDEODRIVER: dummy
+          SDL_AUDIODRIVER: dummy
+        run: |
+          set -e
+          echo "--- (a) config schema self-check (MGB64_APP_DUMP_SCHEMA) ---"
+          MGB64_APP_DUMP_SCHEMA=1 ./build/ge007.exe > schema.txt 2>schema.err
+          cat schema.txt
+          grep -qE '^\[app\] config schema: [0-9]+ settings$' schema.txt
+          grep -qE '^\[app\] tiers: player=[0-9]+ advanced=[0-9]+$' schema.txt
+
+          echo "--- (b) --dump-config (automation -> headless engine path) ---"
+          ./build/ge007.exe --dump-config > dump.txt 2>dump.err
+          grep -qE '^# MGB64 settings dump' dump.txt
+
+          echo "--- (c) --list-settings (automation surface) ---"
+          ./build/ge007.exe --list-settings > /dev/null
+
+          echo "--- (d) update-check self-test, negative control (no network) ---"
+          MGB64_UPDATE_CHECK_SELFTEST=1 GE007_UPDATE_CHECK=0 ./build/ge007.exe > selftest.txt 2>selftest.err
+          cat selftest.txt
+          grep -qE '^\[selftest\] (no banner|banner: )' selftest.txt
+
+          echo "PASS: all ROM-free execution surfaces ran and produced expected output."
+
+      # ROM-free CTest subset: the compiled C/C++ unit tests, run as native
+      # Windows exes. This proves the Windows binary's non-rendering logic
+      # (arg triage, ROM-header validation, update-check semver, GE007_* env-flag
+      # accessors, sim-state hash, room-normals builder) executes correctly on a
+      # real kernel. Selected by exact name so no ROM/oracle-gated test is pulled in.
+      - name: ROM-free CTest subset
+        env:
+          SDL_VIDEODRIVER: dummy
+          SDL_AUDIODRIVER: dummy
+        run: |
+          ctest --test-dir build --output-on-failure \
+            -R '^(arg_triage|rom_validate|update_check|port_env|sim_state_hash|room_normals)$'
+
+      # Asset-free verify (mirror the release job's post-build check): the binary
+      # must contain no ROM-derived copyrighted data. MSYS2 `nm` reads the PE and
+      # the ROM-magic byte scan is portable Python.
+      - name: Verify asset-free
+        run: ./macos/Scripts/verify_asset_free.sh build/ge007.exe
+
+      - uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08 # v4
+        with:
+          name: mgb64-windows-validate-exe
+          path: build/ge007.exe

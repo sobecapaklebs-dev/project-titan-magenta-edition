@@ -1,0 +1,28 @@
+{
+ "schema": "mgb64.rom_oracle.route.v1",
+ "name": "dam_forward_traverse",
+ "level": "33",
+ "frames": 360,
+ "native_frames": 360,
+ "gate": true,
+ "tape": "dam_forward_30s",
+ "compare_kind": "movement",
+ "compare_align": "move",
+ "compare_profile": "scalar-speed",
+ "compare_min_aligned": 40,
+ "compare_normalize_position": true,
+ "description": "Archetype traversal parity route: outdoor pure-movement on the Dam (mission 1), the complement of the combat route dam_combat_guard6. Bond walks forward and strafes for ~30s. gate:true; the durable ares-free gate is the pre-existing, self-contained, tape_regression-proven baselines/tapes/dam_forward_30s.ge7tape (byte-exact replay, gate_routes_smoke.sh). Sixth gate:true route: chosen on a reliably race-free early mission after heavier levels (silo/archives/depot/egypt/aztec) were found to have an intermittent boot-load tick-alignment race (filed finding). NOTE: the paired ares stock capture does NOT exist yet (FID-0076: needs per-mission menu-nav choreography + unlocked EEPROM); until it lands, this route gates determinism only, and sense_trace_sweep --gate skips its stock comparison loudly. Capture recipe when unblocked: movement_oracle_capture.sh --route dam_forward_traverse --native-full-trace, then compare_combat_trace.py --align tick.",
+ "events": [
+  {
+   "start": 80,
+   "len": 180,
+   "forward": true
+  },
+  {
+   "start": 160,
+   "len": 80,
+   "right": true
+  }
+ ],
+ "stock_events": []
+}

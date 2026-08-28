@@ -1,0 +1,85 @@
+{
+    "schema": "mgb64.rom_oracle.route.v1",
+    "name": "dam_combat_guard6_rngseedlock",
+    "level": "33",
+    "frames": 300,
+    "native_frames": 300,
+    "stock_frames": 6500,
+    "stock_screenshot_frame": 2950,
+    "native_speedframes": 3,
+    "stock_speedframes": 3,
+    "stock_gameplay_start_global": 1146,
+    "stock_menu_close_on_player": true,
+    "native_render_audit": false,
+    "native_min_moving_records": 40,
+    "stock_min_moving_records": 40,
+    "stock_min_gameplay_input_records": 40,
+    "stock_max_suppressed_menu_records": 0,
+    "stock_min_menu_to_gameplay_gap": 30,
+    "compare_align": "move-global",
+    "compare_profile": "scalar-speed",
+    "compare_min_aligned": 40,
+    "compare_max_aligned": 120,
+    "compare_normalize_position": true,
+    "description": "dam_combat_guard6 with the PRNG SEED-LOCKED on both sides (FID-0063): g_randomSeed is scripted to the same value at the same gameplay frame (40, pre-motion; motion onset is frame 80) via GE007_AUTO_RNG_SEED_SCRIPT (native, applied at the input poll that opens frame 40) and MGB64_ARES_RNG_SEED_SCRIPT (stock, applied at the first VI sample of gameplay frame 40). This removes the seed-VALUE confound of the natural route (different boot seeds mean value-dependent consumers legitimately reschedule draws), so per-tick randomGetNext() call counts AND end-of-tick seeds are directly comparable: after the lock, tools/fidelity/rng_callcount_diff.py's seeds_match column is TRUE while and only while the two sides have made the same number of calls since the lock. Analysis step: rng_callcount_diff.py --native <native>.jsonl --stock <stock>.jsonl.",
+    "native_env": {
+        "GE007_AUTO_RNG_SEED_SCRIPT": "40:0x00000001D8F3CC2B"
+    },
+    "stock_env": {
+        "MGB64_ARES_RNG_SEED_SCRIPT": "40:0x00000001D8F3CC2B"
+    },
+    "events": [
+        {
+            "start": 80,
+            "len": 120,
+            "forward": true
+        },
+        {
+            "start": 100,
+            "len": 160,
+            "buttons": [
+                "fire"
+            ]
+        }
+    ],
+    "stock_events": [
+        {
+            "start": 100,
+            "len": 3,
+            "buttons": [
+                "start"
+            ],
+            "phase": "menu",
+            "repeat": {
+                "every": 240,
+                "until": 2260
+            }
+        },
+        {
+            "start": 160,
+            "len": 3,
+            "buttons": [
+                "a"
+            ],
+            "phase": "menu",
+            "repeat": {
+                "every": 240,
+                "until": 2080
+            }
+        },
+        {
+            "start": 80,
+            "len": 120,
+            "forward": true,
+            "phase": "gameplay"
+        },
+        {
+            "start": 100,
+            "len": 160,
+            "buttons": [
+                "fire"
+            ],
+            "phase": "gameplay"
+        }
+    ]
+}

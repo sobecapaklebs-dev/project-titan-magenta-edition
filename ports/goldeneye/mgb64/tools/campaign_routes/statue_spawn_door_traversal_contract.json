@@ -1,0 +1,119 @@
+{
+  "schema": "mgb64.campaign_route.v1",
+  "name": "statue_spawn_door_traversal_contract",
+  "description": "Statue stock-spawn controller route that backs into the spawn-side passage door, turns with look input, and opens door object 183 with a real B press. This proves input-driven door interaction on Statue without warp, force, or stage-state automation.",
+  "route_class": "input_interaction",
+  "level": 22,
+  "frames": 720,
+  "env": {
+    "GE007_TRACE_FLOW_ONLY": 1,
+    "GE007_DOOR_TRACE": 1,
+    "GE007_DOOR_TRACE_OBJ": 183,
+    "GE007_DOOR_TRACE_FRAME_MAX": 720,
+    "GE007_DOOR_TRACE_BUDGET": 1200,
+    "GE007_INTERACT_TRACE": 1,
+    "GE007_INTERACT_TRACE_BUDGET": 240
+  },
+  "input_segments": [
+    {
+      "name": "spawn_passage_door_back_right_approach",
+      "start": 80,
+      "duration": 300,
+      "inputs": ["back", "right"]
+    },
+    {
+      "name": "spawn_passage_door_view_sweep",
+      "start": 380,
+      "duration": 80,
+      "inputs": ["look_left"]
+    },
+    {
+      "name": "spawn_passage_door_open_press",
+      "start": 460,
+      "duration": 5,
+      "inputs": ["b"]
+    }
+  ],
+  "assertions": {
+    "expect_frame_exit": true,
+    "min_records": 715,
+    "no_render_failures": true,
+    "no_front_failure": true,
+    "require_input_automation": true,
+    "no_direct_state_automation": true,
+    "min_moving_records": 300,
+    "min_horizontal_delta": 2750.0,
+    "log_count_assertions": [
+      {
+        "name": "real_statue_door_allow",
+        "pattern": "^\\[INTERACT_TRACE\\] door allow obj=183\\b",
+        "min_count": 1
+      },
+      {
+        "name": "statue_door_open_transition",
+        "pattern": "^\\[DOOR_TRACE\\] frame=\\d+ obj=183 state obj=183 0->1\\b",
+        "min_count": 1
+      },
+      {
+        "name": "statue_door_open_displacement",
+        "pattern": "^\\[DOOR_TRACE\\] frame=\\d+ obj=183 displace state=1\\b",
+        "min_count": 120
+      },
+      {
+        "name": "statue_door_finish_open",
+        "pattern": "^\\[DOOR_TRACE\\] frame=\\d+ obj=183 finish open obj=183\\b",
+        "min_count": 1
+      }
+    ],
+    "setup_target_milestones": [
+      {
+        "name": "stock_spawn_near_setup_pad_21",
+        "frame_at_or_after": 1,
+        "target": {"kind": "pad", "pad": 21},
+        "max_horizontal_distance": 5.0,
+        "max_abs_y_delta": 270.0
+      },
+      {
+        "name": "spawn_passage_door_near_setup_pad_6",
+        "frame_at_or_after": 420,
+        "target": {"kind": "object", "type_name": "door", "obj": 183, "pad": 6},
+        "max_horizontal_distance": 105.0,
+        "max_abs_y_delta": 120.0
+      }
+    ],
+    "position_milestones": [
+      {
+        "name": "spawn_side_passage_commit",
+        "frame_at_or_after": 220,
+        "min_horizontal_delta": 750.0,
+        "min_abs_x_delta": 650.0,
+        "min_abs_z_delta": 300.0
+      },
+      {
+        "name": "spawn_passage_door_contact",
+        "frame_at_or_after": 420,
+        "min_horizontal_delta": 2750.0,
+        "min_abs_x_delta": 2050.0,
+        "min_abs_z_delta": 1800.0
+      },
+      {
+        "name": "post_statue_door_open_hold",
+        "frame_at_or_after": 700,
+        "min_horizontal_delta": 2750.0,
+        "min_abs_x_delta": 2050.0,
+        "min_abs_z_delta": 1800.0
+      }
+    ],
+    "state_milestones": [
+      {
+        "name": "late_statue_stable",
+        "frame_at_or_after": 700,
+        "checks": [
+          {"path": "front.active_stage", "op": "==", "value": 22},
+          {"path": "front.bond_kia", "op": "==", "value": 0},
+          {"path": "front.mission_failed", "op": "==", "value": 0}
+        ]
+      }
+    ]
+  }
+}

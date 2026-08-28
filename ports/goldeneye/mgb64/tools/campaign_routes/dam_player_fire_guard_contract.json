@@ -1,0 +1,93 @@
+{
+  "schema": "mgb64.campaign_route.v1",
+  "name": "dam_player_fire_guard_contract",
+  "level": 33,
+  "frames": 160,
+  "route_class": "scripted_contract",
+  "description": "Dam player-fire combat contract. Bond is deterministically placed near a live guard, then real fire input must produce accepted player-owned guard hits and lethal guard damage through the normal weapon path.",
+  "env": {
+    "GE007_DISABLE_LEVEL_INTRO": 1,
+    "GE007_TRACE_CHRNUM": 0,
+    "GE007_TRACE_COMBAT_SCAN": 1
+  },
+  "scripted_events": {
+    "warp_chrs": [
+      {"name": "place_near_guard", "frame": 20, "chr": 0, "distance": 250, "angle": 0}
+    ]
+  },
+  "input_segments": [
+    {"name": "sustained_guard_fire", "start": 45, "duration": 140, "inputs": ["fire"]}
+  ],
+  "assertions": {
+    "expect_frame_exit": true,
+    "min_records": 155,
+    "no_render_failures": true,
+    "no_front_failure": true,
+    "state_milestones": [
+      {
+        "name": "spawn_survival",
+        "frame_at_or_after": 1,
+        "checks": [
+          {"path": "track.present", "op": "==", "value": 1},
+          {"path": "track.alive", "op": "==", "value": 1},
+          {"path": "track.flag_hidden", "op": "==", "value": 0},
+          {"path": "combat.health.bond", "op": "==", "value": 1.0},
+          {"path": "front.bond_kia", "op": "==", "value": 0},
+          {"path": "front.mission_failed", "op": "==", "value": 0}
+        ]
+      },
+      {
+        "name": "player_shots_started",
+        "frame_at_or_after": 60,
+        "checks": [
+          {"path": "combat.shots.total", "op": ">=", "value": 2},
+          {"path": "combat.shots.regs[0]", "op": ">=", "value": 1},
+          {"path": "track.present", "op": "==", "value": 1},
+          {"path": "track.alive", "op": "==", "value": 1}
+        ]
+      },
+      {
+        "name": "accepted_player_guard_hit",
+        "frame_at_or_after": 80,
+        "checks": [
+          {"path": "hit.events[1].chrnum", "op": "==", "value": 0},
+          {"path": "hit.events[1].phase", "op": "==", "value": "apply"},
+          {"path": "hit.events[1].hit.weapon", "op": "==", "value": 5},
+          {"path": "hit.events[1].hit.is_player", "op": "==", "value": 1},
+          {"path": "hit.events[1].hit.accepted", "op": "==", "value": 1},
+          {"path": "hit.events[1].damage.delta", "op": ">=", "value": 2.0},
+          {"path": "hit.events[1].damage.lethal", "op": "==", "value": 0}
+        ]
+      },
+      {
+        "name": "lethal_player_guard_hit",
+        "frame_at_or_after": 98,
+        "checks": [
+          {"path": "hit.events[1].chrnum", "op": "==", "value": 0},
+          {"path": "hit.events[1].phase", "op": "==", "value": "apply"},
+          {"path": "hit.events[1].hit.weapon", "op": "==", "value": 5},
+          {"path": "hit.events[1].hit.is_player", "op": "==", "value": 1},
+          {"path": "hit.events[1].hit.accepted", "op": "==", "value": 1},
+          {"path": "hit.events[1].damage.delta", "op": ">=", "value": 4.0},
+          {"path": "hit.events[1].damage.lethal", "op": "==", "value": 1},
+          {"path": "track.alive", "op": "==", "value": 0},
+          {"path": "track.damage", "op": ">=", "value": 4.0}
+        ]
+      },
+      {
+        "name": "final_player_fire_stability",
+        "frame_at_or_after": 160,
+        "checks": [
+          {"path": "combat.shots.total", "op": ">=", "value": 10},
+          {"path": "track.present", "op": "==", "value": 1},
+          {"path": "track.alive", "op": "==", "value": 0},
+          {"path": "track.damage", "op": "==", "value": 4.0},
+          {"path": "track.maxdamage", "op": "==", "value": 4.0},
+          {"path": "front.active_stage", "op": "==", "value": 33},
+          {"path": "front.bond_kia", "op": "==", "value": 0},
+          {"path": "front.mission_failed", "op": "==", "value": 0}
+        ]
+      }
+    ]
+  }
+}
