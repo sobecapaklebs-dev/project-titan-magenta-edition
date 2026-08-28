@@ -24,7 +24,7 @@ modern=root/'third_party/fceumm/modern'
 if modern.exists():
     sums=root/'external/fceumm/FCEUMM_IMPORTED_SHA256SUMS'
     copying=modern/'Copying'
-    report=root/'BUILDFIX27_FCEUMM_REAL_INTEGRATION_REPORT.md'
+    report=root/'docs/history/buildfix/BUILDFIX27_FCEUMM_REAL_INTEGRATION_REPORT.md'
     req(sums.exists() and copying.exists() and report.exists(),
         'materialized FCEUmm tree lacks manifest/license/integration proof')
     rtext=report.read_text(encoding='utf-8',errors='replace')

@@ -59,6 +59,19 @@ fonte de música fornecida pelo usuário e, portanto, não podemos presumir dire
 de redistribuição pública. O runtime aceita a ausência dessa música; builds
 privadas podem fornecer um WAV PCM compatível.
 
+<!-- RC1_COMMUNITY_TESTING -->
+## Testes comunitários da RC1
+
+A prerelease não serve apenas para verificar se o instalador termina. Depois de
+um boot DEV1 bem-sucedido, também são úteis testes de armazenamento USB,
+Ethernet, **Wi-Fi experimental**, controles/acessórios, VMC, Package Installer,
+aplicativos Titan Native, Titan-Neutrino / Titan UL, temas, continuidade de
+áudio e responsividade da interface.
+
+- [Baixar o Installer Test RC1](https://github.com/sobecapaklebs-dev/project-titan-magenta-edition/releases/tag/installer-test-rc1)
+- [Guia de testes comunitários](docs/PRERELEASE_TESTING.md)
+- [Rede](docs/NETWORKING.md)
+
 ## Documentação
 
 - [Status da release](docs/RELEASE_STATUS.md)

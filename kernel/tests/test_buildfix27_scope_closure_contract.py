@@ -2,12 +2,12 @@
 from pathlib import Path
 import sys
 r=Path(sys.argv[1]).resolve()
-closure=(r/'BUILDFIX27_SCOPE_CLOSURE.md').read_text(errors='replace')
-handoff=(r/'BUILDFIX27_TARGET_HANDOFF.md').read_text(errors='replace')
+closure=(r/'docs/history/buildfix/BUILDFIX27_SCOPE_CLOSURE.md').read_text(errors='replace')
+handoff=(r/'docs/history/buildfix/BUILDFIX27_TARGET_HANDOFF.md').read_text(errors='replace')
 runner=(r/'kernel/tests/run_host_tests.sh').read_text(errors='replace')
-progress=(r/'BUILDFIX27_PROGRESS.md').read_text(errors='replace')
-status=(r/'BUILDFIX27_FINAL_SOURCE_STATUS.md').read_text(errors='replace')
-validation=(r/'BUILDFIX27_FINAL_VALIDATION.md').read_text(errors='replace')
+progress=(r/'docs/history/buildfix/BUILDFIX27_PROGRESS.md').read_text(errors='replace')
+status=(r/'docs/history/buildfix/BUILDFIX27_FINAL_SOURCE_STATUS.md').read_text(errors='replace')
+validation=(r/'docs/history/buildfix/BUILDFIX27_FINAL_VALIDATION.md').read_text(errors='replace')
 
 def req(v,m):
     if not v: raise SystemExit('buildfix27-scope-closure: FAIL: '+m)

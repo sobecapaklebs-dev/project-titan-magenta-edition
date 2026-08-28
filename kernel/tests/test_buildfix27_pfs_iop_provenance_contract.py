@@ -3,7 +3,7 @@ from pathlib import Path
 import sys
 root = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else Path(__file__).resolve().parents[2]
 script = (root / "scripts/validate_pfs_target_prereqs.py").read_text()
-prov = (root / "BUILDFIX27_PFS_IOP_PROVENANCE.md").read_text()
+prov = (root / "docs/history/buildfix/BUILDFIX27_PFS_IOP_PROVENANCE.md").read_text()
 platform = (root / "kernel/src/platform/ps2/titan_platform_pfs.c").read_text()
 reqs = {
     "validator names ps2hdd.irx": "ps2hdd.irx" in script,

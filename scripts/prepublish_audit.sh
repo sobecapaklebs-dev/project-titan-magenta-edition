@@ -99,6 +99,19 @@ if find . -type d -name '.install-*' -print -quit | grep -q .; then
 fi
 
 
+# Generic development/recovery snapshot gate.
+while IFS= read -r -d '' d; do
+    case "$d" in
+        ./third_party/*) ;;
+        *) block "development/recovery backup directory in public export: $d" ;;
+    esac
+done < <(
+    find . -type d \
+      \( -name '.p*_backup_*' -o -name '.p*_recovery_backup_*' \
+         -o -name '*_backup_*' -o -name '*_recovery_backup_*' \) \
+      -print0 2>/dev/null
+)
+
 # Development backup artifacts must never ship in the public source snapshot.
 while IFS= read -r -d '' d; do
     block "development backup directory in public export: $d"
@@ -133,6 +146,34 @@ rm -f /tmp/titan-public-localpaths.$$
 if [[ ! -f LICENSE && ! -f LICENSE.md && ! -f COPYING ]]; then
     warn "top-level Project Titan license has not yet been selected"
 fi
+
+# Tracked production-generated artifact gate.
+while IFS= read -r f; do
+    case "$f" in
+        bootloader/generated/*|bootloader/stage2/generated/*|kernel/src/graphics/generated/*|kernel/src/services/generated/*)
+            block "tracked production-generated artifact in public source: $f"
+            ;;
+        reference/deployed-*|runtime/neutrino/*)
+            block "tracked duplicate deployed runtime in public source: $f"
+            ;;
+    esac
+done < <(git ls-files 2>/dev/null || true)
+
+# Public repository root hygiene gate.
+while IFS= read -r -d '' f; do
+    base="${f#./}"
+    case "$base" in
+        README.md|README.pt-BR.md|LICENSE|CONTRIBUTING.md|SECURITY.md|CHANGELOG.md|THIRD_PARTY_NOTICES.md)
+            ;;
+        *)
+            block "stray root documentation artifact; move it under docs/: $f"
+            ;;
+    esac
+done < <(
+    find . -maxdepth 1 -type f \
+      \( -name '*.md' -o -name '*.txt' -o -name '*.patch' \) \
+      -print0 2>/dev/null
+)
 
 echo "BLOCKERS=$blockers WARNINGS=$warnings"
 if (( blockers > 0 )); then

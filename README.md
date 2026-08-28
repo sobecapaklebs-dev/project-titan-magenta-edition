@@ -70,6 +70,19 @@ user-provided music source, so that audio cannot be assumed redistributable.
 The runtime treats the menu music as optional; developers may provide their own
 compatible PCM WAV asset for private builds.
 
+<!-- RC1_COMMUNITY_TESTING -->
+## Community RC1 testing
+
+The prerelease is not limited to checking whether the installer finishes.
+After a successful DEV1 boot, reports are also useful for USB storage, Ethernet,
+**experimental Wi-Fi**, controllers/accessories, VMC, Package Installer, Titan
+Native applications, Titan-Neutrino / Titan UL, themes, audio continuity and UI
+responsiveness.
+
+- [Download Installer Test RC1](https://github.com/sobecapaklebs-dev/project-titan-magenta-edition/releases/tag/installer-test-rc1)
+- [Community testing guide](docs/PRERELEASE_TESTING.md)
+- [Networking](docs/NETWORKING.md)
+
 ## Documentation
 
 - [Release status](docs/RELEASE_STATUS.md)

@@ -72,3 +72,23 @@ roms/
 assets/private/
 ports/*/rom/
 ports/*/roms/
+
+# Development/recovery snapshots must not enter public source
+.p*_backup_*/
+.p*_recovery_backup_*/
+.release_app_artwork_backup_*/
+.release_app_artwork_p162_rebase_backup_*/
+*_backup_*/
+*_recovery_backup_*/
+
+# Reproducible production-generated payloads: generated locally, never tracked
+/bootloader/generated/
+/bootloader/stage2/generated/
+/kernel/src/graphics/generated/
+/kernel/src/services/generated/
+
+# Duplicate deployed runtime / abandoned snapshots forbidden by source-hardening
+/reference/deployed-*
+/runtime/neutrino/
+*before-minimal*
+*baseline-vu1*

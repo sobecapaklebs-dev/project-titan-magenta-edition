@@ -2,9 +2,9 @@
 from pathlib import Path
 import sys
 root = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(__file__).resolve().parents[2]
-app = (root / 'BUILDFIX26_APP_AUDIT.md').read_text()
-mat = (root / 'BUILDFIX26_NATIVE_PORT_MATRIX.md').read_text()
-plan = (root / 'BUILDFIX27_PRE_FLIGHT.md').read_text()
+app = (root / 'docs/history/buildfix/BUILDFIX26_APP_AUDIT.md').read_text()
+mat = (root / 'docs/history/buildfix/BUILDFIX26_NATIVE_PORT_MATRIX.md').read_text()
+plan = (root / 'docs/history/buildfix/BUILDFIX27_PRE_FLIGHT.md').read_text()
 wle = (root / 'apps/wlaunchelf/README.md').read_text()
 nes = (root / 'apps/project-nes/README.md').read_text()
 browser = (root / 'apps/internet-browser/README.md').read_text()

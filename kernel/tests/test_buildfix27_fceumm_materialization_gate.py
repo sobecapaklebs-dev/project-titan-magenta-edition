@@ -2,10 +2,10 @@
 from pathlib import Path
 import sys
 r=Path(sys.argv[1]).resolve()
-rep=(r/'PROJECT_NES_TITAN_PORT_REPORT.md').read_text(errors='replace')
+rep=(r/'docs/history/reports/PROJECT_NES_TITAN_PORT_REPORT.md').read_text(errors='replace')
 sel=rep
-progress=(r/'BUILDFIX27_PROGRESS.md').read_text(errors='replace')
-status=(r/'BUILDFIX27_FINAL_SOURCE_STATUS.md').read_text(errors='replace')
+progress=(r/'docs/history/buildfix/BUILDFIX27_PROGRESS.md').read_text(errors='replace')
+status=(r/'docs/history/buildfix/BUILDFIX27_FINAL_SOURCE_STATUS.md').read_text(errors='replace')
 
 def req(x,m):
  if not x: raise SystemExit('buildfix27-fceumm-materialization-gate: FAIL: '+m)

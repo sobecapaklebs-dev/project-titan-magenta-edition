@@ -16,7 +16,7 @@ http_h = text("kernel/src/services/titan_http_client.h")
 http_c = text("kernel/src/services/titan_http_client.c")
 browser = text("kernel/src/services/titan_browser_net.c")
 asset = text("kernel/src/services/titan_asset_service.c")
-preflight = text("BUILDFIX27_PRE_FLIGHT.md")
+preflight = text("docs/history/buildfix/BUILDFIX27_PRE_FLIGHT.md")
 
 req("src/services/titan_network_client.o" in make, "Network Client is not linked into kernel")
 req("TitanNetworkClient_GetEx" in client_h and "TitanNetworkClientOwner" in client_h,

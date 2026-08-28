@@ -4,9 +4,9 @@ root=Path(sys.argv[1]); k=root/'kernel'
 video=(k/'src/graphics/titan_video.c').read_text()
 guard=(k/'src/graphics/titan_vram_boot_guard.h').read_text()
 scene=(k/'src/ui/titan_shell_background.c').read_text()
-check=(root/'TITAN_BUILDFIX25_HARDWARE_TEST_CHECKLIST.md').read_text()
-profile=(root/'BUILDFIX25_FIRST_HARDWARE_TEST_PROFILE.md').read_text()
-readiness=(root/'PIKAVR_720P_TARGET_READINESS.md').read_text()
+check=(root/'docs/reference/TITAN_BUILDFIX25_HARDWARE_TEST_CHECKLIST.md').read_text()
+profile=(root/'docs/history/buildfix/BUILDFIX25_FIRST_HARDWARE_TEST_PROFILE.md').read_text()
+readiness=(root/'docs/reference/PIKAVR_720P_TARGET_READINESS.md').read_text()
 # The BF25 profile is retained as historical evidence of the original gate; BF30
 # hardware validation has since promoted the optimized composition path.
 assert 'g_video.hd_path_preference = TITAN_VIDEO_720P_PATH_OPTIMIZED' in video

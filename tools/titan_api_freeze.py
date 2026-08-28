@@ -9,8 +9,8 @@ PUBLIC = (
     'sdk/titan-app/include/titan_app_sdk.h',
     'sdk/titan-app/ABI_REFERENCE.md',
     'sdk/titan-game/ABI_REFERENCE.md',
-    'THEME_AUTHORING_V4.md',
-    'TITAN_THEME_DYNAMIC_LIFECYCLE.md',
+    'docs/reference/THEME_AUTHORING_V4.md',
+    'docs/reference/TITAN_THEME_DYNAMIC_LIFECYCLE.md',
 )
 def digest(p: Path) -> str: return hashlib.sha256(p.read_bytes()).hexdigest()
 def snapshot(root: Path) -> dict:

@@ -22,7 +22,7 @@ assert '#define TITAN_GAME_API_VERSION 2u' in game
 for c in [r/'sdk/titan-app/include/titan_app_sdk.h',r/'apps/project-nes/include/titan_app_sdk.h',r/'apps/wlaunchelf/include/titan_app_sdk.h']:
     assert c.read_bytes()==(r/'kernel/include/titan_app_sdk.h').read_bytes(),c
 repo=(r/'kernel/src/services/titan_repository_protocol.h').read_text(); assert 'TITAN_REPOSITORY_PLATFORM_PS2 "ps2"' in repo and 'TITAN_REPOSITORY_ARCH_R5900 "mips-r5900"' in repo
-freeze=(r/'TITAN_API_FREEZE_V1.md').read_text(); assert 'raw CD/DVD' in freeze and 'HIGH, MID and ADVANCED' in freeze
+freeze=(r/'docs/reference/TITAN_API_FREEZE_V1.md').read_text(); assert 'raw CD/DVD' in freeze and 'HIGH, MID and ADVANCED' in freeze
 print('titan-api-freeze-v1-contract: OK')
 print('titan-disc-sdk-ownership-contract: OK no raw optical API exported')
 print('titan-repository-protocol-v1-freeze-contract: OK')

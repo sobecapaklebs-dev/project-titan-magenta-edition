@@ -31,93 +31,93 @@ ALLOW_PAYLOADS={
     },
     'third_party/fmcb/upstream/installer/irx/compiled/bdm.irx': {
         'sha256':'d658f84662f3e23b468d5c84f18c7f2c53e320068cdbd744ed48730fbba3831b',
-        'requires':['BUILDFIX30_FMCB_PROVENANCE.md','third_party/fmcb/upstream/README.upstream.md'],
+        'requires':['docs/history/buildfix/BUILDFIX30_FMCB_PROVENANCE.md','third_party/fmcb/upstream/README.upstream.md'],
         'reason':'identity-locked FMCB upstream payload from the user-supplied source archive'
     },
     'third_party/fmcb/upstream/installer/irx/compiled/bdmfs_fatfs.irx': {
         'sha256':'d10d9b45ffe01347ed91fbc30ee17de569f0fe23a85dd53cb58e6fd73352c9d1',
-        'requires':['BUILDFIX30_FMCB_PROVENANCE.md','third_party/fmcb/upstream/README.upstream.md'],
+        'requires':['docs/history/buildfix/BUILDFIX30_FMCB_PROVENANCE.md','third_party/fmcb/upstream/README.upstream.md'],
         'reason':'identity-locked FMCB upstream payload from the user-supplied source archive'
     },
     'third_party/fmcb/upstream/installer/irx/compiled/mctools.irx': {
         'sha256':'5f57301a905b1072ac18b0b01f832bad3c1cc9252e469b8e7e92c93b773c2166',
-        'requires':['BUILDFIX30_FMCB_PROVENANCE.md','third_party/fmcb/upstream/README.upstream.md'],
+        'requires':['docs/history/buildfix/BUILDFIX30_FMCB_PROVENANCE.md','third_party/fmcb/upstream/README.upstream.md'],
         'reason':'identity-locked FMCB upstream payload from the user-supplied source archive'
     },
     'third_party/fmcb/upstream/installer/irx/compiled/secrman.irx': {
         'sha256':'7e809a80c6528d126885cd85bee6e35d2d65ef169d27c7e86408a3ba3f4c702e',
-        'requires':['BUILDFIX30_FMCB_PROVENANCE.md','third_party/fmcb/upstream/README.upstream.md'],
+        'requires':['docs/history/buildfix/BUILDFIX30_FMCB_PROVENANCE.md','third_party/fmcb/upstream/README.upstream.md'],
         'reason':'identity-locked FMCB upstream payload from the user-supplied source archive'
     },
     'third_party/fmcb/upstream/installer/irx/compiled/secrsif.irx': {
         'sha256':'db7c1e55511b3f97d43f5b45682f478487168529de5b862d3e5c625eb1e2256b',
-        'requires':['BUILDFIX30_FMCB_PROVENANCE.md','third_party/fmcb/upstream/README.upstream.md'],
+        'requires':['docs/history/buildfix/BUILDFIX30_FMCB_PROVENANCE.md','third_party/fmcb/upstream/README.upstream.md'],
         'reason':'identity-locked FMCB upstream payload from the user-supplied source archive'
     },
     'third_party/fmcb/upstream/installer/irx/compiled/usbmass_bd.irx': {
         'sha256':'08f5b20c70d1498f8cd735a4803b5f30e09f378a201b739ad0954681bdf1aa23',
-        'requires':['BUILDFIX30_FMCB_PROVENANCE.md','third_party/fmcb/upstream/README.upstream.md'],
+        'requires':['docs/history/buildfix/BUILDFIX30_FMCB_PROVENANCE.md','third_party/fmcb/upstream/README.upstream.md'],
         'reason':'identity-locked FMCB upstream payload from the user-supplied source archive'
     },
     'third_party/fmcb/upstream/installer_res/1966/INSTALL/SYS-CONF/FMCB_CFG.ELF': {
         'sha256':'7881ad9a3171cd4c675b0bc7b1311254a1c2f86c62ba64292de4f1c70f1cfff1',
-        'requires':['BUILDFIX30_FMCB_PROVENANCE.md','third_party/fmcb/upstream/README.upstream.md'],
+        'requires':['docs/history/buildfix/BUILDFIX30_FMCB_PROVENANCE.md','third_party/fmcb/upstream/README.upstream.md'],
         'reason':'identity-locked FMCB upstream payload from the user-supplied source archive'
     },
     'third_party/fmcb/upstream/installer_res/1966/INSTALL/SYS-CONF/USBD.IRX': {
         'sha256':'775e90bb6cfafa1d13536d035eac11112db75b9249c9e65e05ffe31a6d1a383d',
-        'requires':['BUILDFIX30_FMCB_PROVENANCE.md','third_party/fmcb/upstream/README.upstream.md'],
+        'requires':['docs/history/buildfix/BUILDFIX30_FMCB_PROVENANCE.md','third_party/fmcb/upstream/README.upstream.md'],
         'reason':'identity-locked FMCB upstream payload from the user-supplied source archive'
     },
     'third_party/fmcb/upstream/installer_res/1966/INSTALL/SYS-CONF/USBHDFSD.IRX': {
         'sha256':'a59647c14428086a4c4d440ea5a538f2d0eeb7bed224a9ae38d0334024f3fd6e',
-        'requires':['BUILDFIX30_FMCB_PROVENANCE.md','third_party/fmcb/upstream/README.upstream.md'],
+        'requires':['docs/history/buildfix/BUILDFIX30_FMCB_PROVENANCE.md','third_party/fmcb/upstream/README.upstream.md'],
         'reason':'identity-locked FMCB upstream payload from the user-supplied source archive'
     },
     'third_party/fmcb/upstream/installer_res/1966/INSTALL/SYSTEM/ATAD.IRX': {
         'sha256':'d872f23b6eaebbdc392a9c4a9ffb65d872a77bf6e38055e57024fa6154a20395',
-        'requires':['BUILDFIX30_FMCB_PROVENANCE.md','third_party/fmcb/upstream/README.upstream.md'],
+        'requires':['docs/history/buildfix/BUILDFIX30_FMCB_PROVENANCE.md','third_party/fmcb/upstream/README.upstream.md'],
         'reason':'identity-locked FMCB upstream payload from the user-supplied source archive'
     },
     'third_party/fmcb/upstream/installer_res/1966/INSTALL/SYSTEM/DEV9.IRX': {
         'sha256':'962bedf3ab211424409026e16c21437ce9b41edad01d7bc505b5b9037f0b469e',
-        'requires':['BUILDFIX30_FMCB_PROVENANCE.md','third_party/fmcb/upstream/README.upstream.md'],
+        'requires':['docs/history/buildfix/BUILDFIX30_FMCB_PROVENANCE.md','third_party/fmcb/upstream/README.upstream.md'],
         'reason':'identity-locked FMCB upstream payload from the user-supplied source archive'
     },
     'third_party/fmcb/upstream/installer_res/1966/INSTALL/SYSTEM/HDDLOAD.IRX': {
         'sha256':'2c743ed4e87f517a974aef7c0b6a23361ee752912db0199008a406689ac1e266',
-        'requires':['BUILDFIX30_FMCB_PROVENANCE.md','third_party/fmcb/upstream/README.upstream.md'],
+        'requires':['docs/history/buildfix/BUILDFIX30_FMCB_PROVENANCE.md','third_party/fmcb/upstream/README.upstream.md'],
         'reason':'identity-locked FMCB upstream payload from the user-supplied source archive'
     },
 
     'third_party/fmcb/resources/INSTALL/SYS-CONF/FMCB_CFG.ELF': {
         'sha256':'7881ad9a3171cd4c675b0bc7b1311254a1c2f86c62ba64292de4f1c70f1cfff1',
-        'requires':['BUILDFIX30_FMCB_PROVENANCE.md','third_party/fmcb/TITAN_FMCB_SOURCE_IDENTITY.txt'],
+        'requires':['docs/history/buildfix/BUILDFIX30_FMCB_PROVENANCE.md','third_party/fmcb/TITAN_FMCB_SOURCE_IDENTITY.txt'],
         'reason':'identity-locked FMCB 1.966 runtime resource copied from audited upstream input'
     },
     'third_party/fmcb/resources/INSTALL/SYS-CONF/USBD.IRX': {
         'sha256':'775e90bb6cfafa1d13536d035eac11112db75b9249c9e65e05ffe31a6d1a383d',
-        'requires':['BUILDFIX30_FMCB_PROVENANCE.md','third_party/fmcb/TITAN_FMCB_SOURCE_IDENTITY.txt'],
+        'requires':['docs/history/buildfix/BUILDFIX30_FMCB_PROVENANCE.md','third_party/fmcb/TITAN_FMCB_SOURCE_IDENTITY.txt'],
         'reason':'identity-locked FMCB 1.966 runtime resource copied from audited upstream input'
     },
     'third_party/fmcb/resources/INSTALL/SYS-CONF/USBHDFSD.IRX': {
         'sha256':'a59647c14428086a4c4d440ea5a538f2d0eeb7bed224a9ae38d0334024f3fd6e',
-        'requires':['BUILDFIX30_FMCB_PROVENANCE.md','third_party/fmcb/TITAN_FMCB_SOURCE_IDENTITY.txt'],
+        'requires':['docs/history/buildfix/BUILDFIX30_FMCB_PROVENANCE.md','third_party/fmcb/TITAN_FMCB_SOURCE_IDENTITY.txt'],
         'reason':'identity-locked FMCB 1.966 runtime resource copied from audited upstream input'
     },
     'third_party/fmcb/resources/INSTALL/SYSTEM/ATAD.IRX': {
         'sha256':'d872f23b6eaebbdc392a9c4a9ffb65d872a77bf6e38055e57024fa6154a20395',
-        'requires':['BUILDFIX30_FMCB_PROVENANCE.md','third_party/fmcb/TITAN_FMCB_SOURCE_IDENTITY.txt'],
+        'requires':['docs/history/buildfix/BUILDFIX30_FMCB_PROVENANCE.md','third_party/fmcb/TITAN_FMCB_SOURCE_IDENTITY.txt'],
         'reason':'identity-locked FMCB 1.966 runtime resource copied from audited upstream input'
     },
     'third_party/fmcb/resources/INSTALL/SYSTEM/DEV9.IRX': {
         'sha256':'962bedf3ab211424409026e16c21437ce9b41edad01d7bc505b5b9037f0b469e',
-        'requires':['BUILDFIX30_FMCB_PROVENANCE.md','third_party/fmcb/TITAN_FMCB_SOURCE_IDENTITY.txt'],
+        'requires':['docs/history/buildfix/BUILDFIX30_FMCB_PROVENANCE.md','third_party/fmcb/TITAN_FMCB_SOURCE_IDENTITY.txt'],
         'reason':'identity-locked FMCB 1.966 runtime resource copied from audited upstream input'
     },
     'third_party/fmcb/resources/INSTALL/SYSTEM/HDDLOAD.IRX': {
         'sha256':'2c743ed4e87f517a974aef7c0b6a23361ee752912db0199008a406689ac1e266',
-        'requires':['BUILDFIX30_FMCB_PROVENANCE.md','third_party/fmcb/TITAN_FMCB_SOURCE_IDENTITY.txt'],
+        'requires':['docs/history/buildfix/BUILDFIX30_FMCB_PROVENANCE.md','third_party/fmcb/TITAN_FMCB_SOURCE_IDENTITY.txt'],
         'reason':'identity-locked FMCB 1.966 runtime resource copied from audited upstream input'
     },
 }
@@ -127,7 +127,7 @@ PROVENANCE_REQUIREMENTS={
     'modules/titan-neutrino-engine':['modules/titan-neutrino-engine/LICENSE'],
     'modules/titan-ul-engine':['modules/titan-ul-engine/LICENSE'],
     'ports/goldeneye/mgb64':['ports/goldeneye/mgb64/LICENSE','ports/goldeneye/mgb64/NOTICE.md'],
-    'third_party/fmcb':['BUILDFIX30_FMCB_PROVENANCE.md','third_party/fmcb/upstream/README.upstream.md'],
+    'third_party/fmcb':['docs/history/buildfix/BUILDFIX30_FMCB_PROVENANCE.md','third_party/fmcb/upstream/README.upstream.md'],
 }
 SKIP_DIRS={'.git','.hg','.svn','build','__pycache__','.mypy_cache','.pytest_cache'}
 SECRET_SCAN_EXEMPT={'kernel/tests/test_network_persistence_bf17_contract.py'}  # contains negative-test plaintext token literals

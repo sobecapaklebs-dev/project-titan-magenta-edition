@@ -1,8 +1,8 @@
 {
   "api_version": "1.0",
   "files": {
-    "THEME_AUTHORING_V4.md": "47d1d4cbe40761adbab55820aa6cc8114ea0add8fa86a9a4731205a7ee7f2e3c",
-    "TITAN_THEME_DYNAMIC_LIFECYCLE.md": "e8423cf2144aca33fa803963b269c503f7902b15e772bbc1a7440f000844abbe",
+    "docs/reference/THEME_AUTHORING_V4.md": "47d1d4cbe40761adbab55820aa6cc8114ea0add8fa86a9a4731205a7ee7f2e3c",
+    "docs/reference/TITAN_THEME_DYNAMIC_LIFECYCLE.md": "e8423cf2144aca33fa803963b269c503f7902b15e772bbc1a7440f000844abbe",
     "kernel/include/titan_app_sdk.h": "df74be58c64a0398a5885b7adc2a46a3ed0a55cee5d78962771e0f4850ffbadd",
     "kernel/include/titan_game_sdk.h": "1c8541afb1ad6205cff7bb0acb211253f372c6e99abae473ee705d805cff24b8",
     "sdk/titan-app/ABI_REFERENCE.md": "2ab159657293b3d9c04a15904875a6f0745788839a9856fd9f41f2aeaefd9791",
