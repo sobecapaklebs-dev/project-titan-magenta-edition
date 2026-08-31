@@ -1,9 +1,0 @@
-BuildFix30 CP08 Store / SDK / API validation
-titan-api-freeze-v1-contract: OK
-titan-input-sdk-preservation-contract: OK
-titan-repository-protocol-v1-freeze-contract: OK
-titan-repository-protocol-contract: OK
-buildfix29-download-service-contract: OK
-buildfix29-store-foundation-contract: OK
-TARGET_BUILD_VALIDATED=0 EXTERNAL_PS2DEV_PENDING
-LIVE_REPOSITORY_VALIDATED=0 EXTERNAL_PENDING
