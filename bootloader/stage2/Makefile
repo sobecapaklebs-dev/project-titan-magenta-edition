@@ -25,7 +25,8 @@ STAGE2_USBMASS_BD_HEADER = generated/titan_stage2_usbmass_bd_irx.h
 
 EE_OBJS = \
 src/main.o \
-src/stage2_video.o
+src/stage2_video.o \
+src/titan_ps2rd_engine.o
 
 EE_INCS += \
 -I../include \

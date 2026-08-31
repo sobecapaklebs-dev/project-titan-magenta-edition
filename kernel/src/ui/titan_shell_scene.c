@@ -33,6 +33,7 @@
 #include "titan_notifications.h"
 #include "titan_neutrino.h"
 #include "titan_game_gsm.h"
+#include "titan_game_patches.h"
 #include "titan_network.h"
 #include "titan_library_scan.h"
 #include "titan_library_cache.h"
@@ -362,6 +363,8 @@ typedef enum TitanContextAction
     TITAN_CONTEXT_ACTION_INFO,
     TITAN_CONTEXT_ACTION_HIDE,
     TITAN_CONTEXT_ACTION_ENGINE,
+    TITAN_CONTEXT_ACTION_CHEATS,
+    TITAN_CONTEXT_ACTION_GRAPHICS_ENHANCEMENTS,
     TITAN_CONTEXT_ACTION_RESOLUTION_OPTIONS,
     TITAN_CONTEXT_ACTION_EDIT_FOLDER,
     TITAN_CONTEXT_ACTION_DELETE_FOLDER,
@@ -459,6 +462,10 @@ typedef struct TitanShellSceneState
     int folder_context_selected;
     int resolution_options_open;
     int resolution_options_selected;
+    int patch_options_open;
+    TitanGamePatchKind patch_options_kind;
+    int patch_options_selected;
+    int patch_options_scroll;
     int folder_destination_selected;
     int folder_editor_selected;
     int folder_content_cursor;
@@ -488,6 +495,7 @@ typedef struct TitanShellSceneState
     char pending_uninstall_title[TITAN_APPLICATION_TITLE_CAPACITY];
     float folder_context_transition;
     float resolution_options_transition;
+    float patch_options_transition;
     float folder_screen_transition;
     int video_test_active;
     int video_test_previous_progressive;
@@ -507,6 +515,9 @@ typedef struct TitanShellSceneState
     int game_launch_disc;
     int game_launch_application;
     unsigned int game_launch_application_index;
+    int game_launch_enhanced;
+    unsigned int game_launch_cheat_count;
+    char game_launch_cheat_taunt[192];
     int game_return_active;
     unsigned int game_return_frames;
 
@@ -561,6 +572,8 @@ static void TitanShellScene_BeginDiscLaunch(void);
 static void TitanShellScene_BeginApplicationLaunch(unsigned int application_index);
 static float TitanShellScene_GameLaunchProgress(unsigned int start, unsigned int end);
 static void TitanShellScene_DrawEngineBadge(unsigned char alpha);
+static void TitanShellScene_DrawTitanEnhanced(unsigned char alpha);
+static void TitanShellScene_DrawCheatTaunt(unsigned char alpha);
 static void TitanShellScene_SetFolderUiMode(TitanFolderUiMode mode);
 static unsigned int TitanShellScene_BuildResolutionModes(
     const TitanNeutrinoGame *game,
@@ -1511,6 +1524,7 @@ static void TitanShellScene_SetFolderUiMode(TitanFolderUiMode mode)
     if (mode != TITAN_FOLDER_UI_CONTEXT)
     {
         g_scene.resolution_options_open = 0;
+        g_scene.patch_options_open = 0;
     }
 }
 
@@ -1528,6 +1542,11 @@ static void TitanShellScene_OpenHomeContext(const TitanHomeEntry *entry)
     g_scene.resolution_options_open = 0;
     g_scene.resolution_options_selected = 0;
     g_scene.resolution_options_transition = 0.0f;
+    g_scene.patch_options_open = 0;
+    g_scene.patch_options_kind = TITAN_GAME_PATCH_CHEAT;
+    g_scene.patch_options_selected = 0;
+    g_scene.patch_options_scroll = 0;
+    g_scene.patch_options_transition = 0.0f;
     TitanShellScene_SetFolderUiMode(TITAN_FOLDER_UI_CONTEXT);
     g_scene.selected_hold_frames = 0u;
     g_scene.detail_visibility = 0.0f;
@@ -1551,6 +1570,8 @@ static void TitanShellScene_OpenSystemMenuContext(void)
     g_scene.context_shell_page = item->page;
     g_scene.context_shell_catalog_index = catalog_index;
     g_scene.folder_context_selected = 0;
+    g_scene.resolution_options_open = 0;
+    g_scene.patch_options_open = 0;
     TitanShellScene_SetFolderUiMode(TITAN_FOLDER_UI_CONTEXT);
     g_scene.selected_hold_frames = 0u;
     g_scene.detail_visibility = 0.0f;
@@ -2286,6 +2307,9 @@ static int TitanShellScene_ApplyFolderEditor(void)
     g_scene.folder_context_selected = 0;
     g_scene.resolution_options_open = 0;
     g_scene.resolution_options_selected = 0;
+    g_scene.patch_options_open = 0;
+    g_scene.patch_options_selected = 0;
+    g_scene.patch_options_scroll = 0;
     g_scene.folder_destination_selected = 0;
     g_scene.folder_open = 0;
     g_scene.selected_item =
@@ -6460,6 +6484,11 @@ static unsigned int TitanShellScene_BuildContextMenu(
     {
         TITAN_ADD_CONTEXT_ITEM("Add to folder", TITAN_CONTEXT_ACTION_ADD_FOLDER);
         TITAN_ADD_CONTEXT_ITEM("Information", TITAN_CONTEXT_ACTION_INFO);
+        TITAN_ADD_CONTEXT_ITEM("Cheats", TITAN_CONTEXT_ACTION_CHEATS);
+        TITAN_ADD_CONTEXT_ITEM(
+            "Graphics Enhancements",
+            TITAN_CONTEXT_ACTION_GRAPHICS_ENHANCEMENTS
+        );
         {
             const TitanNeutrinoGame *game;
 
@@ -6564,10 +6593,16 @@ static void TitanShellScene_DrawFolderContextMenu(void)
     if (is_game_context)
     {
         const float main_width = 286.0f;
-        const float option_width = 184.0f;
+        const float resolution_width = 184.0f;
+        const float patch_width = 300.0f;
         const float compact_step = 47.0f;
-        float submenu_transition = TitanAnimation_SmoothStep(
+        float resolution_transition = TitanAnimation_SmoothStep(
             TitanShellScene_Clamp(g_scene.resolution_options_transition, 0.0f, 1.0f));
+        float patch_transition = TitanAnimation_SmoothStep(
+            TitanShellScene_Clamp(g_scene.patch_options_transition, 0.0f, 1.0f));
+        float submenu_transition = resolution_transition > patch_transition ?
+            resolution_transition : patch_transition;
+        float option_width = patch_transition > resolution_transition ? patch_width : resolution_width;
         float main_target_x =
             (float)TITAN_UI_WIDTH - main_width - (option_width * submenu_transition);
         float main_closed_x = (float)TITAN_UI_WIDTH;
@@ -6575,62 +6610,37 @@ static void TitanShellScene_DrawFolderContextMenu(void)
         unsigned int mode_count = TitanShellScene_BuildResolutionModes(game, modes);
         float option_x;
         float option_visible_width;
-        float option_first_row_y;
-        TitanPerGameGsmMode current = game != 0 ? TitanGameGsm_GetMode(game->startup) : TITAN_PER_GAME_GSM_DEFAULT;
+        TitanPerGameGsmMode current = game != 0 ?
+            TitanGameGsm_GetMode(game->startup) : TITAN_PER_GAME_GSM_DEFAULT;
 
         panel_x = main_closed_x + (main_target_x - main_closed_x) * transition;
         option_x = panel_x + main_width;
         option_visible_width = option_width * submenu_transition;
         alpha = TitanShellScene_Alpha(255.0f * transition);
-        if (game != 0 && game->format != TITAN_NEUTRINO_GAME_USBEXTREME && current == TITAN_PER_GAME_GSM_720P)
+        if (game != 0 && game->format != TITAN_NEUTRINO_GAME_USBEXTREME &&
+            current == TITAN_PER_GAME_GSM_720P)
             current = TITAN_PER_GAME_GSM_DEFAULT;
 
-        /*
-         * Keep the SELECT surface attached to the physical UI edges.  The
-         * resolution column is not a floating card: it grows leftward while
-         * remaining contiguous with the main menu and pinned to the right
-         * edge, matching the original full-height SELECT presentation.
-         */
+        /* SELECT submenus are one continuous edge-attached surface. */
         TitanVideo_DrawRectAlpha(
-            0.0f,
-            0.0f,
-            panel_x,
-            (float)TITAN_UI_HEIGHT,
-            0,
-            0,
-            0,
+            0.0f, 0.0f, panel_x, (float)TITAN_UI_HEIGHT,
+            0, 0, 0,
             TitanShellScene_Alpha((124.0f + 18.0f * submenu_transition) * transition)
         );
         TitanVideo_DrawRectAlpha(
-            panel_x,
-            0.0f,
-            main_width,
-            (float)TITAN_UI_HEIGHT,
-            4,
-            5,
-            10,
-            TitanShellScene_Alpha(226.0f * transition)
+            panel_x, 0.0f, main_width, (float)TITAN_UI_HEIGHT,
+            4, 5, 10, TitanShellScene_Alpha(226.0f * transition)
         );
         if (submenu_transition > 0.01f)
         {
             TitanVideo_DrawRectAlpha(
-                option_x,
-                0.0f,
-                option_visible_width,
-                (float)TITAN_UI_HEIGHT,
-                4,
-                5,
-                10,
+                option_x, 0.0f, option_visible_width, (float)TITAN_UI_HEIGHT,
+                4, 5, 10,
                 TitanShellScene_Alpha(226.0f * transition * submenu_transition)
             );
             TitanVideo_DrawRectAlpha(
-                option_x,
-                0.0f,
-                1.0f,
-                (float)TITAN_UI_HEIGHT,
-                58,
-                61,
-                72,
+                option_x, 0.0f, 1.0f, (float)TITAN_UI_HEIGHT,
+                58, 61, 72,
                 TitanShellScene_Alpha(118.0f * transition * submenu_transition)
             );
         }
@@ -6643,24 +6653,41 @@ static void TitanShellScene_DrawFolderContextMenu(void)
             float row_y = first_row_y + (float)index * compact_step;
             int selected = (int)index == g_scene.folder_context_selected;
             int resolution_row = items[index].action == TITAN_CONTEXT_ACTION_RESOLUTION_OPTIONS;
-            float de_emphasis = g_scene.resolution_options_open && !resolution_row ? 0.48f : 1.0f;
+            int patch_row =
+                (g_scene.patch_options_kind == TITAN_GAME_PATCH_CHEAT &&
+                 items[index].action == TITAN_CONTEXT_ACTION_CHEATS) ||
+                (g_scene.patch_options_kind == TITAN_GAME_PATCH_ENHANCEMENT &&
+                 items[index].action == TITAN_CONTEXT_ACTION_GRAPHICS_ENHANCEMENTS);
+            int active_submenu_row =
+                (g_scene.resolution_options_open && resolution_row) ||
+                (g_scene.patch_options_open && patch_row);
+            float de_emphasis =
+                (g_scene.resolution_options_open || g_scene.patch_options_open) &&
+                !active_submenu_row ? 0.48f : 1.0f;
             unsigned char row_alpha = TitanShellScene_Alpha((float)alpha * de_emphasis);
-            if (selected || (g_scene.resolution_options_open && resolution_row))
-                TitanShellScene_DrawOutline(panel_x + 15.0f, row_y - 8.0f, main_width - 31.0f, 35.0f,
-                    2.0f, 244, 247, 252, alpha);
-            TitanFont_DrawTextAlpha(panel_x + 26.0f, row_y, 0.60f,
+
+            if (selected || active_submenu_row)
+                TitanShellScene_DrawOutline(
+                    panel_x + 15.0f, row_y - 8.0f, main_width - 31.0f, 35.0f,
+                    2.0f, 244, 247, 252, alpha
+                );
+            TitanFont_DrawTextAlpha(
+                panel_x + 26.0f, row_y, 0.56f,
                 TitanLocalization_Compat(items[index].label),
-                selected || resolution_row ? 253 : 206,
-                selected || resolution_row ? 253 : 211,
-                selected || resolution_row ? 255 : 222,
-                row_alpha);
+                selected || active_submenu_row ? 253 : 206,
+                selected || active_submenu_row ? 253 : 211,
+                selected || active_submenu_row ? 255 : 222,
+                row_alpha
+            );
         }
 
-        if (submenu_transition > 0.01f && submenu_transition > 0.55f)
+        if (resolution_transition > 0.55f)
         {
-            float text_reveal = TitanShellScene_Clamp((submenu_transition - 0.55f) / 0.45f, 0.0f, 1.0f);
-            unsigned char sub_alpha = TitanShellScene_Alpha(255.0f * transition * text_reveal);
-            option_first_row_y =
+            float text_reveal = TitanShellScene_Clamp(
+                (resolution_transition - 0.55f) / 0.45f, 0.0f, 1.0f);
+            unsigned char sub_alpha = TitanShellScene_Alpha(
+                255.0f * transition * text_reveal);
+            float option_first_row_y =
                 ((float)TITAN_UI_HEIGHT - ((float)mode_count * compact_step)) * 0.5f + 13.0f;
             if (option_first_row_y < 54.0f) option_first_row_y = 54.0f;
             for (index = 0u; index < mode_count; ++index)
@@ -6669,14 +6696,130 @@ static void TitanShellScene_DrawFolderContextMenu(void)
                 int selected = (int)index == g_scene.resolution_options_selected;
                 int active = modes[index] == current;
                 if (selected)
-                    TitanShellScene_DrawOutline(option_x + 15.0f, row_y - 8.0f, option_width - 31.0f, 35.0f,
-                        2.0f, 244, 247, 252, sub_alpha);
+                    TitanShellScene_DrawOutline(
+                        option_x + 15.0f, row_y - 8.0f, resolution_width - 31.0f, 35.0f,
+                        2.0f, 244, 247, 252, sub_alpha
+                    );
                 if (active)
-                    TitanVideo_DrawRectAlpha(option_x + 19.0f, row_y - 1.0f, 3.0f, 15.0f,
-                        236, 45, 88, sub_alpha);
-                TitanFont_DrawTextAlpha(option_x + 26.0f, row_y, 0.60f,
+                    TitanVideo_DrawRectAlpha(
+                        option_x + 19.0f, row_y - 1.0f, 3.0f, 15.0f,
+                        236, 45, 88, sub_alpha
+                    );
+                TitanFont_DrawTextAlpha(
+                    option_x + 26.0f, row_y, 0.60f,
                     TitanLocalization_Compat(TitanGameGsm_GetModeName(modes[index])),
-                    selected ? 253 : 218, selected ? 253 : 223, selected ? 255 : 232, sub_alpha);
+                    selected ? 253 : 218, selected ? 253 : 223,
+                    selected ? 255 : 232, sub_alpha
+                );
+            }
+        }
+        else if (patch_transition > 0.55f)
+        {
+            const unsigned int visible_rows = 8u;
+            unsigned int entry_count = TitanGamePatches_GetEntryCount(g_scene.patch_options_kind);
+            unsigned int first = g_scene.patch_options_scroll < 0 ?
+                0u : (unsigned int)g_scene.patch_options_scroll;
+            unsigned int last = first + visible_rows;
+            float text_reveal = TitanShellScene_Clamp(
+                (patch_transition - 0.55f) / 0.45f, 0.0f, 1.0f);
+            unsigned char sub_alpha = TitanShellScene_Alpha(
+                255.0f * transition * text_reveal);
+            float patch_first_row_y;
+
+            if (last > entry_count) last = entry_count;
+            if (entry_count == 0u)
+            {
+                const char *empty_text = g_scene.patch_options_kind == TITAN_GAME_PATCH_CHEAT ?
+                    "No cheats found" : "No graphics enhancements found";
+                const char *folder_text = g_scene.patch_options_kind == TITAN_GAME_PATCH_CHEAT ?
+                    "CHT/<GAME ID>.cht" : "ENH/<GAME ID>.enh";
+                TitanFont_DrawTextAlpha(
+                    option_x + 24.0f, (float)TITAN_UI_HEIGHT * 0.5f - 10.0f,
+                    0.52f, TitanLocalization_Compat(empty_text), 232, 235, 241, sub_alpha
+                );
+                TitanFont_DrawTextAlpha(
+                    option_x + 24.0f, (float)TITAN_UI_HEIGHT * 0.5f + 22.0f,
+                    0.42f, folder_text, 166, 172, 185, sub_alpha
+                );
+            }
+            else
+            {
+                unsigned int visible_count = last - first;
+                patch_first_row_y =
+                    ((float)TITAN_UI_HEIGHT - ((float)visible_count * compact_step)) * 0.5f + 13.0f;
+                if (patch_first_row_y < 54.0f) patch_first_row_y = 54.0f;
+
+                for (index = first; index < last; ++index)
+                {
+                    TitanGamePatchEntryInfo entry;
+                    float row_y = patch_first_row_y + (float)(index - first) * compact_step;
+                    int selected = (int)index == g_scene.patch_options_selected;
+                    char name[34];
+                    const char *status;
+                    float status_width;
+
+                    if (!TitanGamePatches_GetEntry(g_scene.patch_options_kind, index, &entry))
+                        continue;
+                    if (strlen(entry.name) >= sizeof(name))
+                    {
+                        memcpy(name, entry.name, sizeof(name) - 4u);
+                        memcpy(name + sizeof(name) - 4u, "...", 4u);
+                    }
+                    else
+                    {
+                        strcpy(name, entry.name);
+                    }
+                    status = TitanLocalization_Compat(
+                        entry.enabled ? "Enabled" : "Disabled"
+                    );
+                    status_width = TitanFont_MeasureText(0.43f, status);
+
+                    if (selected)
+                        TitanShellScene_DrawOutline(
+                            option_x + 13.0f, row_y - 8.0f, patch_width - 27.0f, 35.0f,
+                            2.0f, 244, 247, 252, sub_alpha
+                        );
+                    if (entry.enabled)
+                        TitanVideo_DrawRectAlpha(
+                            option_x + 18.0f, row_y - 1.0f, 3.0f, 15.0f,
+                            236, 45, 88, sub_alpha
+                        );
+                    TitanFont_DrawTextAlpha(
+                        option_x + 26.0f, row_y, 0.48f, name,
+                        selected ? 253 : 218, selected ? 253 : 223,
+                        selected ? 255 : 232, sub_alpha
+                    );
+                    TitanFont_DrawTextAlpha(
+                        option_x + patch_width - 18.0f - status_width,
+                        row_y + 1.0f, 0.43f, status,
+                        entry.enabled ? 238 : 166,
+                        entry.enabled ? 224 : 172,
+                        entry.enabled ? 234 : 185,
+                        sub_alpha
+                    );
+                    if (entry.experimental)
+                        TitanFont_DrawTextAlpha(
+                            option_x + patch_width - 82.0f, row_y + 17.0f,
+                            0.32f, TitanLocalization_Compat("Experimental"),
+                            190, 194, 205, sub_alpha
+                        );
+                }
+
+                if (entry_count > visible_rows)
+                {
+                    char counter[32];
+                    int written = snprintf(
+                        counter, sizeof(counter), "%u/%u",
+                        (unsigned int)g_scene.patch_options_selected + 1u,
+                        entry_count
+                    );
+                    if (written > 0 && (unsigned int)written < sizeof(counter))
+                        TitanFont_DrawTextAlpha(
+                            option_x + patch_width - 68.0f,
+                            (float)TITAN_UI_HEIGHT - 25.0f,
+                            0.37f, counter, 170, 175, 188, sub_alpha
+                        );
+                }
             }
         }
         return;
@@ -14624,7 +14767,40 @@ static void TitanShellScene_OpenResolutionOptions(void)
     g_scene.resolution_options_selected = 0;
     for (index = 0u; index < count; ++index)
         if (modes[index] == current) g_scene.resolution_options_selected = (int)index;
+    g_scene.patch_options_open = 0;
     g_scene.resolution_options_open = 1;
+}
+
+static void TitanShellScene_OpenPatchOptions(TitanGamePatchKind kind)
+{
+    TitanHomeEntry selected_home;
+    const TitanNeutrinoGame *game;
+    TitanGamePatchResult result;
+    unsigned int count;
+
+    memset(&selected_home, 0, sizeof(selected_home));
+    if (!TitanShellScene_GetSelectedResolutionGame(&selected_home, &game))
+        return;
+
+    result = TitanGamePatches_Load(game->startup, kind);
+    if (result != TITAN_GAME_PATCH_OK)
+    {
+        TitanNotifications_Push(
+            TITAN_NOTIFICATION_ERROR,
+            TitanLocalization_Compat(TitanGamePatches_GetKindTitle(kind)),
+            TitanLocalization_Compat(TitanGamePatches_GetResultName(result))
+        );
+        return;
+    }
+
+    count = TitanGamePatches_GetEntryCount(kind);
+    g_scene.resolution_options_open = 0;
+    g_scene.patch_options_kind = kind;
+    g_scene.patch_options_selected = 0;
+    g_scene.patch_options_scroll = 0;
+    g_scene.patch_options_open = 1;
+    if (count == 0u)
+        g_scene.patch_options_selected = 0;
 }
 
 static int TitanShellScene_SetSelectedGameResolution(TitanPerGameGsmMode mode)
@@ -14785,6 +14961,14 @@ static void TitanShellScene_RunContextAction(TitanContextAction action)
                 TitanShellScene_ConfirmHideHomeShell,
                 (void *)(uintptr_t)selected_home.shell_catalog_index
             );
+            return;
+
+        case TITAN_CONTEXT_ACTION_CHEATS:
+            TitanShellScene_OpenPatchOptions(TITAN_GAME_PATCH_CHEAT);
+            return;
+
+        case TITAN_CONTEXT_ACTION_GRAPHICS_ENHANCEMENTS:
+            TitanShellScene_OpenPatchOptions(TITAN_GAME_PATCH_ENHANCEMENT);
             return;
 
         case TITAN_CONTEXT_ACTION_RESOLUTION_OPTIONS:
@@ -16258,6 +16442,10 @@ void TitanShellScene_Initialize(void)
     g_scene.folder_context_selected = 0;
     g_scene.resolution_options_open = 0;
     g_scene.resolution_options_selected = 0;
+    g_scene.patch_options_open = 0;
+    g_scene.patch_options_kind = TITAN_GAME_PATCH_CHEAT;
+    g_scene.patch_options_selected = 0;
+    g_scene.patch_options_scroll = 0;
     g_scene.folder_destination_selected = 0;
     g_scene.folder_editor_selected = 0;
     g_scene.folder_content_cursor = 0;
@@ -16284,6 +16472,7 @@ void TitanShellScene_Initialize(void)
     g_scene.folder_pending_name[0] = '\0';
     g_scene.folder_context_transition = 0.0f;
     g_scene.resolution_options_transition = 0.0f;
+    g_scene.patch_options_transition = 0.0f;
     g_scene.folder_screen_transition = 1.0f;
     g_scene.video_test_active = 0;
     g_scene.video_test_previous_progressive = 0;
@@ -16366,10 +16555,50 @@ static int TitanShellScene_CanSelectGameForFolder(unsigned int game_index)
 static void TitanShellScene_BeginGameLaunch(unsigned int game_index)
 {
     const TitanNeutrinoGame *game;
+    TitanGamePatchLaunchState patch_state;
+    TitanGamePatchResult patch_result;
 
     game = TitanNeutrino_GetGame(game_index);
     if (game == 0 || g_scene.game_launch_active)
         return;
+
+    memset(&patch_state, 0, sizeof(patch_state));
+    g_scene.game_launch_enhanced = 0;
+    g_scene.game_launch_cheat_count = 0u;
+    g_scene.game_launch_cheat_taunt[0] = '\0';
+
+    /* Patch preparation happens before the launch choreography so the visual
+     * indicators describe the payload that will actually be handed off. An
+     * unknown/malformed startup remains launchable through the normal engine;
+     * patch I/O/validation failures do not silently start a different state. */
+    patch_result = TitanGamePatches_PrepareLaunch(game->startup, &patch_state);
+    if (patch_result == TITAN_GAME_PATCH_INVALID_STARTUP)
+    {
+        memset(&patch_state, 0, sizeof(patch_state));
+    }
+    else if (patch_result != TITAN_GAME_PATCH_OK)
+    {
+        TitanNotifications_Push(
+            TITAN_NOTIFICATION_ERROR,
+            TitanLocalization_Compat("Game Enhancements"),
+            TitanLocalization_Compat(TitanGamePatches_GetResultName(patch_result))
+        );
+        return;
+    }
+
+    g_scene.game_launch_enhanced = patch_state.enhancement_active ? 1 : 0;
+    g_scene.game_launch_cheat_count = patch_state.gameplay_count;
+    if (patch_state.taunt != 0 && patch_state.taunt[0] != '\0')
+    {
+        strncpy(
+            g_scene.game_launch_cheat_taunt,
+            patch_state.taunt,
+            sizeof(g_scene.game_launch_cheat_taunt) - 1u
+        );
+        g_scene.game_launch_cheat_taunt[
+            sizeof(g_scene.game_launch_cheat_taunt) - 1u
+        ] = '\0';
+    }
 
     g_scene.game_launch_active = 1;
     g_scene.game_launch_frames = 0u;
@@ -16406,6 +16635,9 @@ static void TitanShellScene_BeginDiscLaunch(void)
     g_scene.game_launch_disc = 1;
     g_scene.game_launch_application = 0;
     g_scene.game_launch_application_index = 0u;
+    g_scene.game_launch_enhanced = 0;
+    g_scene.game_launch_cheat_count = 0u;
+    g_scene.game_launch_cheat_taunt[0] = '\0';
     g_scene.selected_hold_frames = 0u;
     g_scene.detail_visibility = 0.0f;
 
@@ -16442,6 +16674,9 @@ static void TitanShellScene_BeginApplicationLaunch(
     g_scene.game_launch_disc = 0;
     g_scene.game_launch_application = 1;
     g_scene.game_launch_application_index = application_index;
+    g_scene.game_launch_enhanced = 0;
+    g_scene.game_launch_cheat_count = 0u;
+    g_scene.game_launch_cheat_taunt[0] = '\0';
     g_scene.selected_hold_frames = 0u;
     g_scene.detail_visibility = 0.0f;
 
@@ -16476,6 +16711,9 @@ static void TitanShellScene_RunGameLaunch(void)
         g_scene.game_launch_frames = 0u;
         g_scene.game_launch_application = 0;
         g_scene.game_launch_application_index = 0u;
+        g_scene.game_launch_enhanced = 0;
+        g_scene.game_launch_cheat_count = 0u;
+        g_scene.game_launch_cheat_taunt[0] = '\0';
         TitanShellScene_LaunchApplication(application_index);
         return;
     }
@@ -16499,6 +16737,9 @@ static void TitanShellScene_RunGameLaunch(void)
     /* ExecPS2 does not return after a successful handoff. */
     g_scene.game_launch_active = 0;
     g_scene.game_launch_frames = 0u;
+    g_scene.game_launch_enhanced = 0;
+    g_scene.game_launch_cheat_count = 0u;
+    g_scene.game_launch_cheat_taunt[0] = '\0';
     if (g_scene.game_launch_disc)
     {
         g_scene.game_launch_disc = 0;
@@ -16513,7 +16754,7 @@ static void TitanShellScene_RunGameLaunch(void)
         TitanNotifications_Push(
             TITAN_NOTIFICATION_ERROR,
             TitanLocalization_Compat("Failed to start game"),
-            TitanNeutrino_GetResultName(launch_result)
+            TitanLocalization_Compat(TitanNeutrino_GetResultName(launch_result))
         );
     }
 }
@@ -16703,6 +16944,58 @@ static void TitanShellScene_DrawEngineBadge(unsigned char alpha)
     );
 }
 
+static void TitanShellScene_DrawTitanEnhanced(unsigned char alpha)
+{
+    const char *label = "Titan Enhanced";
+    const float x = 28.0f;
+    const float y = 31.0f;
+    const float scale = 0.68f;
+    const float outline = 1.35f;
+    unsigned char outline_alpha;
+
+    if (!g_scene.game_launch_enhanced || alpha <= 4u)
+        return;
+
+    outline_alpha = TitanShellScene_Alpha((float)alpha * 0.96f);
+    TitanFont_DrawTextAlpha(x - outline, y, scale, label, 238, 45, 88, outline_alpha);
+    TitanFont_DrawTextAlpha(x + outline, y, scale, label, 238, 45, 88, outline_alpha);
+    TitanFont_DrawTextAlpha(x, y - outline, scale, label, 238, 45, 88, outline_alpha);
+    TitanFont_DrawTextAlpha(x, y + outline, scale, label, 238, 45, 88, outline_alpha);
+    TitanFont_DrawTextAlpha(x - outline, y - outline, scale, label, 238, 45, 88, outline_alpha);
+    TitanFont_DrawTextAlpha(x + outline, y - outline, scale, label, 238, 45, 88, outline_alpha);
+    TitanFont_DrawTextAlpha(x - outline, y + outline, scale, label, 238, 45, 88, outline_alpha);
+    TitanFont_DrawTextAlpha(x + outline, y + outline, scale, label, 238, 45, 88, outline_alpha);
+
+    /* A tiny second white pass gives the existing regular face a semibold
+     * presence without introducing a second font asset into the release. */
+    TitanFont_DrawTextAlpha(x + 0.35f, y, scale, label, 252, 252, 255, alpha);
+    TitanFont_DrawTextAlpha(x, y, scale, label, 252, 252, 255, alpha);
+}
+
+static void TitanShellScene_DrawCheatTaunt(unsigned char alpha)
+{
+    const char *taunt;
+    float scale = 0.46f;
+    float width;
+    float y;
+
+    if (g_scene.game_launch_cheat_count == 0u ||
+        g_scene.game_launch_cheat_taunt[0] == '\0' || alpha <= 4u)
+        return;
+
+    taunt = TitanLocalization_Compat(g_scene.game_launch_cheat_taunt);
+    width = TitanFont_MeasureText(scale, taunt);
+    if (width > (float)TITAN_UI_WIDTH - 56.0f && width > 0.0f)
+        scale *= ((float)TITAN_UI_WIDTH - 56.0f) / width;
+    y = g_scene.game_launch_enhanced ? 66.0f : 36.0f;
+
+    TitanFont_DrawTextShadow(
+        28.0f, y, scale, taunt,
+        241, 243, 248,
+        TitanShellScene_Alpha((float)alpha * 0.96f)
+    );
+}
+
 static int TitanShellScene_UpdateFolderUi(
     const TitanInputState *input
 )
@@ -16734,6 +17027,68 @@ static int TitanShellScene_UpdateFolderUi(
         else if ((unsigned int)g_scene.folder_context_selected >= menu_count)
         {
             g_scene.folder_context_selected = 0;
+        }
+
+        if (g_scene.patch_options_open)
+        {
+            const unsigned int visible_rows = 8u;
+            unsigned int entry_count = TitanGamePatches_GetEntryCount(
+                g_scene.patch_options_kind
+            );
+
+            if ((input->pressed & TITAN_INPUT_BUTTON_CIRCLE) ||
+                (input->pressed & TITAN_INPUT_BUTTON_LEFT))
+            {
+                g_scene.patch_options_open = 0;
+                return 1;
+            }
+
+            if (entry_count > 0u)
+            {
+                if (g_scene.patch_options_selected < 0 ||
+                    (unsigned int)g_scene.patch_options_selected >= entry_count)
+                    g_scene.patch_options_selected = 0;
+
+                if (input->pressed & TITAN_INPUT_BUTTON_UP)
+                {
+                    g_scene.patch_options_selected--;
+                    if (g_scene.patch_options_selected < 0)
+                        g_scene.patch_options_selected = (int)entry_count - 1;
+                }
+                if (input->pressed & TITAN_INPUT_BUTTON_DOWN)
+                {
+                    g_scene.patch_options_selected++;
+                    if ((unsigned int)g_scene.patch_options_selected >= entry_count)
+                        g_scene.patch_options_selected = 0;
+                }
+
+                if ((unsigned int)g_scene.patch_options_selected <
+                    (unsigned int)g_scene.patch_options_scroll)
+                    g_scene.patch_options_scroll = g_scene.patch_options_selected;
+                else if ((unsigned int)g_scene.patch_options_selected >=
+                         (unsigned int)g_scene.patch_options_scroll + visible_rows)
+                    g_scene.patch_options_scroll =
+                        g_scene.patch_options_selected - (int)visible_rows + 1;
+
+                if (input->pressed & TITAN_INPUT_BUTTON_CROSS)
+                {
+                    TitanGamePatchResult patch_result = TitanGamePatches_ToggleEntry(
+                        g_scene.patch_options_kind,
+                        (unsigned int)g_scene.patch_options_selected
+                    );
+                    if (patch_result != TITAN_GAME_PATCH_OK)
+                    {
+                        TitanNotifications_Push(
+                            TITAN_NOTIFICATION_ERROR,
+                            TitanLocalization_Compat(
+                                TitanGamePatches_GetKindTitle(g_scene.patch_options_kind)
+                            ),
+                            TitanLocalization_Compat("Patch settings could not be saved")
+                        );
+                    }
+                }
+            }
+            return 1;
         }
 
         if (g_scene.resolution_options_open)
@@ -17582,6 +17937,16 @@ static void TitanShellScene_UpdateFixedStep(
             g_scene.resolution_options_transition,
             g_scene.folder_ui_mode == TITAN_FOLDER_UI_CONTEXT &&
                     g_scene.resolution_options_open
+                ? 1.0f
+                : 0.0f,
+            0.18f
+        );
+
+    g_scene.patch_options_transition =
+        TitanAnimation_Approach(
+            g_scene.patch_options_transition,
+            g_scene.folder_ui_mode == TITAN_FOLDER_UI_CONTEXT &&
+                    g_scene.patch_options_open
                 ? 1.0f
                 : 0.0f,
             0.18f
@@ -19602,6 +19967,8 @@ void TitanShellScene_Render(
 
         badge_alpha = TitanShellScene_Alpha(255.0f * badge_visibility);
         TitanShellScene_DrawEngineBadge(badge_alpha);
+        TitanShellScene_DrawTitanEnhanced(badge_alpha);
+        TitanShellScene_DrawCheatTaunt(badge_alpha);
         return;
     }
 

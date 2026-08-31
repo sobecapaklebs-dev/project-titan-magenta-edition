@@ -28,7 +28,10 @@ typedef enum TitanNeutrinoResult
     TITAN_NEUTRINO_VIDEO_PROFILE_FAILED,
     TITAN_NEUTRINO_OPL_UL_LOAD_FAILED,
     TITAN_NEUTRINO_ELF_LOAD_FAILED,
-    TITAN_NEUTRINO_EXEC_FAILED
+    TITAN_NEUTRINO_EXEC_FAILED,
+    /* Appended: keep every validated pre-feature result value unchanged. */
+    TITAN_NEUTRINO_PATCH_PREPARE_FAILED,
+    TITAN_NEUTRINO_UL_PATCH_RUNTIME_FAILED
 } TitanNeutrinoResult;
 
 typedef struct TitanNeutrinoGame

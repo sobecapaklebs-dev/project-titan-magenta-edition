@@ -4,6 +4,7 @@
 #include "titan_exec_handoff.h"
 #include "titan_user_profile.h"
 #include "titan_game_gsm.h"
+#include "titan_game_patches.h"
 #include "titan_vmc.h"
 #include "titan_shell_busy.h"
 #include "titan_storage_io.h"
@@ -80,6 +81,7 @@ static const char *g_neutrino_candidates[] =
     "mass:/NEUTRINO/neutrino.elf",
     "mass0:/NEUTRINO/neutrino.elf"
 };
+
 
 static const char *g_opl_ul_loader_candidates[] =
 {
@@ -1185,6 +1187,10 @@ static TitanNeutrinoResult TitanNeutrino_PrepareLaunch(
         return TITAN_NEUTRINO_NOT_FOUND;
     }
 
+    /* Golden Neutrino is immutable. Patch preparation happens only at the
+     * actual launch boundary and is installed by Titan's existing low-memory
+     * stage2. The Golden command line remains byte-for-byte ABI compatible. */
+
     profile = TitanUserProfiles_GetActive();
     if (profile == 0)
     {
@@ -1232,7 +1238,8 @@ static TitanNeutrinoResult TitanNeutrino_PrepareLaunch(
         return TITAN_NEUTRINO_VMC_NOT_READY;
     }
 
-    /* Neutrino reads options from argv[1], so argv[0] is the program path. */
+    /* Neutrino reads options from argv[1], so argv[0] remains the Golden
+     * executable path exactly as in the validated production contract. */
     plan->arguments[plan->argument_count++] = g_neutrino_elf;
     plan->arguments[plan->argument_count++] = plan->cwd_argument;
     plan->arguments[plan->argument_count++] = "-bsd=usb";
@@ -1522,20 +1529,49 @@ TitanNeutrinoResult TitanNeutrino_Launch(unsigned int index)
     TitanNeutrino_WriteLaunchLog(game, &g_launch_plan, 0);
 
 #if defined(__EE__) || defined(_EE)
-    /*
-     * Never SifLoadElf() a game backend from inside the main Titan image:
-     * both executables normally occupy user RAM above 0x00100000, so the
-     * target ELF can overwrite the launcher while LOADFILE is still active.
-     *
-     * The embedded low-memory stage2 is copied below 0x00100000 and receives
-     * the full argv. It draws the handoff logo, clears the old user-RAM image,
-     * loads the selected backend through the active USB/LOADFILE environment,
-     * finally performs ExecPS2().
-     */
-    handoff_result = TitanExecHandoff_Run(
-        g_launch_plan.argument_count,
-        g_launch_plan.arguments
-    );
+    {
+        TitanGamePatchLaunchState patch_state;
+        TitanGamePatchResult patch_result;
+
+        memset(&patch_state, 0, sizeof(patch_state));
+        if (game != 0 && game->format == TITAN_NEUTRINO_GAME_USBEXTREME)
+        {
+            patch_result = TitanGamePatches_PrepareUlGoldenRuntime(game->startup);
+            if (patch_result != TITAN_GAME_PATCH_OK)
+                return TITAN_NEUTRINO_UL_PATCH_RUNTIME_FAILED;
+        }
+        else if (game != 0)
+        {
+            /* Materialize the current persisted selections only at the actual
+             * target launch boundary. GetLaunchCommand() therefore remains a
+             * pure view of the validated Golden argv contract. */
+            patch_result = TitanGamePatches_PrepareLaunch(game->startup, &patch_state);
+            if (patch_result != TITAN_GAME_PATCH_OK)
+                return TITAN_NEUTRINO_PATCH_PREPARE_FAILED;
+        }
+
+        /* The existing embedded low-memory stage2 owns the handoff. For
+         * Neutrino only, active CHT/ENH asks it to install the optional PS2RD
+         * segment before loading the unchanged Golden. Golden UL continues
+         * through its native OPL cheat path and historical three argv values. */
+        if (game != 0 &&
+            game->format != TITAN_NEUTRINO_GAME_USBEXTREME &&
+            (patch_state.gameplay_active || patch_state.enhancement_active))
+        {
+            handoff_result = TitanExecHandoff_RunWithPatch(
+                g_launch_plan.argument_count,
+                g_launch_plan.arguments,
+                patch_state.payload_path
+            );
+        }
+        else
+        {
+            handoff_result = TitanExecHandoff_Run(
+                g_launch_plan.argument_count,
+                g_launch_plan.arguments
+            );
+        }
+    }
     g_last_load_error = (int)handoff_result;
     TitanNeutrino_WriteLaunchLog(
         game,
@@ -1548,6 +1584,10 @@ TitanNeutrinoResult TitanNeutrino_Launch(unsigned int index)
         TitanSession_Fail();
         if (game != 0 && game->format == TITAN_NEUTRINO_GAME_USBEXTREME)
         {
+            /* The Golden UL staging is transactional. If stage2/ExecPS2 ever
+             * returns instead of transferring control, restore the user's
+             * original CHT/CFG immediately instead of waiting for next boot. */
+            TitanGamePatches_RecoverUlGoldenRuntime();
             return TITAN_NEUTRINO_OPL_UL_LOAD_FAILED;
         }
         return TITAN_NEUTRINO_ELF_LOAD_FAILED;
@@ -1565,6 +1605,8 @@ const char *TitanNeutrino_GetResultName(TitanNeutrinoResult result)
     switch (result)
     {
         case TITAN_NEUTRINO_NOT_FOUND: return "neutrino.elf not found in mass:/neutrino";
+        case TITAN_NEUTRINO_PATCH_PREPARE_FAILED: return "Unable to prepare Titan cheats/enhancements";
+        case TITAN_NEUTRINO_UL_PATCH_RUNTIME_FAILED: return "Unable to stage Golden UL cheat/enhancement runtime";
         case TITAN_NEUTRINO_NO_GAMES: return "No ISO or ul.cfg game found on USB";
         case TITAN_NEUTRINO_INVALID_GAME: return "Invalid game selection";
         case TITAN_NEUTRINO_NO_PROFILE: return "No active profile";

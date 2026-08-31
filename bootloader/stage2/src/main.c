@@ -11,6 +11,7 @@
 #include <kernel.h>
 #include <loadfile.h>
 #include <sifrpc.h>
+#include <syscallnr.h>
 #include <iopcontrol.h>
 #include <delaythread.h>
 #include <sbv_patches.h>
@@ -34,6 +35,7 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
@@ -47,6 +49,50 @@
 #define TITAN_STAGE2_IOP_DELAY_US 10000
 #define TITAN_STAGE2_USB_PROBE_ATTEMPTS 120
 #define TITAN_STAGE2_USB_PROBE_DELAY_US 100000
+
+
+/* Internal handoff sideband.  This marker exists only between Titan's kernel
+ * and its embedded stage2.  It is stripped before the Golden engine receives
+ * argv, so the validated Neutrino/UL contracts remain byte-for-byte semantic
+ * equivalents of the pre-feature launch path. */
+#define TITAN_STAGE2_PATCH_PREFIX "--titan-internal-patch="
+#define TITAN_STAGE2_PATCH_MAGIC 0x48435054u /* TPCH */
+#define TITAN_STAGE2_PATCH_VERSION 1u
+#define TITAN_STAGE2_PATCH_MAX_PAIRS 254u
+#define TITAN_STAGE2_PS2RD_MAX_HOOKS 5u
+#define TITAN_STAGE2_PS2RD_MAX_CODES 250u
+#define TITAN_STAGE2_PS2RD_LOW_START 0x00080000u
+#define TITAN_STAGE2_PS2RD_LOW_END 0x00084000u
+
+typedef struct TitanStage2PatchHeader
+{
+    uint32_t magic;
+    uint16_t version;
+    uint16_t flags;
+    uint32_t pair_count;
+    uint32_t checksum;
+} __attribute__((packed)) TitanStage2PatchHeader;
+
+typedef struct TitanStage2PatchPair
+{
+    uint32_t address;
+    uint32_t value;
+} TitanStage2PatchPair;
+
+extern unsigned char __titan_ps2rd_start[];
+extern unsigned char __titan_ps2rd_end[];
+extern u32 Old_SetupThread;
+extern void *HookSetupThread(
+    void *gp,
+    void *stack,
+    s32 stack_size,
+    void *args,
+    void *root_func
+);
+extern u32 numhooks;
+extern u32 hooklist[];
+extern u32 numcodes;
+extern u32 codelist[];
 
 typedef struct TitanStage2IopDiag
 {
@@ -127,6 +173,164 @@ static void TitanStage2_WriteLog(
         }
     }
     close(descriptor);
+}
+
+
+static unsigned int TitanStage2_PatchFnvStep(
+    unsigned int hash,
+    unsigned char value
+)
+{
+    hash ^= (unsigned int)value;
+    hash *= 16777619u;
+    return hash;
+}
+
+static unsigned int TitanStage2_PatchChecksum(
+    const TitanStage2PatchPair *pairs,
+    unsigned int count
+)
+{
+    unsigned int hash = 2166136261u;
+    unsigned int index;
+    int shift;
+
+    for (index = 0u; index < count; ++index)
+    {
+        for (shift = 0; shift < 32; shift += 8)
+            hash = TitanStage2_PatchFnvStep(
+                hash,
+                (unsigned char)((pairs[index].address >> shift) & 0xffu)
+            );
+        for (shift = 0; shift < 32; shift += 8)
+            hash = TitanStage2_PatchFnvStep(
+                hash,
+                (unsigned char)((pairs[index].value >> shift) & 0xffu)
+            );
+    }
+    return hash;
+}
+
+static int TitanStage2_ReadExact(
+    int descriptor,
+    void *buffer,
+    size_t size
+)
+{
+    unsigned char *cursor = (unsigned char *)buffer;
+    size_t used = 0u;
+
+    while (used < size)
+    {
+        ssize_t amount = read(descriptor, cursor + used, size - used);
+        if (amount <= 0) return 0;
+        used += (size_t)amount;
+    }
+    return 1;
+}
+
+static int TitanStage2_LoadPatchPayload(
+    const char *path,
+    TitanStage2PatchPair pairs[TITAN_STAGE2_PATCH_MAX_PAIRS],
+    unsigned int *pair_count
+)
+{
+    TitanStage2PatchHeader header;
+    int descriptor;
+
+    if (path == 0 || path[0] == '\0' || pairs == 0 || pair_count == 0)
+        return 0;
+    *pair_count = 0u;
+
+    descriptor = open(path, O_RDONLY);
+    if (descriptor < 0) return 0;
+    if (!TitanStage2_ReadExact(descriptor, &header, sizeof(header)) ||
+        header.magic != TITAN_STAGE2_PATCH_MAGIC ||
+        header.version != TITAN_STAGE2_PATCH_VERSION ||
+        header.pair_count == 0u ||
+        header.pair_count > TITAN_STAGE2_PATCH_MAX_PAIRS ||
+        !TitanStage2_ReadExact(
+            descriptor,
+            pairs,
+            (size_t)header.pair_count * sizeof(pairs[0])
+        ))
+    {
+        close(descriptor);
+        return 0;
+    }
+    close(descriptor);
+
+    if (TitanStage2_PatchChecksum(pairs, header.pair_count) != header.checksum)
+        return 0;
+    *pair_count = header.pair_count;
+    return 1;
+}
+
+static int TitanStage2_InstallPatchEngine(
+    const TitanStage2PatchPair *pairs,
+    unsigned int pair_count
+)
+{
+    unsigned int index;
+    unsigned int hooks = 0u;
+    unsigned int codes = 0u;
+    int next_code_can_be_hook = 1;
+    void *old_setup_thread;
+
+    if (pairs == 0 || pair_count == 0u ||
+        (uintptr_t)__titan_ps2rd_start < TITAN_STAGE2_PS2RD_LOW_START ||
+        (uintptr_t)__titan_ps2rd_end > TITAN_STAGE2_PS2RD_LOW_END)
+        return 0;
+
+    numhooks = 0u;
+    numcodes = 0u;
+    memset(
+        hooklist,
+        0,
+        TITAN_STAGE2_PS2RD_MAX_HOOKS * 2u * sizeof(u32)
+    );
+    memset(
+        codelist,
+        0,
+        TITAN_STAGE2_PS2RD_MAX_CODES * 2u * sizeof(u32)
+    );
+
+    for (index = 0u; index < pair_count; ++index)
+    {
+        const u32 address = pairs[index].address;
+        const u32 value = pairs[index].value;
+
+        if ((address & 0xfe000000u) == 0x90000000u && next_code_can_be_hook)
+        {
+            if (hooks >= TITAN_STAGE2_PS2RD_MAX_HOOKS) return 0;
+            hooklist[hooks * 2u] = address & 0x01fffffcu;
+            hooklist[hooks * 2u + 1u] = value;
+            ++hooks;
+        }
+        else
+        {
+            if (codes >= TITAN_STAGE2_PS2RD_MAX_CODES) return 0;
+            codelist[codes * 2u] = address;
+            codelist[codes * 2u + 1u] = value;
+            ++codes;
+        }
+
+        /* The second line of a multi-line type-3/type-4 code may start with 9
+         * and must never be misclassified as a hook/master code. */
+        next_code_can_be_hook =
+            ((address & 0xf0000000u) == 0x40000000u ||
+             (address & 0xf0000000u) == 0x30000000u) ? 0 : 1;
+    }
+
+    numhooks = hooks;
+    numcodes = codes;
+    old_setup_thread = GetSyscallHandler(__NR_SetupThread);
+    if (old_setup_thread == 0) return 0;
+    Old_SetupThread = (u32)(uintptr_t)old_setup_thread;
+    SetSyscall(__NR_SetupThread, (void *)HookSetupThread);
+    FlushCache(WRITEBACK_DCACHE);
+    FlushCache(INVALIDATE_ICACHE);
+    return 1;
 }
 
 static int TitanStage2_ModuleStayedResident(int result)
@@ -374,8 +578,16 @@ int main(
 )
 {
     t_ExecData executable;
+    TitanStage2PatchPair patch_pairs[TITAN_STAGE2_PATCH_MAX_PAIRS];
+    unsigned int patch_pair_count = 0u;
+    const char *patch_path = 0;
+    const char *target;
+    char **forward_argv;
+    int forward_argc;
+    int target_index = 0;
     int result;
     int video_result;
+    const size_t patch_prefix_length = strlen(TITAN_STAGE2_PATCH_PREFIX);
 
     if (
         argc < 1 ||
@@ -391,6 +603,32 @@ int main(
         );
     }
 
+    /* Patched launches use one private argv element for stage2 only.  The
+     * target executable and every original argument remain contiguous after
+     * it and are forwarded unchanged to the Golden engine. */
+    if (
+        argc >= 2 &&
+        strncmp(argv[0], TITAN_STAGE2_PATCH_PREFIX, patch_prefix_length) == 0
+    )
+    {
+        patch_path = argv[0] + patch_prefix_length;
+        if (patch_path[0] == '\0')
+            TitanStage2_Halt("(empty Titan patch payload)", -200, 0u);
+        target_index = 1;
+    }
+
+    if (
+        target_index >= argc ||
+        argv[target_index] == 0 ||
+        argv[target_index][0] == '\0'
+    )
+    {
+        TitanStage2_Halt("(missing target after Titan sideband)", -201, 0u);
+    }
+
+    target = argv[target_index];
+    forward_argc = argc - target_index;
+    forward_argv = &argv[target_index];
     memset(&executable, 0, sizeof(executable));
 
     /* Draw the handoff logo from stage2 itself before the long RAM wipe and
@@ -401,15 +639,15 @@ int main(
     TitanStage2_WriteLog(
         1,
         "stage2-enter",
-        argv[0],
+        target,
         video_result,
         0u,
         0u
     );
 
-    if (TitanStage2_IsMassTarget(argv[0]))
+    if (TitanStage2_IsMassTarget(target))
     {
-        result = TitanStage2_RebuildMinimalIop(argv[0]);
+        result = TitanStage2_RebuildMinimalIop(target);
         if (result < 0)
         {
             init_scr();
@@ -421,13 +659,47 @@ int main(
                 "Target: %s\n"
                 "Stage code: %d\n\n"
                 "The game engine was not started.\n",
-                argv[0],
+                target,
                 result
             );
             for (;;) SleepThread();
         }
     }
 
+    if (patch_path != 0)
+    {
+        if (!TitanStage2_LoadPatchPayload(
+                patch_path,
+                patch_pairs,
+                &patch_pair_count))
+        {
+            TitanStage2_WriteLog(0, "patch-load", target, -202, 0u, 0u);
+            TitanStage2_Halt(target, -202, 0u);
+        }
+        if (!TitanStage2_InstallPatchEngine(patch_pairs, patch_pair_count))
+        {
+            TitanStage2_WriteLog(
+                0,
+                "patch-install",
+                target,
+                -203,
+                patch_pair_count,
+                0u
+            );
+            TitanStage2_Halt(target, -203, 0u);
+        }
+        TitanStage2_WriteLog(
+            0,
+            "patch-ready",
+            target,
+            0,
+            patch_pair_count,
+            0u
+        );
+    }
+
+    /* The resident PS2RD block is below 0x00084000 and therefore survives the
+     * normal user-RAM wipe. Neutrino's ee_core begins exactly at 0x00084000. */
     TitanStage2_WipeUserMemory();
     FlushCache(WRITEBACK_DCACHE);
 
@@ -435,7 +707,7 @@ int main(
     TitanStage2_WriteLog(
         0,
         "loadfile-init",
-        argv[0],
+        target,
         result,
         0u,
         0u
@@ -443,18 +715,14 @@ int main(
 
     if (result < 0)
     {
-        TitanStage2_Halt(
-            argv[0],
-            result,
-            0u
-        );
+        TitanStage2_Halt(target, result, 0u);
     }
 
-    result = SifLoadElf(argv[0], &executable);
+    result = SifLoadElf(target, &executable);
     TitanStage2_WriteLog(
         0,
         "load-elf",
-        argv[0],
+        target,
         result,
         executable.epc,
         executable.gp
@@ -463,11 +731,7 @@ int main(
 
     if (result != 0 || executable.epc == 0u)
     {
-        TitanStage2_Halt(
-            argv[0],
-            result,
-            executable.epc
-        );
+        TitanStage2_Halt(target, result, executable.epc);
     }
 
     SifExitRpc();
@@ -477,7 +741,7 @@ int main(
     return ExecPS2(
         (void *)executable.epc,
         (void *)executable.gp,
-        argc,
-        argv
+        forward_argc,
+        forward_argv
     );
 }

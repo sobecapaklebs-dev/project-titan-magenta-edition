@@ -6,19 +6,39 @@ ENTRY(__start);
  */
 
 MEMORY {
-    bios : ORIGIN = 0x00000000, LENGTH = 592K
-    bram : ORIGIN = 0x00094000, LENGTH = 432K
-    gram : ORIGIN = 0x00100000, LENGTH = 31M
+    bios  : ORIGIN = 0x00000000, LENGTH = 512K
+    ps2rd : ORIGIN = 0x00080000, LENGTH = 16K
+    gap   : ORIGIN = 0x00084000, LENGTH = 64K
+    bram  : ORIGIN = 0x00094000, LENGTH = 432K
+    gram  : ORIGIN = 0x00100000, LENGTH = 31M
 }
 
 REGION_ALIAS("MAIN_REGION", bram);
 END_MAIN_REGION = ORIGIN(MAIN_REGION) + LENGTH(MAIN_REGION);
 
 PHDRS {
+    ps2rd PT_LOAD;
     text PT_LOAD;
 }
 
 SECTIONS {
+    /* Optional PS2RD resident block. TitanExecHandoff copies this PT_LOAD only
+     * for a launch with an active CHT/ENH payload. Neutrino ee_core starts at
+     * 0x00084000, therefore the engine is hard-bounded below that address. */
+    .titan_ps2rd_text : {
+        __titan_ps2rd_start = .;
+        KEEP(*(.titan_ps2rd_text))
+    } >ps2rd :ps2rd
+
+    .titan_ps2rd_rodata ALIGN(16) : {
+        KEEP(*(.titan_ps2rd_rodata))
+    } >ps2rd :ps2rd
+
+    .titan_ps2rd_bss ALIGN(16) (NOLOAD) : {
+        KEEP(*(.titan_ps2rd_bss))
+        __titan_ps2rd_end = .;
+    } >ps2rd :ps2rd
+
     .text : {
         _ftext = .;
         *(.text)
@@ -105,3 +125,6 @@ SECTIONS {
     PROVIDE(_stack = END_MAIN_REGION - _stack_size);
     PROVIDE(_heap_size = -1);
 }
+
+ASSERT(__titan_ps2rd_start >= 0x00080000, "PS2RD starts below reserved low-memory region");
+ASSERT(__titan_ps2rd_end <= 0x00084000, "PS2RD overlaps Neutrino ee_core at 0x00084000");

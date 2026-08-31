@@ -30,6 +30,7 @@
 #include "titan_notifications.h"
 #include "titan_system_error.h"
 #include "titan_neutrino.h"
+#include "titan_game_patches.h"
 #include "titan_network.h"
 #include "titan_profile_storage.h"
 #include "titan_early_input.h"
@@ -440,6 +441,7 @@ int TitanKernel_Run(
     TitanSystemUpdate_Initialize();
     TitanBrowser_Initialize();
     TitanNeutrino_Initialize();
+    TitanGamePatches_Initialize();
     TitanVideoOutput_Initialize();
     TitanKernel_BootProbe("services-ok", 0);
     TitanVramBootGuard_EnterPhase(TITAN_VRAM_PHASE_WAVES_RIBBON);

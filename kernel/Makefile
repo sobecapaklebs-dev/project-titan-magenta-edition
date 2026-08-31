@@ -296,6 +296,7 @@ src/services/titan_browser.o \
 src/services/titan_browser_net.o \
 src/services/titan_elf_validate.o \
 src/services/titan_neutrino.o \
+src/services/titan_game_patches.o \
 src/services/titan_game_gsm.o \
 src/services/titan_exec_handoff.o \
 src/services/titan_video_output.o \
