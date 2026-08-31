@@ -1,9 +1,43 @@
 # Project Titan Magenta Edition
 
-Project Titan Magenta Edition is a system platform for PlayStation 2. It is not
-just a game launcher: the maintained tree contains a boot chain, shell/runtime,
-profiles, VMC management, library services, audio, renderer, DEX diagnostics,
-applications and two integrated game engines.
+<!-- TITAN_SYSTEM_IDENTITY_BEGIN -->
+
+<div align="center">
+
+# ⚠️ **PROJECT TITAN IS NOT A LAUNCHER** ⚠️
+
+## **PROJECT TITAN IS AN OPERATING SYSTEM / SYSTEM PLATFORM FOR THE PLAYSTATION 2.**
+
+### **IT CAN LAUNCH GAMES AND APPLICATIONS, BUT LAUNCHING CONTENT IS ONLY ONE OF ITS RESPONSIBILITIES.**
+
+### **IT IS NOT AN OPL FRONTEND, NOT A PS2 GAME-LAUNCHER SKIN, AND NOT JUST A USER INTERFACE.**
+
+</div>
+
+---
+
+## **WHAT PROJECT TITAN ACTUALLY IS**
+
+**PROJECT TITAN REPLACES THE ROLE OF A SIMPLE LAUNCHER WITH A COMPLETE SYSTEM ENVIRONMENT BUILT AROUND ITS OWN BOOT CHAIN, KERNEL SERVICES, SCHEDULING, RUNTIMES, PACKAGE MANAGEMENT AND NATIVE APPLICATION PLATFORM.**
+
+Project Titan includes, among other subsystems:
+
+- **its own boot chain and system kernel**, responsible for bringing up and coordinating the Titan environment;
+- **scheduler and runtime services** used to coordinate native applications, background work and system tasks;
+- **native Titan application runtimes and APIs**, allowing applications to run as part of the system instead of behaving only as externally launched ELFs;
+- **TPKG/package installation infrastructure**, including a package installer and an installable application format;
+- **system-level storage, input, audio, network, graphics, profile, notification, library and VMC services** shared by applications;
+- **native application optimization and resource-management systems**, including Titan-specific scheduling, caching, rendering and memory/VRAM strategies designed around PlayStation 2 constraints;
+- **integrated game execution backends**, including Titan Neutrino and Titan UL, which provide game-launching functionality as one subsystem of the larger operating environment;
+- **a native application/game platform and SDK**, so software can target Titan itself rather than treating Titan as nothing more than a menu that launches another executable.
+
+# **A GAME LAUNCHER STARTS CONTENT. PROJECT TITAN ALSO MANAGES THE ENVIRONMENT THAT CONTENT RUNS INSIDE.**
+
+If you only look at the HOME screen, Project Titan can resemble a console launcher because launching games and applications is one of the jobs exposed by its shell. **That shell is only the visible front end of a much larger system architecture underneath it.**
+
+Project Titan Magenta Edition is therefore best understood as a **PlayStation 2 operating-system project and native application platform that also includes game-launching capabilities**, not as a replacement skin for OPL or a standalone PS2 launcher.
+
+<!-- TITAN_SYSTEM_IDENTITY_END -->
 
 ## Product components
 
