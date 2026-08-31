@@ -5,6 +5,7 @@
 #include "titan_browser.h"
 #include "titan_dex.h"
 #include "titan_diagnostics.h"
+#include "titan_health_trace.h"
 #include "titan_platform_overhead.h"
 #include "titan_target_memory.h"
 #include "titan_vram_boot_guard.h"
@@ -233,7 +234,11 @@ static TitanResult TitanKernel_RenderFrame(
 )
 {
     TitanResult result;
+    uint32_t trace_frame = context != 0 ? context->frame_count : 0u;
 
+    TitanHealthTrace_Mark(TITAN_HT_RENDER_ENTER, trace_frame,
+        (uint32_t)TitanShellScene_IsStartupActive(),
+        (uint32_t)TitanAppRuntime_OwnsExclusiveVideo(), 0u);
     TitanDiagnostics_PhaseBegin(TITAN_DIAG_PHASE_RENDER);
 
     /* A Titan Native Game renders from its dedicated worker through TGR. The
@@ -252,7 +257,9 @@ static TitanResult TitanKernel_RenderFrame(
 
     TitanDex_BeginFrame();
 
+    TitanHealthTrace_Mark(TITAN_HT_VIDEO_BEGIN_ENTER, trace_frame, 0u, 0u, 0u);
     result = TitanVideo_BeginFrame();
+    TitanHealthTrace_Mark(TITAN_HT_VIDEO_BEGIN_EXIT, trace_frame, (uint32_t)result, 0u, 0u);
 
     if (result != TITAN_RESULT_OK)
     {
@@ -262,12 +269,16 @@ static TitanResult TitanKernel_RenderFrame(
     /* BuildFix23 CP05 stale-frame ownership rule: the new draw target is
      * cleared before either transition endpoint or an overlay can draw. */
     TitanVideo_Clear(0u, 0u, 0u);
+    TitanHealthTrace_Mark(TITAN_HT_VIDEO_CLEAR, trace_frame, 0u, 0u, 0u);
 
+    TitanHealthTrace_Mark(TITAN_HT_SHELL_RENDER_ENTER, trace_frame, 0u, 0u, 0u);
     TitanShellScene_Render(
         context,
         TitanInput_GetState()
     );
+    TitanHealthTrace_Mark(TITAN_HT_SHELL_RENDER_EXIT, trace_frame, 0u, 0u, 0u);
 
+    TitanHealthTrace_Mark(TITAN_HT_OVERLAYS_ENTER, trace_frame, 0u, 0u, 0u);
     TitanAvatarPicker_Draw(
         context != 0 ? context->frame_count : 0u
     );
@@ -283,10 +294,13 @@ static TitanResult TitanKernel_RenderFrame(
     TitanSystemError_Draw(
         context != 0 ? context->frame_count : 0u
     );
+    TitanHealthTrace_Mark(TITAN_HT_OVERLAYS_EXIT, trace_frame, 0u, 0u, 0u);
 
     TitanDex_MarkEeComplete();
 
+    TitanHealthTrace_Mark(TITAN_HT_VIDEO_END_ENTER, trace_frame, 0u, 0u, 0u);
     result = TitanVideo_EndFrame();
+    TitanHealthTrace_Mark(TITAN_HT_VIDEO_END_EXIT, trace_frame, (uint32_t)result, 0u, 0u);
 
     if (result != TITAN_RESULT_OK)
     {
@@ -295,6 +309,7 @@ static TitanResult TitanKernel_RenderFrame(
 
     TitanDex_EndFrame();
     TitanDiagnostics_PhaseEnd(TITAN_DIAG_PHASE_RENDER);
+    TitanHealthTrace_Mark(TITAN_HT_RENDER_EXIT, trace_frame, 0u, 0u, 0u);
 
     if (context != 0)
     {
@@ -351,6 +366,7 @@ int TitanKernel_Run(
 
     TitanKernel_BootProbe("kernel-entry", 0);
     TitanDiagnostics_Initialize();
+    TitanHealthTrace_Initialize();
     TitanOverhead_Initialize();
     TitanTargetMemory_Initialize();
     TitanVramBootGuard_Initialize();
@@ -546,14 +562,21 @@ int TitanKernel_Run(
     for (;;)
     {
         int input_consumed;
+        TitanHealthTrace_Mark(TITAN_HT_FRAME_BEGIN, context.frame_count,
+            (uint32_t)TitanShellScene_IsStartupActive(), 0u, 0u);
         /* BF28 Early Input advances at most one backend activation phase per
          * frame. Failure/deadline expiry is non-fatal and DS2 remains live. */
+        TitanHealthTrace_Mark(TITAN_HT_EARLY_INPUT_ENTER, context.frame_count, 0u, 0u, 0u);
         TitanEarlyInput_Pump(TitanTime_NowMilliseconds());
+        TitanHealthTrace_Mark(TITAN_HT_EARLY_INPUT_EXIT, context.frame_count, 0u, 0u, 0u);
 
         TitanDiagnostics_BeginFrame(context.frame_count);
         TitanDiagnostics_PhaseBegin(TITAN_DIAG_PHASE_INPUT);
+        TitanHealthTrace_Mark(TITAN_HT_INPUT_ENTER, context.frame_count, 1u, 0u, 0u);
         TitanInput_Update();
+        TitanHealthTrace_Mark(TITAN_HT_INPUT_ENTER, context.frame_count, 2u, 0u, 0u);
         TitanControllerAssignment_Update();
+        TitanHealthTrace_Mark(TITAN_HT_INPUT_ENTER, context.frame_count, 3u, 0u, 0u);
         TitanControllerUx_Update(!TitanShellScene_IsStartupActive());
 
         input_consumed = TitanSystemError_Update(
@@ -566,9 +589,12 @@ int TitanKernel_Run(
             );
         }
 
+        TitanHealthTrace_Mark(TITAN_HT_INPUT_EXIT, context.frame_count, (uint32_t)input_consumed, 0u, 0u);
         TitanDiagnostics_PhaseEnd(TITAN_DIAG_PHASE_INPUT);
 
         TitanDiagnostics_PhaseBegin(TITAN_DIAG_PHASE_AUDIO);
+        TitanHealthTrace_Mark(TITAN_HT_AUDIO_ENTER, context.frame_count,
+            (uint32_t)TitanAudio_IsReady(), (uint32_t)TitanShellScene_IsStartupActive(), 0u);
         /* The realtime path runs before any storage background work.
          * Only the tiny startup-critical SFX may preload while the startup
          * sequence is visible; larger effects wait until Home is live. */
@@ -585,21 +611,33 @@ int TitanKernel_Run(
             }
         }
         TitanAudio_Update();
+        TitanHealthTrace_Mark(TITAN_HT_AUDIO_EXIT, context.frame_count,
+            (uint32_t)TitanAudio_IsReady(), 0u, 0u);
         TitanDiagnostics_PhaseEnd(TITAN_DIAG_PHASE_AUDIO);
 
         TitanDiagnostics_PhaseBegin(TITAN_DIAG_PHASE_SERVICES);
+        TitanHealthTrace_Mark(TITAN_HT_SERVICES_ENTER, context.frame_count, 0u, 0u, 0u);
         /* Download/store/disc are service state machines, not input. Keep
          * their timing in the service bucket so diagnostics can attribute
          * frame stalls to the actual owner. Their heavy I/O remains worker
          * owned; these calls only consume snapshots/completions. */
+        TitanHealthTrace_Mark(TITAN_HT_DOWNLOAD_ENTER, context.frame_count, 0u, 0u, 0u);
         { uint64_t started = TitanTime_NowMicroseconds(); TitanDownloadService_Update(); TitanKernel_DiagSlowService(1u, started, context.frame_count); }
+        TitanHealthTrace_Mark(TITAN_HT_DOWNLOAD_EXIT, context.frame_count, 0u, 0u, 0u);
+        TitanHealthTrace_Mark(TITAN_HT_STORE_ENTER, context.frame_count, 0u, 0u, 0u);
         { uint64_t started = TitanTime_NowMicroseconds(); TitanStoreService_Update(); TitanKernel_DiagSlowService(2u, started, context.frame_count); }
+        TitanHealthTrace_Mark(TITAN_HT_STORE_EXIT, context.frame_count, 0u, 0u, 0u);
+        TitanHealthTrace_Mark(TITAN_HT_DISC_ENTER, context.frame_count, 0u, 0u, 0u);
         { uint64_t started = TitanTime_NowMicroseconds(); TitanDiscService_UpdateMainThread(TitanTime_NowMilliseconds()); TitanKernel_DiagSlowService(3u, started, context.frame_count); }
+        TitanHealthTrace_Mark(TITAN_HT_DISC_EXIT, context.frame_count, 0u, 0u, 0u);
 
         /* Consume only small completion/state messages here.  Blocking USB
          * discovery, profile commits and VMC work execute on the low-priority
          * storage worker instead of the realtime UI/audio path. */
+        TitanHealthTrace_Mark(TITAN_HT_DIAG_ENTER, context.frame_count, 0u, 0u, 0u);
         { uint64_t started = TitanTime_NowMicroseconds(); TitanDiagnostics_UpdateMainThread(context.frame_count); TitanKernel_DiagSlowService(4u, started, context.frame_count); }
+        TitanHealthTrace_Mark(TITAN_HT_DIAG_EXIT, context.frame_count, 0u, 0u, 0u);
+        TitanHealthTrace_Mark(TITAN_HT_STORAGE_ENTER, context.frame_count, 0u, 0u, 0u);
         {
             uint64_t started = TitanTime_NowMicroseconds();
             uint64_t overhead_token = TitanOverhead_Begin(
@@ -613,7 +651,11 @@ int TitanKernel_Run(
             );
             TitanKernel_DiagSlowService(5u, started, context.frame_count);
         }
+        TitanHealthTrace_Mark(TITAN_HT_STORAGE_EXIT, context.frame_count, 0u, 0u, 0u);
+        TitanHealthTrace_Mark(TITAN_HT_ASSET_ENTER, context.frame_count, 0u, 0u, 0u);
         { uint64_t started = TitanTime_NowMicroseconds(); TitanAssetService_UpdateMainThread(context.frame_count); TitanKernel_DiagSlowService(6u, started, context.frame_count); }
+        TitanHealthTrace_Mark(TITAN_HT_ASSET_EXIT, context.frame_count, 0u, 0u, 0u);
+        TitanHealthTrace_Mark(TITAN_HT_NETWORK_ENTER, context.frame_count, 0u, 0u, 0u);
         {
             const TitanNetworkStatus *network_status = TitanNetwork_GetStatus();
             int network_active = network_status != 0 && network_status->enabled;
@@ -624,11 +666,18 @@ int TitanKernel_Run(
             TitanOverhead_End(TITAN_OVERHEAD_NETWORK, overhead_token, network_active);
             TitanKernel_DiagSlowService(7u, started, context.frame_count);
         }
+        TitanHealthTrace_Mark(TITAN_HT_NETWORK_EXIT, context.frame_count, 0u, 0u, 0u);
+        TitanHealthTrace_Mark(TITAN_HT_NET_UI_ENTER, context.frame_count, 0u, 0u, 0u);
         { uint64_t started = TitanTime_NowMicroseconds(); TitanKernel_UpdateNetworkAndAssetUi(); TitanKernel_DiagSlowService(8u, started, context.frame_count); }
+        TitanHealthTrace_Mark(TITAN_HT_NET_UI_EXIT, context.frame_count, 0u, 0u, 0u);
+        TitanHealthTrace_Mark(TITAN_HT_BROWSER_ENTER, context.frame_count, 0u, 0u, 0u);
         { uint64_t started = TitanTime_NowMicroseconds(); TitanBrowser_Update(); TitanKernel_DiagSlowService(9u, started, context.frame_count); }
+        TitanHealthTrace_Mark(TITAN_HT_BROWSER_EXIT, context.frame_count, 0u, 0u, 0u);
+        TitanHealthTrace_Mark(TITAN_HT_SERVICES_EXIT, context.frame_count, 0u, 0u, 0u);
         TitanDiagnostics_PhaseEnd(TITAN_DIAG_PHASE_SERVICES);
 
         TitanDiagnostics_PhaseBegin(TITAN_DIAG_PHASE_UI);
+        TitanHealthTrace_Mark(TITAN_HT_UI_ENTER, context.frame_count, (uint32_t)input_consumed, 0u, 0u);
         if (input_consumed)
         {
             /* Modal global bloqueia a tela abaixo. */
@@ -647,11 +696,14 @@ int TitanKernel_Run(
         }
         else
         {
+            TitanHealthTrace_Mark(TITAN_HT_SHELL_UPDATE_ENTER, context.frame_count, 0u, 0u, 0u);
             TitanShellScene_Update(
                 TitanInput_GetState()
             );
+            TitanHealthTrace_Mark(TITAN_HT_SHELL_UPDATE_EXIT, context.frame_count, 0u, 0u, 0u);
         }
 
+        TitanHealthTrace_Mark(TITAN_HT_UI_EXIT, context.frame_count, 0u, 0u, 0u);
         TitanDiagnostics_PhaseEnd(TITAN_DIAG_PHASE_UI);
         result = TitanKernel_RenderFrame(
             &context
@@ -669,7 +721,7 @@ int TitanKernel_Run(
             return 0;
         }
         TitanDiagnostics_EndFrame(context.frame_count);
-
+        TitanHealthTrace_Mark(TITAN_HT_FRAME_END, context.frame_count, (uint32_t)result, 0u, 0u);
         /* Background storage gets only the time left after a complete visible
          * frame.  The busy-pump callback above keeps rendering/audio alive
          * inside any individual operation that takes longer than expected. */
@@ -688,9 +740,26 @@ int TitanKernel_Run(
 
             if (!background_scan_started)
             {
+                int scan_request_ok;
                 TitanVramBootGuard_EnterPhase(TITAN_VRAM_PHASE_OPTIONAL_ASSETS);
-                (void)TitanStorageScheduler_RequestLibraryScan(0);
-                background_scan_started = 1;
+                scan_request_ok = TitanStorageScheduler_RequestLibraryScan(0);
+                if (scan_request_ok)
+                {
+                    background_scan_started = 1;
+                    TitanDiagnostics_Event(
+                        TITAN_DIAG_INFO, TITAN_DIAG_LIBRARY, 0x610, 0,
+                        context.frame_count, 1u, 0u, 0u
+                    );
+                }
+                else
+                {
+                    /* Do not latch a failed request forever. The next frame
+                     * retries after scheduler initialization/recovery. */
+                    TitanDiagnostics_Event(
+                        TITAN_DIAG_WARN, TITAN_DIAG_LIBRARY, 0x611, -1,
+                        context.frame_count, 0u, 0u, 0u
+                    );
+                }
             }
 
             /* Package extraction, library/profile/VMC analysis and audio

@@ -173,6 +173,7 @@ void dynInitMemory(void) {
         s32 gfxSize = g_GfxSizesByPlayerCount[playerCount - 1];
         s32 vtxSize = g_VtxSizesByPlayerCount[playerCount - 1];
         const s32 texSize = 128 * 128 * 4;
+        const size_t stageReserve = 1536u * 1024u;
         s32 stress;
         s32 stageLeft;
         size_t needed;
@@ -199,10 +200,34 @@ void dynInitMemory(void) {
             return;
         }
 
+        stageLeft = mempGetBankSizeLeft(MEMPOOL_STAGE);
+
+        /* Fail-closed overflow is visually preferable to corruption, but the
+         * old 256 KiB one-player arenas made those dropped draws visible as
+         * holes. Spend only verified stage-pool slack and retain 1.5 MiB for
+         * the later menu/model/z-buffer allocations. Explicit -mgfx/-mvtx and
+         * stress settings remain authoritative. */
+        if (stress == 0 && playerCount == 1 &&
+            gfxSize == 0x40000 && vtxSize == 0x40000 &&
+            stageLeft >= 0)
+        {
+            const s32 preferredGfx = 0x50000;
+            const s32 preferredVtx = 0x60000;
+            size_t preferredNeeded = (size_t)preferredGfx * 2u +
+                (size_t)preferredVtx * 2u + (size_t)texSize;
+            if (preferredNeeded + stageReserve <= (size_t)stageLeft)
+            {
+                gfxSize = preferredGfx;
+                vtxSize = preferredVtx;
+                g_GfxSizesByPlayerCount[0] = gfxSize;
+                g_VtxSizesByPlayerCount[0] = vtxSize;
+                TitanGeRuntime_Trace("P163_DYN_ARENAS_EXPANDED");
+            }
+        }
+
         needed = (size_t)gfxSize * 2u
                + (size_t)vtxSize * 2u
                + (size_t)texSize;
-        stageLeft = mempGetBankSizeLeft(MEMPOOL_STAGE);
 
         /*
          * mempAllocBytesInBank intentionally hard-loops on overflow in the

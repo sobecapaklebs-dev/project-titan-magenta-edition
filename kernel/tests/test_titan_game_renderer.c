@@ -82,6 +82,15 @@ static void test_viewport_mapping(void)
     assert(nearly_equal(output.y, 224.0f));
     assert(output.z == 0u);
 
+    /* A few ULPs of clip-plane interpolation error must not open a crack. */
+    assert(TitanVideoGame_MapClipVertex(
+        &state, 2.0001f, 0.0f, 0.0f, 1.0f, &output
+    ));
+    assert(nearly_equal(output.x, 800.0f));
+    assert(!TitanVideoGame_MapClipVertex(
+        &state, 2.01f, 0.0f, 0.0f, 1.0f, &output
+    ));
+
     state.viewport_y = 224;
     assert(TitanVideoGame_MapClipVertex(
         &state, 0.0f, 0.0f, 0.0f, 1.0f, &output

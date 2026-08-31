@@ -1,0 +1,447 @@
+profile storage + VMC tests passed
+profile storage + VMC tests passed
+profile storage + VMC tests passed
+storage mass:/mass0:/ fallback tests passed
+Neutrino ISO + OPL UL backend launch tests passed
+Application ELF discovery tests passed
+Package installer transaction tests passed
+TPKG builder and verifier tests passed
+Titan App ET_REL/R5900 ISA guard validation passed
+buildfix28-unified-input: OK
+buildfix28-modern-gamepad-protocol: OK
+buildfix28-dualsense-pademu: OK
+buildfix28-modern-input-contract: OK
+buildfix28-xbox-usb-protocol: OK
+buildfix28-xbox-usb-transport-contract: OK
+buildfix28-xbox-gip-init-contract: OK
+buildfix28-xbox-unified-input-contract: OK
+buildfix28-xbox-bt-transport-contract: OK
+buildfix28-xbox-bt-report-contract: OK
+buildfix28-xbox-ble-transport: OK
+buildfix28-xbox-early-input-contract: OK
+buildfix28-keyboard-mouse-contract: OK
+buildfix28-engine-overlay: OK
+buildfix28-ul-overlay-contract: OK
+buildfix28-ul-overlay-resume-contract: OK
+buildfix28-ul-return-contract: OK
+Fast boot catalog + background scanner tests passed
+home-folders: OK
+shell-layout: OK
+DEX persistence tests passed
+video-persistence: OK
+theme-service: OK API v1/v2 compatibility + scene-v2 API v3 idle validation/persistence
+xmb-spline-runtime: OK draws=3922 y=[-107.85, 422.95] ribbon-half=[0.41, 30.10] x=[-166.86, 1000.95]
+Project Titan Magenta Edition release contract passed
+renderer-native-480i-720p-double-buffer-contract: OK
+legacy-vram: 4145152 bytes, free: 49152
+native-720p-vram: 4194304 bytes, free: 0
+titan-app-window-media-contract: OK
+system-browser-contract: OK
+buildfix27-network-client-browser: OK shared ownership, bounded cancel/deadline, no Browser PS2IP
+buildfix27-app-network-api: OK append-only async ABI, bounded memory, lifecycle cancellation
+theme-engine-contract: OK
+vu1-wave-no-internal-edges: OK
+xmb-spline-contract: OK
+geometry: 8 rows, 7 strips, 65 samples, 910 vertices
+audio-runtime: OK
+magenta-audio-contract: OK
+home-grid-ul-contract: OK
+utf8: OK
+source-hardening: OK
+orbis-library-global-motion-contract: OK
+buildfix20-update-package-contract: OK
+system-update-transaction: OK forward-only TPUP stream + short I/O + staged reread + rollback
+wlaunchelf-native-port-contract: OK
+buildfix25-hardware-updater-contract: OK
+buildfix24-flow-errors-wlaunchelf-contract: OK
+buildfix25-stream-updater-contract: OK
+buildfix27-flow-ps4-wlaunchelf-pup-contract: OK
+buildfix28-reference-flow-contract: OK
+buildfix29-organic-flow-contract: OK
+buildfix30-smooth-flow-contract: OK
+buildfix31-vu1-procedural-flow-contract: OK
+buildfix32-stochastic-flow-contract: OK capability preserved
+snake-flow-capability-contract: OK legacy snake retained, Ribbon v8 active
+build25-flow-themes-power-autoreboot-capability-contract: OK on Build36
+build35-scene-v2-backcompat-contract: OK under Theme API v3
+build36-complex-theme-api-v3-contract: OK
+installer-poc-v1-contract: OK
+titan-game-runtime: OK
+titan-game-renderer: OK texture lifetime, alpha, viewport, ST/Q/GS packing
+titan-pikavr: OK savings, sampler, lossless CLUT/fallback, VRAM budget, telemetry
+titan-software-badges: OK truthful classification and technology evidence
+titan-vlombiscore: OK measured capabilities, events, sampled logging
+vlombis-scheduler-contract: OK real scheduler evidence gates badge
+diagnostics-categories-contract: OK
+package-installer-ui-contract: OK spacing, safe canvas, ellipsis bounds
+ui-bounds-contract: OK bounded rows, UTF-8 ellipsis, DEX safe area
+theme-context-contract: OK HOME full, non-HOME/system startup reduced theme context
+theme-transition-crossfade-contract: OK complementary scene/ribbon alpha with VU1+fallback parity
+titan-game-runtime-contract: OK
+titaneye-port-contract: OK source, lifecycle, memory, branding, SDK, private ROM gate
+ribbon-reference-contract: OK four palettes preserved
+titan-ge-platform: OK RGBA32 preservation with PSM16 fallback
+titan-ge-rom: OK z64/v64/n64 streaming cache
+sas-execution-model-contract: OK classification separated from execution model
+buildfix22-resolution-vram-contract: OK 720p/480i mapping, GS budget, restore path
+buildfix22-sdk-capability-docs: OK
+pikavr-960x540-internal-contract: OK separate 960x540 composition and 1280x720 output plans
+pikavr-internal-output-resolution-contract: OK internal and physical output are explicit independent dimensions
+pikavr-720p-scaling-contract: OK deterministic LINEAR composition scale, clamp, half-texel bounds, sampler semantics preserved
+pikavr-720p-text-legibility-contract: OK effective text/UI geometry preserved; visual sharpness remains CP04 target gate
+pikaVR-720p-vram-headroom-contract: OK explicit reserved headroom excluded from free budget
+titan-ui-transition-compositor-contract: OK pure base+progress transforms, clear-before-compose, reset transforms
+titan-ui-focus-transition-contract: OK shared focus interpolation and unique target resolver
+titan-ui-text-bounds-contract: OK formal bounds + fixed metrics cache on fitting hot path
+titan-dex-overlay-safe-area-contract: OK anchored overlay with mandatory-content exclusion regions
+titan-ui-collision-detector-contract: OK categories=TEXT,CARD,FOCUS,OVERLAY,SCROLLBAR,HELP_BAR,BADGE,CLOCK,NOTIFICATION
+titan-ui-rapid-input-contract: OK UP/DOWN/LEFT/RIGHT burst model retains one bounded focus for Settings/Library/Applications/TOP/Folders/submenus
+titan-package-list-row-layout-contract: OK 4 visible 78px chrome-safe rows, bounded filename/metadata, footer-safe
+titan-applications-library-bounds-contract: OK bounded text/focus lanes + DEX safe-anchor integration preserved
+titan-sas-reference-audit-contract: OK primary-source boundary and unresolved-prefix caution recorded
+titan-sas-compliance-model-contract: OK compatible/compliant split + invariant + boot metadata
+titan-sas-compliance-implies-compatibility-contract: OK
+titan-sas-compatible-noncompliant-contract: OK
+titan-sas-invalid-compliance-state-contract: OK
+titan-sas-no-install-pbt-requirement-contract: OK INSTALL.PBT is neither requirement nor proof
+titan-sas-prefix-recognition-contract: OK sourced APP table + non-normative 3-letter compatibility hint
+titan-sas-classic-osdsys-contract: OK classic profile + MC root manageability modeled independently
+titan-sas-extended-subfolder-contract: OK subfolders remain compatible but block classic compliance
+titan-sas-copyability-contract: OK copyability separate from compliance
+titan-sas-titlecfg-contract: OK canonical title.cfg precedes Titan app.cfg fallback and tracks boot=
+titan-sas-appcfg-fallback-contract: OK app.cfg retained as Titan compatibility fallback, not compliance proof
+titan-sas-optional-files-contract: OK AUTHOR/credits/source metadata tolerated without defining a new standard
+titan-sas-archive-import-contract: OK traversal and malformed destination paths gated before extraction
+titan-sas-library-contract: OK discovery retains compatibility while exposing compliance
+titan-sas-badge-contract: OK badge reports compatibility classification, not compliance claim
+titan-sas-validator-contract: OK explanatory host validator follows centralized prefix source
+titan-sas-sdk-freeze-contract: OK public docs distinguish compliance, compatibility, fallback and execution
+titan-480i-validation-selector-isolation-contract: PASS
+titan-720p-double-failure-contract: PASS
+titan-720p-invalid-preference-contract: PASS
+titan-720p-release-reference-default-contract: PASS
+titan-720p-rollback-initialized-state-contract: PASS
+titan-480i-validation-selector-isolation-contract: PASS
+titan-720p-double-failure-contract: PASS
+titan-720p-invalid-preference-contract: PASS
+titan-720p-release-reference-default-contract: PASS
+titan-720p-rollback-initialized-state-contract: PASS
+titan-720p-transactional-reconfigure-contract: PASS
+titan-boot-resource-lifetime-contract: PASS
+titan-boot-vram-budget-contract: PASS
+titan-boot-vram-history-export-contract: PASS
+titan-boot-vram-phase-contract: PASS
+titan-pikavr-startup-accounting-contract: PASS
+titan-sas-lazy-vram-contract: PASS
+titan-theme-boot-degradation-contract: PASS
+titan-vram-accounting-overflow-contract: PASS
+titan-vram-allocation-failure-contract: PASS
+titan-vram-critical-fallback-contract: PASS
+titan-vram-fault-injection-contract: PASS
+titan-vram-reserved-headroom-contract: PASS
+titan-first-hardware-profile-contract: PASS
+titan-vram-fault-injection: PASS
+titan-720p-rollback-fault-matrix: PASS
+titan-target-memory-contract: PASS
+titan-target-memory-watermarks: PASS
+titan-boot-recovery-contract: PASS
+titan-boot-recovery-latch: PASS
+titan-target-lifecycle-contract: PASS
+buildfix26-app-preflight-contract: OK
+buildfix26-target-readiness-contract: OK
+buildfix27-cp10-recovery-contract: OK
+make: Entering directory '/mnt/data/bf30_regression/tree/Project-Titan-BuildFix30-FINAL-FMCB-PREHARDWARE/apps/wlaunchelf'
+mkdir -p build/host
+cc -std=c99 -O2 -Wall -Wextra -Werror -DWLE_HOST_TEST -Iinclude \
+	src/wlaunchelf_titan.c tests/host_lifecycle_test.c -o build/host/wle_host_test
+build/host/wle_host_test
+wlaunchelf-titan-host-lifecycle: OK draw-visible
+make: Leaving directory '/mnt/data/bf30_regression/tree/Project-Titan-BuildFix30-FINAL-FMCB-PREHARDWARE/apps/wlaunchelf'
+make: Entering directory '/mnt/data/bf30_regression/tree/Project-Titan-BuildFix30-FINAL-FMCB-PREHARDWARE/apps/project-nes'
+mkdir -p build/source
+cp resources/COMBINED_LICENSE.txt build/source/LICENSE.txt
+mkdir -p build/source
+cp LICENSE build/source/LICENSE-MIT.txt
+mkdir -p build/source
+cp ../../third_party/fceumm/modern/Copying build/source/THIRD_PARTY_FCEUMM_LICENSE.txt
+mkdir -p build/source
+cp resources/FCEUMM_SOURCE_PROVENANCE.txt build/source/FCEUMM_SOURCE_PROVENANCE.txt
+mkdir -p build/host
+cc -std=c99 -O2 -Wall -Wextra -Werror -Iinclude tests/host_core_test.c -o build/host/host_core_test
+cc -std=c99 -O2 -Wall -Wextra -Werror -Iinclude tests/host_audio_test.c -o build/host/host_audio_test
+cc -std=c99 -O2 -Wall -Wextra -Werror -Iinclude tests/host_lifecycle_test.c -o build/host/host_lifecycle_test
+cc -std=c99 -O2 -Wall -Wextra -Werror -Iinclude tests/host_save_test.c -o build/host/host_save_test
+cc -std=c99 -O2 -Wall -Wextra -Werror -Iinclude tests/host_conformance_test.c -o build/host/host_conformance_test
+cc -std=c99 -O2 -Wall -Wextra -Werror -Iinclude tests/host_provider_selection_test.c -o build/host/host_provider_selection_test
+cc -std=c99 -O2 -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer -DPROJECT_NES_FCEUMM_LINKED -Isrc src/project_nes_fceumm_provider.c tests/host_fceumm_adapter_test.c -o build/host/host_fceumm_adapter_test
+build/host/host_core_test data/roms/ProjectNesTest.nes
+frame 0 pc=c017 halt=0 op=ffffffff ppu=80 ctrl=00 mask=00
+frame 1 pc=c019 halt=0 op=ffffffff ppu=80 ctrl=00 mask=00
+frame 2 pc=c100 halt=0 op=ffffffff ppu=80 ctrl=80 mask=0a
+frame 3 pc=c100 halt=0 op=ffffffff ppu=80 ctrl=80 mask=0a
+frame 4 pc=c100 halt=0 op=ffffffff ppu=80 ctrl=80 mask=0a
+frame 5 pc=c100 halt=0 op=ffffffff ppu=80 ctrl=80 mask=0a
+frame 6 pc=c100 halt=0 op=ffffffff ppu=80 ctrl=80 mask=0a
+frame 7 pc=c100 halt=0 op=ffffffff ppu=80 ctrl=80 mask=0a
+nonzero=285 palette1=27 vram21ca=1
+build/host/host_audio_test data/roms/ProjectNesTest.nes
+submitted=533 nonzero=1 reg4000=9f timer=fd/08
+build/host/host_lifecycle_test data/roms/ProjectNesTest.nes
+project-nes-lifecycle: OK cycles=10 save_retry=1 media=130 audio=69340 draw=100
+build/host/host_save_test data/roms/ProjectNesTest.nes
+project-nes-save-core: OK battery SRAM import/export/dirty
+build/host/host_conformance_test
+project-nes-conformance: OK mapper/format/region/SRAM/audio timing metadata
+build/host/host_provider_selection_test
+project-nes-provider-selection: OK valid frozen GPL provider selected; invalid/missing provider falls back
+ASAN_OPTIONS=detect_leaks=1 build/host/host_fceumm_adapter_test
+project-nes-fceumm-adapter-host: OK libretro ownership/video/audio/input/save/lifecycle
+python3 tools/check_provider_package.py --provider fceumm --source-dir . --package-dir build/source
+project-nes-provider-package: OK FCEUmm GPL/provenance package gate
+project-nes-host-tests: OK
+make: Leaving directory '/mnt/data/bf30_regression/tree/Project-Titan-BuildFix30-FINAL-FMCB-PREHARDWARE/apps/project-nes'
+buildfix27-project-nes-storage-save-contract: OK durable SRAM boundary/lifecycle
+buildfix27-project-nes-conformance-contract: OK truthful mapper/region/SRAM/audio fixtures
+buildfix27-project-nes-lifecycle-package-contract: OK 10-cycle cleanup/save retry/license truthfulness
+buildfix27-project-nes-provider-contract: OK frozen GPL provider selection + packaging gate
+buildfix27-network-client-host: OK success/timeout/cancel/nested-busy telemetry
+buildfix27-app-sdk-abi: OK legacy tail unchanged, network API append-only
+buildfix27-wlaunchelf-text-editor: OK bounded viewer, shared input, atomic publication
+buildfix27-wlaunchelf-recursive: OK bounded DFS, transactional files, two-phase move
+wlaunchelf-recursive-host: OK bounded DFS copy + two-phase move
+buildfix27-app-image-fit: OK JPEG/PNG full-image FIT letterbox
+buildfix27-wlaunchelf-image-viewer: OK Titan-owned JPEG/PNG FIT media viewer
+buildfix27-managed-storage-mount-gate: OK hdd0 read-only, PFS lifecycle provider-gated, VMC kernel-managed
+buildfix27-network-stream-contract: OK opaque bounded Titan-owned TCP stream service
+buildfix27-network-stream-host: OK bounded opaque TCP server lifecycle
+buildfix27-ftp-control-contract: OK Titan Network Stream + VFS control plane
+buildfix27-ftp-control-host: OK cooperative authenticated control plane
+buildfix27-lifecycle-classification-closure: OK reclaim + SAS/runtime independence
+buildfix27-ftp-data-contract: OK passive LIST/NLST data plane
+buildfix27-ftp-list-host: OK passive LIST paged over Titan VFS
+buildfix27-ftp-file-contract: OK cooperative RETR + transactional STOR
+buildfix27-ftp-file-host: OK RETR + transactional STOR
+buildfix27-app-ftp-integration: OK append-only lifecycle/status API + wLaunchELF L3 control
+buildfix27-titan-app-sdk-docs: OK canonical header + ownership/lifecycle/service docs
+buildfix27-network-client-browser: OK shared ownership, bounded cancel/deadline, no Browser PS2IP
+sas-execution-model-contract: OK classification separated from execution model
+buildfix27-host-readiness: OK all material host gates registered; source complete and external validation states explicit
+buildfix27-fceumm-materialization-gate: OK exact refs/GPL/real materialization truthful
+buildfix27-vmc-adapter-contract: OK read-only active-profile VMC inspection
+buildfix27-vmc-traversal-contract: OK bounded nested read-only VMC navigation
+buildfix27-vmc-export-contract: OK bounded read + transactional storage export
+buildfix27-scope-closure: OK host scope closed; FCEUmm integrated; external target/runtime validation preserved
+buildfix27-storage-mount-contract: OK provider-gated kernel-owned PFS lifecycle with dynamic app capability gate
+buildfix27-storage-mount-host: OK provider-gated PFS lifecycle/generation/rollback
+buildfix27-pfs-app-abi-contract: OK append-only provider-gated PFS session ownership
+buildfix27-wlaunchelf-pfs-ux-contract: OK R1 provider-gated mount/unmount through Titan ABI
+buildfix27-pfs-provider-boot-contract: OK boot initialization + weak-hook fail-closed adapter
+buildfix27-pfs-provider-absent-host: OK fail-closed without platform hooks
+buildfix27-pfs-provider-ps2-host: OK weak platform hook adapter
+buildfix27-pfs-iop-provenance-contract: OK
+buildfix27-pfs-iop-loader-contract: OK optional embedded official driver chain
+buildfix27-fceumm-importer-contract: OK deterministic frozen-source import gate
+buildfix27-fceumm-importer-host: OK frozen pins/blob verification/archive safety
+buildfix27-ps2dev-bundle-intake: OK deterministic external target environment gate
+buildfix27-project-nes-fceumm-adapter: OK libretro isolation/lifecycle/frame/audio contract
+buildfix27-target-orchestrator: OK deterministic target build/evidence fail-closed gate
+buildfix27-hardware-evidence: OK physical evidence fail-closed validator
+buildfix27-rehydrate-contract: OK persisted CP00+delta+FCEUmm+closure recovery, final 0/0/0 gate
+buildfix28-external-session-contract: OK
+buildfix28-fast-paths-contract: OK
+buildfix28-prefreeze-contract: OK
+buildfix28-theme-v4-schema-contract: OK
+theme-v4-runtime: OK fixed parse/sort/parallax/degradation/telemetry
+buildfix28-theme-v4-runtime-contract: OK
+buildfix28-theme-v4-renderer-contract: OK
+theme-v4-rare-event: OK deterministic bounded schedule
+buildfix28-theme-v4-profiler-contract: OK
+buildfix28-no-frame-allocation-contract: OK
+buildfix28-neutrino-overlay-contract: OK
+buildfix28-neutrino-overlay-resume-contract: OK
+buildfix28-neutrino-return-contract: OK
+buildfix28-theme-v4-flagship-contract: OK multilayer/no-video/independent-timelines/DEX-profiler
+theme-v4-flagship: OK 14-layer/independent-timeline/rare-event/top-transition/degradation
+buildfix28-lifecycle-recovery-contract: OK session/overlay/input/theme/power/fail-safe
+buildfix29-input-platform: OK
+buildfix29-unified-input-final-contract: OK
+buildfix29-pademu-bridge: OK
+buildfix29-pademu-telemetry-contract: OK
+titan-system-button-contract: OK
+titan-system-button-native-contract: OK
+titan-system-button-ul-contract: OK
+titan-system-button-neutrino-contract: OK
+buildfix29-controller-ux: OK
+titan-controller-connect-notification-contract: OK
+titan-controller-deferred-boot-notification-contract: OK
+titan-controller-no-duplicate-notification-contract: OK
+titan-welcome-device-glyph-contract: OK
+titan-welcome-first-input-contract: OK
+titan-welcome-player1-contract: OK
+titan-controller-battery-contract: OK
+titan-controller-usb-battery-contract: OK
+titan-controller-battery-unknown-contract: OK
+titan-controller-battery-source-contract: OK
+titan-input-dex-contract: OK
+titan-input-overhead-contract: OK
+titan-api-pre-freeze-contract: OK
+pikavr-api-pre-freeze-contract: OK
+vlombiscore-api-pre-freeze-contract: OK
+titan-open-source-readiness-contract: OK
+titan-repository-protocol-host: OK
+titan-repository-protocol-contract: OK
+buildfix29-download-service-host: OK
+buildfix29-download-service-contract: OK
+buildfix29-store-foundation-host: OK
+buildfix29-store-foundation-contract: OK
+buildfix29-platform-closure-contract: OK
+titan-controller-battery-contract: OK
+titan-controller-usb-battery-contract: OK
+titan-controller-battery-unknown-contract: OK
+titan-controller-assignment-contract: OK
+titan-early-input-continuity-contract: OK
+buildfix30-datetime-host: OK
+titan-rtc-contract: OK
+titan-date-time-settings-contract: OK
+titan-timezone-contract: OK
+titan-internet-time-contract: OK
+titan-internet-time-offline-contract: OK
+titan-time-boot-nonblocking-contract: OK
+titan-system-clock-single-owner-contract: OK
+buildfix30-theme-lifecycle-host: OK
+titan-theme-prehome-ribbon-contract: OK
+titan-theme-prehome-scene-disabled-contract: OK
+titan-theme-home-enter-scene-start-contract: OK
+titan-theme-home-enter-sync-contract: OK
+titan-theme-prehome-music-disabled-contract: OK
+titan-theme-home-music-start-contract: OK
+titan-theme-return-home-contract: OK
+titan-theme-top-transition-contract: OK
+titan-theme-v1-backcompat-contract: OK
+titan-theme-v2-backcompat-contract: OK
+titan-theme-v3-backcompat-contract: OK
+titan-theme-v4-lifecycle-contract: OK
+buildfix30-disc-service-host: OK
+titan-disc-service-contract: OK
+titan-disc-no-media-contract: OK
+titan-disc-insert-contract: OK
+titan-disc-eject-contract: OK
+titan-disc-swap-contract: OK
+titan-disc-system-cnf-contract: OK
+titan-disc-boot-path-contract: OK
+titan-disc-title-id-contract: OK
+titan-disc-region-contract: OK
+titan-disc-unsupported-media-contract: OK
+titan-disc-read-error-contract: OK
+buildfix30-disc-engine-host: OK
+titan-disc-session-contract: OK
+titan-disc-launch-contract: OK
+titan-disc-service-quiesce-contract: OK
+titan-disc-tile-contract: OK
+titan-disc-smartigr-contract: OK
+titan-disc-overlay-contract: OK conservative RETURN_ONLY/profile-gated
+titan-disc-vmc-contract: OK cached VMC optional/fail-open
+titan-disc-dex-contract: OK
+titan-disc-smartigr-contract: OK
+titan-disc-overlay-contract: OK return-only default / profile-gated visual overlay
+titan-disc-return-contract: OK resident return + RETURN_HOME lifecycle
+titan-disc-ds2-fallback-contract: OK
+titan-disc-shutdown-contract: OK
+titan-disc-no-frame-io-contract: OK
+buildfix30-localization-host: OK
+titan-global-language-architecture-contract: OK
+titan-global-text-utf8-contract: OK
+titan-language-en-pt-es-contract: OK
+titan-localization-no-frame-io-contract: OK
+titan-boot-validated-baseline-preservation-contract: OK
+titan-system-packaging-integrity-contract: OK
+titan-tins-corruption-fail-closed-contract: OK
+titan-release-sha256-manifest-contract: OK
+titan-pup-transaction-contract: OK
+titan-pup-auto-reboot-after-commit-contract: OK
+titan-shutdown-reboot-quiesce-contract: OK
+titan-disc-power-action-contract: OK
+Titan Magenta v1 API freeze: OK
+titan-api-freeze-v1-contract: OK
+titan-input-sdk-preservation-contract: OK
+titan-repository-protocol-v1-freeze-contract: OK
+buildfix30-release-regression-meta-contract: OK
+titan-fmcb-source-integration-contract: PASS
+titan-fmcb-license-provenance-contract: PASS
+titan-fmcb-build-wiring-contract: PASS
+titan-fmcb-install-layout-contract: PASS
+titan-fmcb-boot-entry-contract: PASS
+titan-fmcb-config-contract: PASS
+titan-autonomous-rom-compat-contract: PASS
+titan-autonomous-installer-contract: PASS
+titan-autonomous-preflight-contract: PASS
+titan-autonomous-mc-space-contract: PASS
+titan-autonomous-existing-fmcb-contract: PASS
+titan-autonomous-backup-contract: PASS
+titan-autonomous-stage-contract: PASS
+titan-autonomous-write-contract: PASS
+titan-autonomous-verify-contract: PASS
+titan-autonomous-commit-contract: PASS
+titan-autonomous-rollback-contract: PASS
+titan-fmcb-to-titan-entry-contract: PASS
+titan-titan-entry-to-bootloader-contract: PASS
+titan-autonomous-boot-chain-contract: PASS
+titan-autonomous-integrity-contract: PASS
+titan-autonomous-recovery-contract: PASS
+titan-semi-autonomous-nonregression-contract: PASS
+titan-negative-opentuna-fortuna-contract: PASS
+
+=== OUTER VALIDATION ===
+TITAN_SOURCE_AUDIT=PASS
+ALLOWED_PAYLOADS=14
+LICENSE_NOTICE_FILES=31
+ALLOW kernel/src/graphics/vu1/titan_wave_vu1_micro.bin 03ddd12db514379fc3a2170ea5c87a379255a75e0932200a8d1963c6477e4cc9 # generated VU1 microprogram binary with source present
+ALLOW apps/project-nes/data/roms/ProjectNesTest.nes 1c93186e908aff0f89ce763e728b4b901faf519c6d0656810c61f50e1beae9f8 # project-owned deterministic diagnostic homebrew ROM
+ALLOW third_party/fmcb/upstream/installer/irx/compiled/bdm.irx d658f84662f3e23b468d5c84f18c7f2c53e320068cdbd744ed48730fbba3831b # identity-locked FMCB upstream payload from the user-supplied source archive
+ALLOW third_party/fmcb/upstream/installer/irx/compiled/mctools.irx 5f57301a905b1072ac18b0b01f832bad3c1cc9252e469b8e7e92c93b773c2166 # identity-locked FMCB upstream payload from the user-supplied source archive
+ALLOW third_party/fmcb/upstream/installer/irx/compiled/usbmass_bd.irx 08f5b20c70d1498f8cd735a4803b5f30e09f378a201b739ad0954681bdf1aa23 # identity-locked FMCB upstream payload from the user-supplied source archive
+ALLOW third_party/fmcb/upstream/installer/irx/compiled/secrman.irx 7e809a80c6528d126885cd85bee6e35d2d65ef169d27c7e86408a3ba3f4c702e # identity-locked FMCB upstream payload from the user-supplied source archive
+ALLOW third_party/fmcb/upstream/installer/irx/compiled/bdmfs_fatfs.irx d10d9b45ffe01347ed91fbc30ee17de569f0fe23a85dd53cb58e6fd73352c9d1 # identity-locked FMCB upstream payload from the user-supplied source archive
+ALLOW third_party/fmcb/upstream/installer/irx/compiled/secrsif.irx db7c1e55511b3f97d43f5b45682f478487168529de5b862d3e5c625eb1e2256b # identity-locked FMCB upstream payload from the user-supplied source archive
+ALLOW third_party/fmcb/resources/INSTALL/SYS-CONF/USBHDFSD.IRX a59647c14428086a4c4d440ea5a538f2d0eeb7bed224a9ae38d0334024f3fd6e # identity-locked FMCB 1.966 runtime resource copied from audited upstream input
+ALLOW third_party/fmcb/resources/INSTALL/SYS-CONF/USBD.IRX 775e90bb6cfafa1d13536d035eac11112db75b9249c9e65e05ffe31a6d1a383d # identity-locked FMCB 1.966 runtime resource copied from audited upstream input
+ALLOW third_party/fmcb/resources/INSTALL/SYS-CONF/FMCB_CFG.ELF 7881ad9a3171cd4c675b0bc7b1311254a1c2f86c62ba64292de4f1c70f1cfff1 # identity-locked FMCB 1.966 runtime resource copied from audited upstream input
+ALLOW third_party/fmcb/resources/INSTALL/SYSTEM/DEV9.IRX 962bedf3ab211424409026e16c21437ce9b41edad01d7bc505b5b9037f0b469e # identity-locked FMCB 1.966 runtime resource copied from audited upstream input
+ALLOW third_party/fmcb/resources/INSTALL/SYSTEM/HDDLOAD.IRX 2c743ed4e87f517a974aef7c0b6a23361ee752912db0199008a406689ac1e266 # identity-locked FMCB 1.966 runtime resource copied from audited upstream input
+ALLOW third_party/fmcb/resources/INSTALL/SYSTEM/ATAD.IRX d872f23b6eaebbdc392a9c4a9ffb65d872a77bf6e38055e57024fa6154a20395 # identity-locked FMCB 1.966 runtime resource copied from audited upstream input
+curated-assets: OK files=238
+titan-fmcb-source-integration-contract: PASS
+titan-fmcb-license-provenance-contract: PASS
+titan-fmcb-build-wiring-contract: PASS
+titan-fmcb-install-layout-contract: PASS
+titan-fmcb-boot-entry-contract: PASS
+titan-fmcb-config-contract: PASS
+titan-autonomous-rom-compat-contract: PASS
+titan-autonomous-installer-contract: PASS
+titan-autonomous-preflight-contract: PASS
+titan-autonomous-mc-space-contract: PASS
+titan-autonomous-existing-fmcb-contract: PASS
+titan-autonomous-backup-contract: PASS
+titan-autonomous-stage-contract: PASS
+titan-autonomous-write-contract: PASS
+titan-autonomous-verify-contract: PASS
+titan-autonomous-commit-contract: PASS
+titan-autonomous-rollback-contract: PASS
+titan-fmcb-to-titan-entry-contract: PASS
+titan-titan-entry-to-bootloader-contract: PASS
+titan-autonomous-boot-chain-contract: PASS
+titan-autonomous-integrity-contract: PASS
+titan-autonomous-recovery-contract: PASS
+titan-semi-autonomous-nonregression-contract: PASS
+titan-negative-opentuna-fortuna-contract: PASS
+
+project-titan-source-validation: OK
+outer-preflight: OK
+bootloader test_boot_path: PASS
+bootloader test_elf_validate: PASS
+installer-transaction: OK
+curated-assets: OK files=238
+generated-system-assets: OK
+Titan UL libdebug recovery link guard: OK
+project-titan-source-validation: OK
+GLOBAL_HOST_REGRESSION_PASS=1

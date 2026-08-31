@@ -1,0 +1,28 @@
+BuildFix30 CP19 — FMCB Integrated Installer validation
+
+CP18_GLOBAL_BASELINE=PASS (inherited, previously completed)
+CP19_FOCUSED_FMCB_CONTRACTS=PASS
+titan-fmcb-same-environment-contract: PASS
+titan-fmcb-no-secondary-installer-contract: PASS
+titan-autonomous-ui-gate-contract: PASS
+titan-autonomous-interrupted-recovery-contract: PASS
+titan-autonomous-rom-compat-contract: PASS
+titan-autonomous-rollback-contract: PASS
+titan-semi-autonomous-nonregression-contract: PASS
+titan-negative-opentuna-fortuna-contract: PASS
+BUILDFIX30_ACCEPTANCE_GAP=PASS
+BUILDFIX30_BOOT_PACKAGING=PASS
+BUILDFIX30_RELEASE_REGRESSION_META=PASS
+INSTALLER_POC_LEGACY=PASS
+FMCB_ROM_ASAN_UBSAN=PASS
+TITAN_SOURCE_AUDIT=PASS
+PYTHON_CHANGED_FILES=PASS
+SHELL_SYNTAX_PROJECT_OWNED=PASS
+PRODUCTION_SECONDARY_FMCB_HANDOFF_SCAN=NONE
+
+A full post-CP19 run_host_tests.sh invocation was started, emitted PASS/OK through the observed BuildFix28 engine-overlay/UL-overlay boundary, and exceeded this executor command wall-clock. That timeout is NOT counted as a new complete global-suite PASS; the authoritative complete global baseline remains CP18 plus the CP19 focused/regression gates above.
+
+PS2DEV_PRESENT=0
+PS2SDK_PRESENT=0
+TARGET_BUILD_VALIDATED=0
+HARDWARE_VALIDATED=0

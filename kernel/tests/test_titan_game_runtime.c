@@ -24,6 +24,7 @@ static float g_last_material_x0 = 0.0f;
 static float g_last_material_y0 = 0.0f;
 static int g_texture_live = 0;
 static int g_audio = 0;
+static int g_input_updates = 0;
 static TitanInputPadState g_pad;
 static char g_storage_path[768];
 static void *g_alloc_stress[20000];
@@ -75,7 +76,7 @@ int TitanVideo_DrawGameMaterialTrianglePhysical(
     return 1;
 }
 void TitanVideo_GameResetTextures(void){ g_texture_live=0; }
-void TitanInput_Update(void){}
+void TitanInput_Update(void){g_input_updates++;}
 const TitanInputPadState *TitanInput_GetPadState(unsigned int i){ return i==0?&g_pad:0; }
 unsigned int TitanInput_GetConnectedPadCount(void){ return g_pad.connected?1u:0u; }
 int TitanInput_SetRumble(unsigned int i,unsigned char s,unsigned char l){(void)s;(void)l;return i==0u;}
@@ -164,6 +165,7 @@ int main(void)
 
     memset(&g_pad,0,sizeof(g_pad)); g_pad.connected=1; g_pad.port=0; g_pad.buttons=TITAN_INPUT_BUTTON_CROSS; g_pad.pressed=TITAN_INPUT_BUTTON_CROSS; g_pad.left_stick_x=130;
     api->poll_input(); assert(api->get_pad(0,&pad)); assert(pad.connected && pad.held==TITAN_GAME_BUTTON_CROSS && pad.left_stick_x==130);
+    assert(g_input_updates==0);
     assert(api->connected_pad_count()==1u);
     assert((api->feature_flags&TITAN_GAME_FEATURE_HAPTICS)!=0u);
     assert(api->set_pad_rumble(0u,0u,128u));

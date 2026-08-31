@@ -5,6 +5,8 @@
  * DO NOT EDIT -- regenerate with: claude "regenerate rom_offsets.c"
  */
 #include <ultra64.h>
+#include "../game/ob.h"
+#include <assets/obseg/file_resource_id_enums.h>
 
 #ifdef PROJECT_TITAN_TGR
 /* TGR streams the cartridge through bounded storage reads.  File-table
@@ -14,8 +16,7 @@
 #define TITAN_ROM_POINTER(base, offset) ((base) + (offset))
 #endif
 
-typedef struct fileentry { s32 index; char *filename; u8 *hw_address; } fileentry_t;
-extern fileentry_t file_resource_table[];
+extern fileentry file_resource_table[];
 
 void platformPatchFileTable(u8 *romData) {
     /* Entry 0 is NULLFILE with hw_address=NULL -- skip it */
@@ -745,4 +746,9 @@ void platformPatchFileTable(u8 *romData) {
     file_resource_table[724].hw_address = TITAN_ROM_POINTER(romData, 0x008f7dc0); /* LwaxE */
     file_resource_table[725].hw_address = TITAN_ROM_POINTER(romData, 0x008f7dd0); /* LwaxJ */
     file_resource_table[726].hw_address = TITAN_ROM_POINTER(romData, 0x008f7de0); /* ob__ob_end_seg */
+    /* obInit derives every resource size from entry[i + 1].  OBENDSEG is a
+     * real 16-byte resource, so the first reserved slot is its mandatory end
+     * sentinel rather than a NULL pointer. */
+    file_resource_table[OBJ_INDEX_END].hw_address =
+        TITAN_ROM_POINTER(romData, 0x008f7df0); /* ob__ob_end_seg + 0x10 */
 }

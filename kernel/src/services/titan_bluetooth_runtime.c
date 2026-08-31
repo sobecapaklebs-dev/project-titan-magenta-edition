@@ -3,6 +3,7 @@
 #include "titan_iop_modules.h"
 #include "titan_early_input_wire.h"
 #include "titan_diagnostics.h"
+#include "titan_health_trace.h"
 #include <kernel.h>
 #include <loadfile.h>
 #include <string.h>
@@ -87,13 +88,22 @@ static void bt_runtime_worker(void *arg)
     unsigned int arg_len;
     (void)arg;
 
+    TitanHealthTrace_Critical(TITAN_HT_BT_WORKER_ENTER,
+        g_bt_runtime.requests, (uint32_t)g_bt_runtime.state, 0u, 0u);
     early = TitanEarlyInput_GetStatus();
     if (early && early->smsutils_module_id >= 0)
         g_bt_runtime.smsutils_module_id = early->smsutils_module_id;
     else
+    {
+        TitanHealthTrace_Critical(TITAN_HT_BT_SMSUTILS_EXEC_BEFORE,
+            g_bt_runtime.requests, size_titan_smsutils_irx, 0u, 0u);
         g_bt_runtime.smsutils_module_id = bt_runtime_exec(
             titan_smsutils_irx, size_titan_smsutils_irx, 0, 0,
             &g_bt_runtime.last_module_result);
+        TitanHealthTrace_Critical(TITAN_HT_BT_SMSUTILS_EXEC_AFTER,
+            g_bt_runtime.requests, (uint32_t)g_bt_runtime.smsutils_module_id,
+            (uint32_t)g_bt_runtime.last_module_result, 0u);
+    }
 
     if (g_bt_runtime.smsutils_module_id < 0) {
         g_bt_runtime.state = TITAN_BT_RUNTIME_FAILED;
@@ -116,13 +126,22 @@ static void bt_runtime_worker(void *arg)
     /* Log identity of the exact embedded bytes immediately before LOADFILE.
      * This makes stale staging impossible to confuse with an HCI bug. */
     bt_runtime_image_diag();
+    TitanHealthTrace_Critical(TITAN_HT_BT_PADEMU_EXEC_BEFORE,
+        g_bt_runtime.requests, size_titan_bt_pademu_irx, arg_len, 0u);
     g_bt_runtime.pademu_module_id = bt_runtime_exec(
         titan_bt_pademu_irx, size_titan_bt_pademu_irx,
         (int)arg_len, args, &g_bt_runtime.last_module_result);
+    TitanHealthTrace_Critical(TITAN_HT_BT_PADEMU_EXEC_AFTER,
+        g_bt_runtime.requests, (uint32_t)g_bt_runtime.pademu_module_id,
+        (uint32_t)g_bt_runtime.last_module_result, 0u);
     g_bt_runtime.state = g_bt_runtime.pademu_module_id >= 0
         ? TITAN_BT_RUNTIME_READY : TITAN_BT_RUNTIME_FAILED;
     g_bt_runtime_worker_active = 0;
     bt_runtime_diag();
+    TitanHealthTrace_Critical(TITAN_HT_BT_WORKER_EXIT,
+        g_bt_runtime.requests, (uint32_t)g_bt_runtime.state,
+        (uint32_t)g_bt_runtime.pademu_module_id,
+        (uint32_t)g_bt_runtime.last_module_result);
     ExitDeleteThread();
 }
 
@@ -162,6 +181,10 @@ int TitanBluetoothRuntime_Request(void)
 {
     const TitanEarlyInputStatus *early = TitanEarlyInput_GetStatus();
     if (g_bt_runtime.requests < 0xffffffffu) g_bt_runtime.requests++;
+    TitanHealthTrace_Mark(TITAN_HT_BT_REQUEST_ENTER, g_bt_runtime.requests,
+        (uint32_t)g_bt_runtime.state,
+        early != 0 ? (uint32_t)early->state : 0xffffffffu,
+        early != 0 ? (uint32_t)early->backend : 0xffffffffu);
 
     if (g_bt_runtime.state == TITAN_BT_RUNTIME_READY) return 1;
     if (g_bt_runtime.state == TITAN_BT_RUNTIME_LOADING) return 1;
@@ -172,6 +195,8 @@ int TitanBluetoothRuntime_Request(void)
         (early->state == TITAN_EARLY_INPUT_STATE_STARTING ||
          early->state == TITAN_EARLY_INPUT_STATE_LOADING)) {
         g_bt_runtime.state = TITAN_BT_RUNTIME_WAIT_EARLY;
+        TitanHealthTrace_Mark(TITAN_HT_BT_REQUEST_EARLY_WAIT, g_bt_runtime.requests,
+            (uint32_t)early->state, (uint32_t)early->backend, 0u);
         return 1;
     }
 
@@ -193,12 +218,18 @@ int TitanBluetoothRuntime_Request(void)
         return 1;
     }
     g_bt_runtime.state = TITAN_BT_RUNTIME_LOADING;
+    TitanHealthTrace_Critical(TITAN_HT_BT_WORKER_CREATE_BEFORE,
+        g_bt_runtime.requests, 0u, 0u, 0u);
     if (!bt_runtime_start_worker()) {
         g_bt_runtime.last_module_result = -3;
         g_bt_runtime.state = TITAN_BT_RUNTIME_FAILED;
         bt_runtime_diag();
+        TitanHealthTrace_Critical(TITAN_HT_BT_WORKER_CREATE_AFTER,
+            g_bt_runtime.requests, 0u, (uint32_t)g_bt_runtime.last_module_result, 0u);
         return 0;
     }
+    TitanHealthTrace_Critical(TITAN_HT_BT_WORKER_CREATE_AFTER,
+        g_bt_runtime.requests, 1u, (uint32_t)g_bt_runtime.state, 0u);
     bt_runtime_diag();
     return 1;
 #else

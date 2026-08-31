@@ -19,6 +19,9 @@
 #define TITAN_DEX_OVERLAY_PATH TITAN_DEX_SETTINGS_DIRECTORY "/dex_overlay.cfg"
 #define TITAN_DEX_OVERLAY_TEMP_PATH TITAN_DEX_SETTINGS_DIRECTORY "/dex_overlay.tmp"
 #define TITAN_DEX_OVERLAY_BACKUP_PATH TITAN_DEX_SETTINGS_DIRECTORY "/dex_overlay.bak"
+#define TITAN_DEX_OVERLAY_SCHEMA_PATH TITAN_DEX_SETTINGS_DIRECTORY "/dex_overlay_schema2.cfg"
+#define TITAN_DEX_OVERLAY_SCHEMA_TEMP_PATH TITAN_DEX_SETTINGS_DIRECTORY "/dex_overlay_schema2.tmp"
+#define TITAN_DEX_OVERLAY_SCHEMA_BACKUP_PATH TITAN_DEX_SETTINGS_DIRECTORY "/dex_overlay_schema2.bak"
 #define TITAN_DEX_REFRESH_FRAMES 30u
 #define TITAN_DEX_EE_RAM_BASE 0x00100000u
 #define TITAN_DEX_EE_RAM_LIMIT 0x02000000u
@@ -264,17 +267,63 @@ void TitanDex_Initialize(void)
     TitanDex_RecoverSetting(&enabled);
     g_dex.enabled = enabled;
 
-    /* Overlay visibility is independent from DEX mode. Missing settings keep
-     * the historical DEX behavior (overlay visible) for compatibility, while
-     * tmp/bak recovery preserves a confirmed choice across interrupted writes. */
-    g_dex.overlay_enabled = 1;
-    (void)TitanDex_RecoverBooleanSetting(
-        TITAN_DEX_OVERLAY_PATH,
-        TITAN_DEX_OVERLAY_TEMP_PATH,
-        TITAN_DEX_OVERLAY_BACKUP_PATH,
-        1,
-        &g_dex.overlay_enabled
-    );
+    /* RC5.6 one-time migration: older builds wrote/retained overlay=1 as the
+     * historical default, so changing only the fallback value in RC5.5 did
+     * nothing on real installations. The schema marker forces that legacy
+     * state OFF exactly once. After migration, an explicit user toggle is
+     * persistent again through the normal cfg/tmp/bak transaction. */
+    {
+        int overlay_schema2 = 0;
+        if (TitanDex_ReadSetting(TITAN_DEX_OVERLAY_SCHEMA_PATH, &overlay_schema2) &&
+            overlay_schema2)
+        {
+            g_dex.overlay_enabled = 0;
+            (void)TitanDex_RecoverBooleanSetting(
+                TITAN_DEX_OVERLAY_PATH,
+                TITAN_DEX_OVERLAY_TEMP_PATH,
+                TITAN_DEX_OVERLAY_BACKUP_PATH,
+                0,
+                &g_dex.overlay_enabled
+            );
+        }
+        else
+        {
+            int overlay_saved;
+
+            /* RC5.6-r2: migration must be transactional.  Never commit the
+             * schema marker unless the forced-OFF overlay value was itself
+             * written and verified.  A storage-startup failure in the old
+             * sequence could leave schema2=1 beside the legacy overlay=1,
+             * causing the expensive overlay to return on the next boot. */
+            g_dex.overlay_enabled = 0;
+            overlay_saved = TitanDex_SaveOverlaySetting();
+            if (overlay_saved)
+            {
+                if (!TitanDex_SaveBooleanSetting(
+                        TITAN_DEX_OVERLAY_SCHEMA_PATH,
+                        TITAN_DEX_OVERLAY_SCHEMA_TEMP_PATH,
+                        TITAN_DEX_OVERLAY_SCHEMA_BACKUP_PATH,
+                        1
+                    ))
+                {
+                    /* Keep the current boot fail-safe OFF and make the next
+                     * boot retry migration instead of trusting a partial
+                     * marker transaction. */
+                    TitanStorageIo_Remove(TITAN_DEX_OVERLAY_SCHEMA_PATH);
+                    TitanStorageIo_Remove(TITAN_DEX_OVERLAY_SCHEMA_TEMP_PATH);
+                    TitanStorageIo_Remove(TITAN_DEX_OVERLAY_SCHEMA_BACKUP_PATH);
+                }
+            }
+            else
+            {
+                /* The marker is deliberately absent.  The next boot retries
+                 * the OFF migration; this boot remains OFF in RAM. */
+                TitanStorageIo_Remove(TITAN_DEX_OVERLAY_SCHEMA_PATH);
+                TitanStorageIo_Remove(TITAN_DEX_OVERLAY_SCHEMA_TEMP_PATH);
+                TitanStorageIo_Remove(TITAN_DEX_OVERLAY_SCHEMA_BACKUP_PATH);
+            }
+        }
+    }
 
     TitanDex_UpdateRamUsage();
     g_dex.initialized = 1;

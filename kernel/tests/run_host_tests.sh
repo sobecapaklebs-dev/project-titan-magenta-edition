@@ -64,6 +64,21 @@ gcc \
 ASAN_OPTIONS=detect_leaks=0 /tmp/project_titan_0_3_90_shell_busy_test
 
 gcc \
+    -std=c11 \
+    -Wall \
+    -Wextra \
+    -Werror \
+    -fsanitize=address,undefined \
+    -fno-omit-frame-pointer \
+    -I"$kernel_root/src/services" \
+    "$kernel_root/src/services/titan_storage_io.c" \
+    "$kernel_root/src/services/titan_game_gsm.c" \
+    "$kernel_root/tests/test_game_gsm_persistence.c" \
+    -o /tmp/project_titan_game_gsm_persistence_test
+ASAN_OPTIONS=detect_leaks=0 /tmp/project_titan_game_gsm_persistence_test
+python3 -S "$kernel_root/tests/test_game_gsm_per_game_contract.py" "$PROJECT_ROOT"
+
+gcc \
     -std=gnu99 \
     -Wall \
     -Wextra \
@@ -256,6 +271,7 @@ gcc \
     "$kernel_root/tests/test_app_platform_stubs.c" \
     "$kernel_root/src/services/titan_session_service.c" \
     "$kernel_root/src/services/titan_time.c" \
+    "$kernel_root/src/services/titan_game_gsm.c" \
     "$kernel_root/src/services/titan_neutrino.c" \
     "$kernel_root/src/services/titan_library_cache.c" \
     "$kernel_root/src/services/titan_library_scan.c" \

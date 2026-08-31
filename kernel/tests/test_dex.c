@@ -17,7 +17,10 @@ int main(void)
 
     TitanDex_Initialize();
     assert(TitanDex_IsEnabled() == 0);
-    assert(TitanDex_IsOverlayEnabled() == 1);
+    /* RC5.6 recovery default: the expensive overlay starts OFF on a fresh or
+     * legacy installation. Explicit user changes remain persistent after the
+     * one-time schema migration. */
+    assert(TitanDex_IsOverlayEnabled() == 0);
     assert(TitanDex_SetEnabled(1) == 1);
     assert(TitanDex_IsEnabled() == 1);
     assert(TitanDex_SetOverlayEnabled(0) == 1);

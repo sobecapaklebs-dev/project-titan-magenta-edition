@@ -1,0 +1,46 @@
+profile storage + VMC tests passed
+profile storage + VMC tests passed
+profile storage + VMC tests passed
+storage mass:/mass0:/ fallback tests passed
+Neutrino ISO + OPL UL backend launch tests passed
+Application ELF discovery tests passed
+Package installer transaction tests passed
+TPKG builder and verifier tests passed
+Titan App ET_REL/R5900 ISA guard validation passed
+buildfix28-unified-input: OK
+buildfix28-modern-gamepad-protocol: OK
+buildfix28-dualsense-pademu: OK
+buildfix28-modern-input-contract: OK
+buildfix28-xbox-usb-protocol: OK
+buildfix28-xbox-usb-transport-contract: OK
+buildfix28-xbox-gip-init-contract: OK
+buildfix28-xbox-unified-input-contract: OK
+buildfix28-xbox-bt-transport-contract: OK
+buildfix28-xbox-bt-report-contract: OK
+buildfix28-xbox-ble-transport: OK
+buildfix28-xbox-early-input-contract: OK
+buildfix28-keyboard-mouse-contract: OK
+buildfix28-engine-overlay: OK
+buildfix28-ul-overlay-contract: OK
+buildfix28-ul-overlay-resume-contract: OK
+buildfix28-ul-return-contract: OK
+Fast boot catalog + background scanner tests passed
+home-folders: OK
+shell-layout: OK
+DEX persistence tests passed
+video-persistence: OK
+theme-service: OK API v1/v2 compatibility + scene-v2 API v3 idle validation/persistence
+xmb-spline-runtime: OK draws=3922 y=[-107.85, 422.95] ribbon-half=[0.41, 30.10] x=[-166.86, 1000.95]
+Project Titan Magenta Edition release contract passed
+renderer-native-480i-720p-double-buffer-contract: OK
+legacy-vram: 4145152 bytes, free: 49152
+native-720p-vram: 4194304 bytes, free: 0
+titan-app-window-media-contract: OK
+system-browser-contract: OK
+buildfix27-network-client-browser: OK shared ownership, bounded cancel/deadline, no Browser PS2IP
+buildfix27-app-network-api: OK append-only async ABI, bounded memory, lifecycle cancellation
+theme-engine-contract: OK
+vu1-wave-no-internal-edges: OK
+xmb-spline-contract: OK
+geometry: 8 rows, 7 strips, 65 samples, 910 vertices
+audio-runtime: OK

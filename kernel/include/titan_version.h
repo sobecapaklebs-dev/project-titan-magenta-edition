@@ -6,6 +6,7 @@
 #define TITAN_KERNEL_VERSION_PATCH 93
 
 #define TITAN_KERNEL_VERSION_STRING "0.3.93-rc17"
+#define TITAN_RECOVERY_BUILD_STRING "RC5.6-network-hwtrace-final"
 #define TITAN_UI_VERSION_STRING "Titan UI 0.9.35"
 
 #endif

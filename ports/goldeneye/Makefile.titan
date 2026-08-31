@@ -169,6 +169,8 @@ $(TMOD): $(OBJECTS)
 	$(PYTHON) $(ROOT)/apps/project-nes/tools/check_r5900_tmod.py $@
 	$(PYTHON) $(ROOT)/tools/check_titan_native_n32.py $@
 	$(PYTHON) tools/check_titaneye_tmod.py $@
+	$(PYTHON) tools/check_titaneye_rom_table.py \
+		$(MGB)/src/platform/rom_offsets.c $(MGB)/scripts/filelist.u.csv
 
 $(PKG): $(TMOD) resources/icon.rgb565 resources/tile.rgb565 resources/background.rgb565
 	@test -n "$(ROM)" || { echo "Use: make -f Makefile.titan package ROM=/path/to/GoldenEye\\ 007.z64" >&2; exit 1; }

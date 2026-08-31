@@ -1,0 +1,17 @@
+TITAN_SOURCE_AUDIT=PASS
+ALLOWED_PAYLOADS=14
+LICENSE_NOTICE_FILES=31
+ALLOW kernel/src/graphics/vu1/titan_wave_vu1_micro.bin 03ddd12db514379fc3a2170ea5c87a379255a75e0932200a8d1963c6477e4cc9 # generated VU1 microprogram binary with source present
+ALLOW apps/project-nes/data/roms/ProjectNesTest.nes 1c93186e908aff0f89ce763e728b4b901faf519c6d0656810c61f50e1beae9f8 # project-owned deterministic diagnostic homebrew ROM
+ALLOW third_party/fmcb/upstream/installer/irx/compiled/bdm.irx d658f84662f3e23b468d5c84f18c7f2c53e320068cdbd744ed48730fbba3831b # identity-locked FMCB upstream payload from the user-supplied source archive
+ALLOW third_party/fmcb/upstream/installer/irx/compiled/mctools.irx 5f57301a905b1072ac18b0b01f832bad3c1cc9252e469b8e7e92c93b773c2166 # identity-locked FMCB upstream payload from the user-supplied source archive
+ALLOW third_party/fmcb/upstream/installer/irx/compiled/usbmass_bd.irx 08f5b20c70d1498f8cd735a4803b5f30e09f378a201b739ad0954681bdf1aa23 # identity-locked FMCB upstream payload from the user-supplied source archive
+ALLOW third_party/fmcb/upstream/installer/irx/compiled/secrman.irx 7e809a80c6528d126885cd85bee6e35d2d65ef169d27c7e86408a3ba3f4c702e # identity-locked FMCB upstream payload from the user-supplied source archive
+ALLOW third_party/fmcb/upstream/installer/irx/compiled/bdmfs_fatfs.irx d10d9b45ffe01347ed91fbc30ee17de569f0fe23a85dd53cb58e6fd73352c9d1 # identity-locked FMCB upstream payload from the user-supplied source archive
+ALLOW third_party/fmcb/upstream/installer/irx/compiled/secrsif.irx db7c1e55511b3f97d43f5b45682f478487168529de5b862d3e5c625eb1e2256b # identity-locked FMCB upstream payload from the user-supplied source archive
+ALLOW third_party/fmcb/resources/INSTALL/SYS-CONF/USBHDFSD.IRX a59647c14428086a4c4d440ea5a538f2d0eeb7bed224a9ae38d0334024f3fd6e # identity-locked FMCB 1.966 runtime resource copied from audited upstream input
+ALLOW third_party/fmcb/resources/INSTALL/SYS-CONF/USBD.IRX 775e90bb6cfafa1d13536d035eac11112db75b9249c9e65e05ffe31a6d1a383d # identity-locked FMCB 1.966 runtime resource copied from audited upstream input
+ALLOW third_party/fmcb/resources/INSTALL/SYS-CONF/FMCB_CFG.ELF 7881ad9a3171cd4c675b0bc7b1311254a1c2f86c62ba64292de4f1c70f1cfff1 # identity-locked FMCB 1.966 runtime resource copied from audited upstream input
+ALLOW third_party/fmcb/resources/INSTALL/SYSTEM/DEV9.IRX 962bedf3ab211424409026e16c21437ce9b41edad01d7bc505b5b9037f0b469e # identity-locked FMCB 1.966 runtime resource copied from audited upstream input
+ALLOW third_party/fmcb/resources/INSTALL/SYSTEM/HDDLOAD.IRX 2c743ed4e87f517a974aef7c0b6a23361ee752912db0199008a406689ac1e266 # identity-locked FMCB 1.966 runtime resource copied from audited upstream input
+ALLOW third_party/fmcb/resources/INSTALL/SYSTEM/ATAD.IRX d872f23b6eaebbdc392a9c4a9ffb65d872a77bf6e38055e57024fa6154a20395 # identity-locked FMCB 1.966 runtime resource copied from audited upstream input

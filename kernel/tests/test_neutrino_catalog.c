@@ -1,6 +1,7 @@
 #include "titan_neutrino.h"
 #include "titan_user_profile.h"
 #include "titan_vmc.h"
+#include "titan_game_gsm.h"
 
 #include <assert.h>
 #include <stdio.h>
@@ -94,11 +95,33 @@ static void create_ul_parts(void)
 }
 
 static TitanUserProfile g_test_profile;
-static const char *g_test_gsm_argument;
+static TitanPerGameGsmMode g_test_gsm_mode;
 
-const char *TitanVideoOutput_GetGameGsmArgument(void)
+TitanPerGameGsmMode TitanGameGsm_GetMode(const char *startup)
 {
-    return g_test_gsm_argument;
+    assert(startup != 0);
+    return g_test_gsm_mode;
+}
+
+const char *TitanGameGsm_GetNeutrinoArgument(TitanPerGameGsmMode mode)
+{
+    switch (mode)
+    {
+        case TITAN_PER_GAME_GSM_480P: return "-gsm=fp2";
+        case TITAN_PER_GAME_GSM_1080I: return "-gsm=1080ix2";
+        case TITAN_PER_GAME_GSM_720P: return 0;
+        default: return 0;
+    }
+}
+
+int TitanGameGsm_PrepareUlGoldenConfig(
+    const char *startup,
+    TitanPerGameGsmMode mode
+)
+{
+    assert(startup != 0);
+    (void)mode;
+    return 1;
 }
 
 const TitanUserProfile *TitanUserProfiles_GetActive(void)
@@ -191,7 +214,7 @@ int main(void)
     memset(&g_test_profile, 0, sizeof(g_test_profile));
     g_test_profile.occupied = 1;
     strcpy(g_test_profile.vmc_path, "mass:/TITAN/users/user_0001/profile.vmc");
-    g_test_gsm_argument = 0;
+    g_test_gsm_mode = TITAN_PER_GAME_GSM_DEFAULT;
     create_iso("mass:/DVD/ISO Test.iso");
     create_ul_cfg("mass:/ul.cfg");
     create_ul_parts();
@@ -223,9 +246,7 @@ int main(void)
         "-bsd=usb "
         "-dvd=usb:DVD/ISO Test.iso "
         "-mc0=mass:/TITAN/users/user_0001/profile.vmc "
-        "-elf=auto -logo "
-        "-titan-igr=return-only -titan-igr-profile=0 "
-        "-titan-exit=mc0:/BOOT/BOOT.ELF"
+        "-elf=auto -logo"
     ) == 0);
 
     assert(TitanNeutrino_GetPhysicalDiscLaunchCommand(
@@ -239,24 +260,30 @@ int main(void)
         "mass:/neutrino/neutrino.elf "
         "-cwd=mass:/neutrino -bsd=no -dvd=no "
         "-mc0=mass:/TITAN/users/user_0001/profile.vmc "
-        "-elf=cdrom0:\\SLUS_123.45;1 -logo "
-        "-titan-igr=return-only -titan-igr-profile=0 "
-        "-titan-exit=mc0:/BOOT/BOOT.ELF"
+        "-elf=cdrom0:\\SLUS_123.45;1 -logo"
     ) == 0);
     assert(TitanNeutrino_GetPhysicalDiscLaunchCommand(
         "mass:/DVD/not-a-disc.iso", "", launch_command, sizeof(launch_command)
     ) == TITAN_NEUTRINO_INVALID_GAME);
 
 
-    g_test_gsm_argument = "-gsm=fp2:1";
+    g_test_gsm_mode = TITAN_PER_GAME_GSM_480P;
     assert(TitanNeutrino_GetLaunchCommand(
         0u,
         launch_command,
         sizeof(launch_command)
     ) == TITAN_NEUTRINO_OK);
-    assert(strstr(launch_command, " -gsm=fp2:1") != 0);
+    assert(strstr(launch_command, " -gsm=fp2") != 0);
 
-    g_test_gsm_argument = 0;
+    g_test_gsm_mode = TITAN_PER_GAME_GSM_720P;
+    assert(TitanNeutrino_GetLaunchCommand(
+        0u,
+        launch_command,
+        sizeof(launch_command)
+    ) == TITAN_NEUTRINO_OK);
+    assert(strstr(launch_command, " -gsm=") == 0);
+
+    g_test_gsm_mode = TITAN_PER_GAME_GSM_DEFAULT;
     assert(TitanNeutrino_GetLaunchCommand(
         1u,
         launch_command,
@@ -264,11 +291,7 @@ int main(void)
     ) == TITAN_NEUTRINO_OK);
     assert(strcmp(
         launch_command,
-        "mass:/TITAN/titan_ul_loader.elf SCES_555.55 titan-ul "
-        "-vmc0=mass:/TITAN/users/user_0001/profile.vmc "
-        "-ulname=USBExtreme Test -ulparts=2 -ulmedia=0x14 -ulcfg=mass:/ul.cfg "
-        "-titan-igr=return-only -titan-igr-profile=0 "
-        "-titan-exit=mc0:/BOOT/BOOT.ELF"
+        "mass:/TITAN/titan_ul_loader.elf SCES_555.55 titan-ul"
     ) == 0);
     assert(TitanNeutrino_Launch(1u) == TITAN_NEUTRINO_EXEC_FAILED);
     {
@@ -282,19 +305,10 @@ int main(void)
         fclose(log_file);
         log_buffer[log_length] = '\0';
         assert(strstr(log_buffer, "Project Titan OPL BDM UL launch") != 0);
+        assert(strstr(log_buffer, "argv[0]=mass:/TITAN/titan_ul_loader.elf") != 0);
         assert(strstr(log_buffer, "argv[1]=SCES_555.55") != 0);
         assert(strstr(log_buffer, "argv[2]=titan-ul") != 0);
-        assert(strstr(
-            log_buffer,
-            "argv[3]=-vmc0=mass:/TITAN/users/user_0001/profile.vmc"
-        ) != 0);
-        assert(strstr(log_buffer, "argv[4]=-ulname=USBExtreme Test") != 0);
-        assert(strstr(log_buffer, "argv[5]=-ulparts=2") != 0);
-        assert(strstr(log_buffer, "argv[6]=-ulmedia=0x14") != 0);
-        assert(strstr(log_buffer, "argv[7]=-ulcfg=mass:/ul.cfg") != 0);
-        assert(strstr(log_buffer, "argv[8]=-titan-igr=return-only") != 0);
-        assert(strstr(log_buffer, "argv[9]=-titan-igr-profile=0") != 0);
-        assert(strstr(log_buffer, "argv[10]=-titan-exit=mc0:/BOOT/BOOT.ELF") != 0);
+        assert(strstr(log_buffer, "argv[3]=") == 0);
     }
 
     assert(remove("mass:/ul.7D3BE5AE.SCES_555.55.01") == 0);

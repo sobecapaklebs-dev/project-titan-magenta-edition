@@ -2111,7 +2111,9 @@ TitanResult TitanVideo_BeginGameMode(unsigned int width, unsigned int height)
     printf("P162_NATIVE_VU1_INIT=%s\n",
         g_video.game_vu1_active ? "PASS" : "FALLBACK_EE");
     TitanVideo_ResetTransform();
+#if defined(TITAN_GAME_RENDER_DIAGNOSTICS)
     TitanVideo_GameDiagnosticTextureInit();
+#endif
     return TITAN_RESULT_OK;
 }
 
@@ -3459,8 +3461,10 @@ TitanResult TitanVideo_GameUploadTextureRgba32(
     indexed_bytes = TitanVideoGameTexturePool_GetStorageBytesForFormat(
         width,height,TITAN_VIDEO_GAME_TEXTURE_FORMAT_PSM8_CLUT
     );
-    if ((large_indexed_only || TitanPikaVr_IsOptimizedPathActive()) &&
-        indexed_bytes != 0u && indexed_bytes < reference_bytes &&
+    /* Exact palette construction preserves every RGBA value.  Use it whenever
+     * it is smaller, independent of a telemetry/quality toggle, so ordinary
+     * N64 textures do not consume four times their necessary GS storage. */
+    if (indexed_bytes != 0u && indexed_bytes < reference_bytes &&
         TitanPikaVr_BuildExactPaletteRgba32(
             rgba,width,height,stride_bytes,
             palette_staging,
@@ -3614,8 +3618,10 @@ void TitanVideo_GameResetTextures(void)
          * after a non-frame reset so the visual A/B actually samples live GS
          * backing.  GameResetTextures is only called by runtime bring-up in
          * the current target tree. */
+#if defined(TITAN_GAME_RENDER_DIAGNOSTICS)
         if (!g_video.frame_open)
             TitanVideo_GameDiagnosticTextureInit();
+#endif
     }
 }
 
@@ -6799,9 +6805,11 @@ TitanResult TitanVideo_EndFrame(void)
         return TitanVideo_AbortOpenFrame(TITAN_ERROR_FRAME_END);
     }
 
-    /* P10.22: append the independent hardware A/B references after all game
-     * draws and before the packet is FINISH-fenced/submitted. */
+    /* Hardware A/B panels are a laboratory tool. Shipping them consumes GS
+     * texture slots and appends several draws/state transitions every frame. */
+#if defined(TITAN_GAME_RENDER_DIAGNOSTICS)
     TitanVideo_GameDiagnosticAbOverlay();
+#endif
 
     /* The optimized 720p path renders the shell into a 960x540 GS
      * framebuffer and immediately samples that same local-memory surface as

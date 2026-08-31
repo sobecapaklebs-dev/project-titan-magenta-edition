@@ -259,6 +259,7 @@ assemble_runtime() {
     cp -R "$loader/config" "$output/neutrino/"
     cp -R "$loader/modules" "$output/neutrino/"
     cp "$WORK/build/modules/titan-ul-engine/OPNPS2LD.ELF" "$output/TITAN/titan_ul_engine.elf"
+    cp "$WORK/build/modules/titan-ul-engine/OPNPS2LD.ELF" "$output/TITAN/titan_ul_loader.elf"
     cp -R "$WORK/runtime/TITAN/audio/." "$output/TITAN/audio/"
     cp "$WORK/apps/project-nes/build/PROJECTNES.pkg" "$output/TITAN/packages/PROJECTNES.pkg"
     cp "$WORK/apps/wlaunchelf/build/WLAUNCHELF.pkg" "$output/TITAN/packages/WLAUNCHELF.pkg"

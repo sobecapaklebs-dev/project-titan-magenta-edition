@@ -1,0 +1,10 @@
+BuildFix30 CP07 PUP / Power validation
+titan-pup-transaction-contract: OK
+titan-pup-auto-reboot-after-commit-contract: OK
+titan-shutdown-reboot-quiesce-contract: OK
+titan-disc-power-action-contract: OK
+buildfix27-flow-ps4-wlaunchelf-pup-contract: OK
+buildfix28-lifecycle-recovery-contract: OK
+TARGET_BUILD_VALIDATED=0 EXTERNAL_PS2DEV_PENDING
+PUP_HARDWARE_VALIDATED=0 EXTERNAL_PENDING
+POWER_HARDWARE_VALIDATED=0 EXTERNAL_PENDING

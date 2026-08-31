@@ -1,0 +1,16 @@
+=== CP21 TARGET TOOLCHAIN REPROBE ===
+Thu Aug 20 00:26:00 UTC 2026
+PS2DEV=<unset>
+PS2SDK=<unset>
+mips64r5900el-ps2-elf-gcc: NOT_FOUND
+mips64r5900el-ps2-elf-ld: NOT_FOUND
+mips64r5900el-ps2-elf-objdump: NOT_FOUND
+dvp-as: NOT_FOUND
+=== BuildFix26 readiness contract ===
+buildfix26-target-readiness-contract: OK
+readiness_status=0
+=== current host app/runtime gates ===
+buildfix27-wlaunchelf-image-viewer: OK Titan-owned JPEG/PNG FIT media viewer
+image_status=0
+buildfix27-managed-storage-mount-gate: OK hdd0 read-only, PFS absent, VMC kernel-managed
+storage_status=0

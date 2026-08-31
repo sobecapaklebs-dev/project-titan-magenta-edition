@@ -203,6 +203,11 @@ build_once() (
     cp -R "$neutrino_loader/modules" "$output/neutrino/"
     cp "$work/build/modules/titan-ul-engine/OPNPS2LD.ELF" \
         "$output/TITAN/titan_ul_engine.elf"
+    # The validated 2026-08-28 runtime keeps both compatibility names live.
+    # Materialize the loader alias from the same bytes so TINS/direct USB
+    # packaging can enforce identity without rebuilding a second UL binary.
+    cp "$work/build/modules/titan-ul-engine/OPNPS2LD.ELF" \
+        "$output/TITAN/titan_ul_loader.elf"
     cp -R "$work/runtime/TITAN/audio/." "$output/TITAN/audio/"
     cp "$work/apps/project-nes/build/PROJECTNES.pkg" \
         "$output/TITAN/packages/PROJECTNES.pkg"

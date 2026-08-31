@@ -96,9 +96,38 @@ tar -C "$SOURCE" \
 tar -C "$ROOT/modules/titan-engine-overlay" -cf - . | tar -C "$overlay" -xf -
 
 export LC_ALL=C TZ=UTC
+
+# TITAN_UL_PINNED_IMPORTS_V4
+# PADEMU in Project Titan contains post-upstream controller work. Preserve the
+# validated prebuilt IRXs instead of rebuilding that unrelated subsystem while
+# rebuilding Titan UL for a GSM-only EE change.
+pademu_keep="$sandbox/.titan-pademu-frozen"
+mkdir -p "$pademu_keep"
+for f in bt_pademu.irx usb_pademu.irx; do
+    [[ -s "$work/modules/pademu/$f" ]] || { echo "Titan UL frozen PADEMU missing: $f" >&2; exit 1; }
+    cp -f "$work/modules/pademu/$f" "$pademu_keep/$f"
+done
+bt_before=$(sha256sum "$pademu_keep/bt_pademu.irx" | awk '{print $1}')
+usb_before=$(sha256sum "$pademu_keep/usb_pademu.irx" | awk '{print $1}')
+
 make -C "$work" clean REVISION=0 GIT_HASH="$OPL_GIT_HASH" DIRTY= GIT_TAG=
-make --output-sync=recurse -C "$work" -j"$JOBS" \
-    REVISION=0 GIT_HASH="$OPL_GIT_HASH" DIRTY= GIT_TAG=
+
+cp -f "$pademu_keep/bt_pademu.irx" "$work/modules/pademu/bt_pademu.irx"
+cp -f "$pademu_keep/usb_pademu.irx" "$work/modules/pademu/usb_pademu.irx"
+# Ensure the restored binary targets are newer than the pademu directory.
+touch "$work/modules/pademu/bt_pademu.irx" "$work/modules/pademu/usb_pademu.irx"
+
+make --output-sync=recurse -C "$work" -j"$JOBS"     -o modules/pademu/bt_pademu.irx     -o modules/pademu/usb_pademu.irx     REVISION=0 GIT_HASH="$OPL_GIT_HASH" DIRTY= GIT_TAG=
+
+bt_after=$(sha256sum "$work/modules/pademu/bt_pademu.irx" | awk '{print $1}')
+usb_after=$(sha256sum "$work/modules/pademu/usb_pademu.irx" | awk '{print $1}')
+[[ "$bt_before" == "$bt_after" && "$usb_before" == "$usb_after" ]] || {
+    echo "Titan UL frozen PADEMU changed during build." >&2
+    exit 1
+}
+echo "TITAN_UL_PADEMU=FROZEN_PASS"
+echo "TITAN_UL_PADEMU_BT_SHA256=$bt_after"
+echo "TITAN_UL_PADEMU_USB_SHA256=$usb_after"
 
 mkdir -p "$OUTPUT"
 for artifact in OPNPS2LD.ELF opl_stripped.elf; do

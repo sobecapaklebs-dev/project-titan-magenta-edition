@@ -2,6 +2,10 @@
 
 #include <string.h>
 
+#define TITAN_GE_TRACE_PATH "data/titaneye_boot.trace"
+#define TITAN_GE_TRACE_BUFFER_BYTES (32u * 1024u)
+#define TITAN_GE_FAILURE_STAGE_BYTES 64u
+
 typedef struct TitanGeRuntimeState
 {
     TitanGePlatform platform;
@@ -10,7 +14,11 @@ typedef struct TitanGeRuntimeState
     int rom_open;
     int audio_open;
     int failed;
+    char failure_stage[TITAN_GE_FAILURE_STAGE_BYTES];
     char app_root[512];
+    char trace_buffer[TITAN_GE_TRACE_BUFFER_BYTES];
+    uint32_t trace_used;
+    uint32_t trace_dropped;
 } TitanGeRuntimeState;
 
 static TitanGeRuntimeState g_titan_ge;
@@ -65,11 +73,24 @@ int TitanGeRuntime_OpenRom(const char *path)
     return 1;
 }
 
-void TitanGeRuntime_Fail(void) { g_titan_ge.failed = 1; }
+void TitanGeRuntime_Fail(void)
+{
+    if (!g_titan_ge.failed)
+        TitanGeRuntime_Trace("E_RUNTIME_FAILED");
+    g_titan_ge.failed = 1;
+    TitanGeRuntime_TraceFlush();
+}
 int TitanGeRuntime_HasFailed(void) { return g_titan_ge.failed; }
+const char *TitanGeRuntime_GetFailureStage(void)
+{
+    if (!g_titan_ge.failed) return 0;
+    return g_titan_ge.failure_stage[0] != '\0'
+        ? g_titan_ge.failure_stage : "E_RUNTIME_FAILED";
+}
 
 void TitanGeRuntime_Detach(void)
 {
+    TitanGeRuntime_TraceFlush();
     TitanGeRuntime_AudioEnd();
     if (g_titan_ge.rom_open) TitanGeRom_Close(&g_titan_ge.rom);
     memset(&g_titan_ge, 0, sizeof(g_titan_ge));
@@ -119,49 +140,117 @@ void TitanGeRuntime_AudioEnd(void)
     g_titan_ge.audio_open = 0;
 }
 
-
-#define TITAN_GE_TRACE_PATH "data/titaneye_boot.trace"
-
-static void TitanGeRuntime_TraceWrite(const char *stage, uint32_t open_flags)
+static void TitanGeRuntime_TraceAppendBytes(const char *bytes, size_t length)
 {
-    const TitanGameApiV1 *api = TitanGeRuntime_GetApi();
-    int descriptor;
-    size_t length;
-    static const char newline = '\n';
-
-    if (api == 0 || stage == 0 || stage[0] == '\0' ||
-        api->storage_open == 0 || api->storage_close == 0 ||
-        api->storage_write == 0 || api->storage_seek == 0)
+    if (bytes == 0 || length == 0u)
         return;
-
-    if (api->storage_mkdir != 0)
-        (void)api->storage_mkdir("data");
-    descriptor = api->storage_open(TITAN_GE_TRACE_PATH, open_flags);
-    if (descriptor < 0) return;
-    if ((open_flags & TITAN_GAME_STORAGE_TRUNCATE) == 0u)
-        (void)api->storage_seek(descriptor, 0, TITAN_GAME_STORAGE_SEEK_END);
-    length = strlen(stage);
-    if (length > 0u)
-        (void)api->storage_write(descriptor, stage, (uint32_t)length);
-    (void)api->storage_write(descriptor, &newline, 1u);
-    (void)api->storage_close(descriptor);
+    if (length > sizeof(g_titan_ge.trace_buffer) - g_titan_ge.trace_used)
+    {
+        g_titan_ge.trace_dropped++;
+        return;
+    }
+    memcpy(g_titan_ge.trace_buffer + g_titan_ge.trace_used, bytes, length);
+    g_titan_ge.trace_used += (uint32_t)length;
 }
 
 void TitanGeRuntime_TraceReset(void)
 {
-    TitanGeRuntime_TraceWrite(
-        "P111_TRACE_BEGIN",
-        TITAN_GAME_STORAGE_WRITE | TITAN_GAME_STORAGE_CREATE |
-        TITAN_GAME_STORAGE_TRUNCATE
-    );
+    const TitanGameApiV1 *api = TitanGeRuntime_GetApi();
+    int descriptor;
+
+    g_titan_ge.trace_used = 0u;
+    g_titan_ge.trace_dropped = 0u;
+    g_titan_ge.failed = 0;
+    g_titan_ge.failure_stage[0] = '\0';
+    if (api != 0 && api->storage_open != 0 && api->storage_close != 0)
+    {
+        if (api->storage_mkdir != 0)
+            (void)api->storage_mkdir("data");
+        descriptor = api->storage_open(
+            TITAN_GE_TRACE_PATH,
+            TITAN_GAME_STORAGE_WRITE | TITAN_GAME_STORAGE_CREATE |
+            TITAN_GAME_STORAGE_TRUNCATE
+        );
+        if (descriptor >= 0)
+            (void)api->storage_close(descriptor);
+    }
+    TitanGeRuntime_Trace("P111_TRACE_BEGIN");
 }
 
 void TitanGeRuntime_Trace(const char *stage)
 {
-    TitanGeRuntime_TraceWrite(
-        stage,
+    static const char newline = '\n';
+    size_t length;
+    size_t failure_length;
+
+    if (stage == 0 || stage[0] == '\0') return;
+    length = strlen(stage);
+    if (stage[0] == 'E' && stage[1] == '_' &&
+        strcmp(stage, "E_RUNTIME_FAILED") != 0 &&
+        g_titan_ge.failure_stage[0] == '\0')
+    {
+        failure_length = length;
+        if (failure_length >= sizeof(g_titan_ge.failure_stage))
+            failure_length = sizeof(g_titan_ge.failure_stage) - 1u;
+        memcpy(g_titan_ge.failure_stage, stage, failure_length);
+        g_titan_ge.failure_stage[failure_length] = '\0';
+    }
+    if (length + 1u > sizeof(g_titan_ge.trace_buffer) - g_titan_ge.trace_used)
+    {
+        g_titan_ge.trace_dropped++;
+        return;
+    }
+    TitanGeRuntime_TraceAppendBytes(stage, length);
+    TitanGeRuntime_TraceAppendBytes(&newline, 1u);
+}
+
+void TitanGeRuntime_TraceFlush(void)
+{
+    const TitanGameApiV1 *api = TitanGeRuntime_GetApi();
+    static const char dropped[] = "W_TRACE_BUFFER_FULL\n";
+    uint32_t written = 0u;
+    int descriptor;
+
+    if (api == 0 || g_titan_ge.trace_used == 0u ||
+        api->storage_open == 0 || api->storage_close == 0 ||
+        api->storage_write == 0 || api->storage_seek == 0)
+        return;
+
+    if (g_titan_ge.trace_dropped != 0u &&
+        sizeof(dropped) - 1u <=
+            sizeof(g_titan_ge.trace_buffer) - g_titan_ge.trace_used)
+    {
+        TitanGeRuntime_TraceAppendBytes(dropped, sizeof(dropped) - 1u);
+        g_titan_ge.trace_dropped = 0u;
+    }
+
+    descriptor = api->storage_open(
+        TITAN_GE_TRACE_PATH,
         TITAN_GAME_STORAGE_WRITE | TITAN_GAME_STORAGE_CREATE
     );
+    if (descriptor < 0) return;
+    if (api->storage_seek(descriptor, 0, TITAN_GAME_STORAGE_SEEK_END) < 0)
+    {
+        (void)api->storage_close(descriptor);
+        return;
+    }
+    while (written < g_titan_ge.trace_used)
+    {
+        int64_t result = api->storage_write(
+            descriptor,
+            g_titan_ge.trace_buffer + written,
+            g_titan_ge.trace_used - written
+        );
+        if (result <= 0 || result > (int64_t)(g_titan_ge.trace_used - written))
+            break;
+        written += (uint32_t)result;
+    }
+    (void)api->storage_close(descriptor);
+    if (written == g_titan_ge.trace_used)
+    {
+        g_titan_ge.trace_used = 0u;
+        g_titan_ge.trace_dropped = 0u;
+    }
 }
 
 static char TitanGeRuntime_HexDigit(unsigned int value)

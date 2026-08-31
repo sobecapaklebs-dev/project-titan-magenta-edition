@@ -325,6 +325,7 @@ int main(void)
     unsigned int after_reads;
     size_t pending;
     int update;
+    static short external_pcm[4096u * 2u];
 
     /* Failed initialization must remain retryable and must clean AUDSRV state. */
     prepare_assets(8192u, -1);
@@ -387,6 +388,29 @@ int main(void)
         after_reads = TitanAudio_TestGetMusicReadCalls();
         require(after_reads - before_reads <= 1u, "EOF loop performed repeated reads");
     }
+
+    /* Titan games run on a dedicated EE worker while the kernel ticker stays
+     * alive. The worker may only publish PCM; the kernel update remains the
+     * sole AUDSRV consumer and releases ring capacity deterministically. */
+    reset_capture();
+    for (update = 0; update < (int)(sizeof(external_pcm) / sizeof(external_pcm[0]));
+         update++)
+        external_pcm[update] = (short)((update & 1) ? -12000 : 12000);
+    require(TitanAudio_BeginExternalStream(), "external stream did not begin");
+    before_reads = TitanAudio_GetExternalFreeFrames();
+    require(TitanAudio_SubmitExternalPcm(external_pcm, 4096u) > 0u,
+        "external PCM was rejected");
+    after_reads = TitanAudio_GetExternalFreeFrames();
+    require(after_reads < before_reads, "external PCM was not queued");
+    require(g_bytes_accepted == 0,
+        "game worker called AUDSRV instead of publishing PCM");
+    TitanAudio_Update();
+    require(g_bytes_accepted > 0,
+        "kernel audio tick did not drain external PCM");
+    require(g_nonzero_bytes > 0, "external PCM became silent");
+    require(TitanAudio_GetExternalFreeFrames() > after_reads,
+        "kernel audio tick did not release external ring capacity");
+    TitanAudio_EndExternalStream();
 
     TitanAudio_PrepareHandoff();
     require(!TitanAudio_PlaySfx(TITAN_AUDIO_SFX_NOTIFICATION), "handoff accepted SFX");

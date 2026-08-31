@@ -35,6 +35,9 @@ static int TitanPlatformPfs_ModuleResident(void *context, const char *name)
     return SifSearchModuleByName(name) >= 0;
 }
 
+/* TITAN_RC4_IOP_START_RESULT_FIX_R1:
+ * result==1 (MODULE_NO_RESIDENT_END) means the module did not remain loaded.
+ * result==2 is a valid resident/removable module status. */
 static int TitanPlatformPfs_ExecModule(void *context, const unsigned char *data, uint32_t size)
 {
     int result = -1;
@@ -42,7 +45,7 @@ static int TitanPlatformPfs_ExecModule(void *context, const unsigned char *data,
     (void)context;
     if (data == 0 || size == 0u) return 0;
     id = SifExecModuleBuffer((void *)data, (int)size, 0, 0, &result);
-    return id >= 0 && result >= 0;
+    return id >= 0 && (result == 0 || result == 2);
 }
 
 static int TitanPlatformPfs_EnsureDrivers(void)

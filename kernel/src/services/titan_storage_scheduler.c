@@ -7,6 +7,7 @@
 #include "titan_app_assets.h"
 #include "titan_asset_service.h"
 #include "titan_diagnostics.h"
+#include "titan_health_trace.h"
 #include "titan_controller_assignment.h"
 #include "titan_storage_io.h"
 #include "titan_storage_inventory.h"
@@ -492,6 +493,10 @@ static int TitanStorageScheduler_StartOrStepScan(void)
 
     if (should_start)
     {
+        TitanDiagnostics_Event(
+            TITAN_DIAG_INFO,TITAN_DIAG_LIBRARY,0x612,0,
+            (uint32_t)force_rebuild,0u,0u,0u
+        );
         TitanLibraryScan_SetDeferredUi(1);
         TitanLibraryScan_Begin(force_rebuild);
     }
@@ -515,6 +520,15 @@ static int TitanStorageScheduler_StartOrStepScan(void)
 
     if (!TitanLibraryScan_IsActive())
     {
+        const TitanLibraryScanStatus *scan_status = TitanLibraryScan_GetStatus();
+        TitanDiagnostics_Event(
+            scan_status != 0 && scan_status->phase == TITAN_LIBRARY_SCAN_COMPLETE
+                ? TITAN_DIAG_INFO:TITAN_DIAG_WARN,
+            TITAN_DIAG_LIBRARY,0x613,0,
+            scan_status != 0 ? scan_status->games_found : 0u,
+            scan_status != 0 ? scan_status->applications_found : 0u,
+            scan_status != 0 ? (uint32_t)scan_status->phase : 0u,0u
+        );
         TitanStorageScheduler_Lock();
         g_storage_scheduler.scan_running = 0;
         g_storage_scheduler.scan_finished = 1;
@@ -634,6 +648,23 @@ static void TitanStorageScheduler_Worker(void *argument)
             continue;
         }
 
+        /* RC5.6: an accepted Library request gets a guaranteed bounded quantum
+         * immediately after urgent audio / foreground / one-shot VMC work.
+         * RC5.5 still placed deferred audio and several always-active background
+         * lanes above discovery, which hardware proved could leave 0x610 without
+         * ever reaching 0x612. Deferred music refills must not starve the scan. */
+        if (TitanStorageScheduler_StartOrStepScan())
+        {
+            g_storage_scheduler.asset_scan_turn = 0;
+            g_storage_scheduler.inventory_bulk_turn = 0;
+            if (TitanAudio_StorageWorkerNeedsRealtime())
+            {
+                (void)TitanStorageScheduler_PumpAudioRealtime();
+            }
+            DelayThread(TITAN_STORAGE_SCAN_DELAY_US);
+            continue;
+        }
+
         if (TitanStorageScheduler_PumpAudioDeferred())
         {
             DelayThread(TITAN_STORAGE_WORKER_ACTIVE_DELAY_US);
@@ -713,6 +744,13 @@ static void TitanStorageScheduler_Worker(void *argument)
             continue;
         }
 
+        if (TitanHealthTrace_HasStorageWork())
+        {
+            (void)TitanHealthTrace_StorageWorkerPump();
+            DelayThread(TITAN_STORAGE_WORKER_ACTIVE_DELAY_US);
+            continue;
+        }
+
         /* Diagnostics is a tiny sequential snapshot and sits below all user-facing
          * foreground/audio/app work, but above bulk artwork. It can never reserve
          * the lane; one bounded flush is attempted and control returns immediately. */
@@ -752,18 +790,6 @@ static void TitanStorageScheduler_Worker(void *argument)
                 (void)TitanStorageScheduler_PumpAudioRealtime();
             }
             DelayThread(TITAN_STORAGE_WORKER_ACTIVE_DELAY_US);
-            continue;
-        }
-
-        if (TitanStorageScheduler_StartOrStepScan())
-        {
-            g_storage_scheduler.asset_scan_turn = 0;
-            g_storage_scheduler.inventory_bulk_turn = 0;
-            if (TitanAudio_StorageWorkerNeedsRealtime())
-            {
-                (void)TitanStorageScheduler_PumpAudioRealtime();
-            }
-            DelayThread(TITAN_STORAGE_SCAN_DELAY_US);
             continue;
         }
 
@@ -891,6 +917,12 @@ static void TitanStorageScheduler_RunFallbackWork(void)
 
     (void)TitanStorageScheduler_PumpAudioRealtime();
 
+    if (TitanHealthTrace_HasStorageWork())
+    {
+        (void)TitanHealthTrace_StorageWorkerPump();
+        return;
+    }
+
     if (TitanStorageScheduler_HasForegroundWork())
     {
         TitanStorageScheduler_RunForegroundJob();
@@ -899,6 +931,12 @@ static void TitanStorageScheduler_RunFallbackWork(void)
 
     if (TitanStorageScheduler_RunVmcRefresh())
     {
+        return;
+    }
+
+    if (TitanStorageScheduler_StartOrStepScan())
+    {
+        g_storage_scheduler.asset_scan_turn = 0;
         return;
     }
 
@@ -947,11 +985,6 @@ static void TitanStorageScheduler_RunFallbackWork(void)
     {
         (void)TitanAssetService_StorageWorkerPump();
         g_storage_scheduler.asset_scan_turn = 1;
-        return;
-    }
-    if (TitanStorageScheduler_StartOrStepScan())
-    {
-        g_storage_scheduler.asset_scan_turn = 0;
         return;
     }
     if (TitanAssetService_HasStorageWork())

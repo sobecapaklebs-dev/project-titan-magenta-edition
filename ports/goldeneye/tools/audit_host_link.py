@@ -97,13 +97,30 @@ def main() -> int:
 
     with tempfile.TemporaryDirectory(prefix="titaneye-host-audit-") as temporary:
         build = Path(temporary)
+        # glibc hosts do not ship newlib's private sys/reent.h, while the
+        # module intentionally owns one opaque _reent instance.  Supply the
+        # smallest audit-only declaration; the target build still uses the
+        # real PS2 newlib header.
+        host_include = build / "host-include"
+        (host_include / "sys").mkdir(parents=True)
+        (host_include / "sys/reent.h").write_text(
+            "#ifndef TITANEYE_HOST_REENT_H\n"
+            "#define TITANEYE_HOST_REENT_H\n"
+            "struct _reent { int _errno; };\n"
+            "#endif\n",
+            encoding="utf-8",
+        )
+        audit_common = common + [
+            f"-I{host_include}",
+            "-include", str(port / "titan_ge_stdio_compat.h"),
+        ]
         objects: list[Path] = []
         for index, relative in enumerate(sources):
             source = port / relative
             if not source.is_file():
                 raise SystemExit(f"host-link-audit: missing source: {relative}")
             obj = build / f"{index:03d}.o"
-            run(common + ["-c", str(source), "-o", str(obj)], port)
+            run(audit_common + ["-c", str(source), "-o", str(obj)], port)
             objects.append(obj)
 
         image = build / "titaneye-host-audit.o"

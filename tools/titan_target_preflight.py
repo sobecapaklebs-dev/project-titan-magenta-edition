@@ -8,6 +8,7 @@ host regression starts. Optional/debug-only backends remain Makefile-gated.
 """
 from __future__ import annotations
 
+import hashlib
 import os
 import shutil
 import sys
@@ -155,17 +156,37 @@ def main() -> int:
     ):
         require_file(root / relative, f"FMCB release input {relative}")
 
-    if not firmware_raw:
-        fail("TITAN_AR9271_FW must point to the validated AR9271 firmware")
-    firmware = Path(firmware_raw).expanduser().resolve()
-    require_file(firmware, "TITAN_AR9271_FW")
-    if firmware.stat().st_size == 0:
-        fail(f"TITAN_AR9271_FW is empty: {firmware}")
+    ar9271_mode = "RAW_FIRMWARE"
+    ar9271_source = ""
+    if firmware_raw:
+        firmware = Path(firmware_raw).expanduser().resolve()
+        require_file(firmware, "TITAN_AR9271_FW")
+        if firmware.stat().st_size == 0:
+            fail(f"TITAN_AR9271_FW is empty: {firmware}")
+        ar9271_source = str(firmware)
+    else:
+        frozen_raw = os.environ.get("TITAN_AR9271_FROZEN_IRX", "").strip()
+        frozen_irx = (
+            Path(frozen_raw).expanduser().resolve()
+            if frozen_raw
+            else (root / "kernel/iop/titan_ar9271/titan_ar9271.irx").resolve()
+        )
+        require_file(frozen_irx, "validated frozen AR9271 IRX")
+        expected = "6bc9275efbc1de6e643575867a0e14dac02a3a6cf0d5d6ea12906ac7ef73aa17"
+        digest = hashlib.sha256(frozen_irx.read_bytes()).hexdigest()
+        if digest != expected:
+            fail(
+                "frozen AR9271 IRX hash mismatch: "
+                f"expected={expected} actual={digest} path={frozen_irx}"
+            )
+        ar9271_mode = "FROZEN_PREBUILT"
+        ar9271_source = str(frozen_irx)
 
     print(f"TARGET_PREFLIGHT_PS2DEV={ps2dev}")
     print(f"TARGET_PREFLIGHT_PS2SDK={ps2sdk}")
     print(f"TARGET_PREFLIGHT_GSKIT={gskit}")
-    print(f"TARGET_PREFLIGHT_AR9271_FW={firmware}")
+    print(f"TARGET_PREFLIGHT_AR9271_MODE={ar9271_mode}")
+    print(f"TARGET_PREFLIGHT_AR9271_SOURCE={ar9271_source}")
     print(f"TARGET_PREFLIGHT_IRX_COUNT={len(mandatory_irx)}")
     print("TARGET_PREFLIGHT_PASS=1")
     return 0

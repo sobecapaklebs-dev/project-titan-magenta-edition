@@ -72,7 +72,7 @@ def main() -> int:
                 sys.executable, str(package_tool), "build",
                 "--source", str(source), "--output", str(args.output),
                 "--title-id", "TITANEYE007", "--title", "TitanEYE 007",
-                "--version", "1.0.1", "--type", "titan-game",
+                "--version", "1.0.2", "--type", "titan-game",
                 "--entrypoint", "titaneye.tmod", "--author", "Project Titan",
                 "--description", "Native GoldenEye 007 port for Project Titan",
             ],

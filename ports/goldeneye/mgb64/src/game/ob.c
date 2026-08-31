@@ -8,6 +8,11 @@
 #include "assets/obseg/file_resource_id_enums.h"
 #include <ramrom.h>
 
+#ifdef PROJECT_TITAN_TGR
+#include "../../../titan_ge_runtime.h"
+#include <stdint.h>
+#endif
+
 #ifdef NATIVE_PORT
 extern s32 rz_last_error;
 #endif
@@ -167,7 +172,28 @@ void obInit(void)
     debTryAdd(&ob_c_debug_notice_list_entry,"ob_c_debug");
     for (i = file_entry_max-1; i >= 1 ; i--)
     {
+#ifdef PROJECT_TITAN_TGR
+        uintptr_t current = (uintptr_t)file_resource_table[i].hw_address;
+        uintptr_t next = (uintptr_t)file_resource_table[i + 1].hw_address;
+        s32 size;
+
+        /* TGR deliberately stores ROM offsets in this legacy pointer field.
+         * Pointer subtraction between unrelated encoded addresses is undefined
+         * C and was being optimized into invalid resource sizes, including the
+         * Rare/Nintendo/legal boot models.  Integer offsets are the actual ABI. */
+        if (next < current || next - current > 0x7fffffffu)
+        {
+            TitanGeRuntime_Trace("E_ROM_FILE_TABLE_RANGE");
+            TitanGeRuntime_Fail();
+            size = 0;
+        }
+        else
+        {
+            size = (s32)(next - current);
+        }
+#else
         s32 size = (file_resource_table[i+1].hw_address - file_resource_table[i].hw_address);
+#endif
         resource_lookup_data_array[i].rom_size = size;
         resource_lookup_data_array[i].poolRemaining = 0;
         resource_lookup_data_array[i].pc_size = 0;

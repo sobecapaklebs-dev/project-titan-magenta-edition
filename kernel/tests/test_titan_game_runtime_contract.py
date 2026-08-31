@@ -33,6 +33,11 @@ req('TITAN_GAME_MAX_ALLOCATIONS' not in rt and
     'allocation_free_head' not in rt,
     'P162.5.4 fixed live-allocation ceiling was not removed')
 req('TitanStorageScheduler_SetTitanGameExclusiveMode(1)' in rt and 'TitanStorageScheduler_IsTitanGameWorkerParked' in rt, 'single-owner game storage lane missing')
+poll_start=rt.index('static void TitanGameApi_PollInput(void)')
+poll_end=rt.index('static int TitanGameApi_GetPad(', poll_start)
+req('TitanInput_Update();' not in rt[poll_start:poll_end] and
+    'TitanInput_GetPadState(index)' in rt[poll_start:poll_end],
+    'game worker must snapshot kernel input, never become a second input producer')
 req('TitanVideo_BeginGameMode' in rt and 'TitanVideo_EndGameMode' in rt, 'GS game session lifecycle missing')
 req('int TitanGameRuntime_End(void)' in rt and
     'TitanVideo_EndGameMode() != TITAN_RESULT_OK' in rt and

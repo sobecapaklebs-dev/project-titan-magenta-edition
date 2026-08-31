@@ -23,7 +23,7 @@ extern void TitanVlombisCore_RecordFrameBudget(uint32_t frame_us, uint32_t budge
 #define TITAN_DIAG_MAGIC 0x54444731u /* TDG1 */
 #define TITAN_DIAG_EVENT_CAPACITY 2048u
 #define TITAN_DIAG_FRAME_WINDOW 120u
-#define TITAN_DIAG_FLUSH_FRAMES 120u
+#define TITAN_DIAG_FLUSH_FRAMES 600u
 #define TITAN_DIAG_PATH "mass:/TITAN/logs/titan-current.bin"
 #define TITAN_DIAG_PREVIOUS_PATH "mass:/TITAN/logs/titan-previous.bin"
 #define TITAN_DIAG_PREVIOUS2_PATH "mass:/TITAN/logs/titan-previous-2.bin"

@@ -42,6 +42,22 @@ static void TitanGeModule_Notify(
         (void)s_app_api->notify(kind, "TitanEYE 007", message);
 }
 
+static const char *TitanGeModule_FailureMessage(void)
+{
+    const char *stage = TitanGeRuntime_GetFailureStage();
+
+    if (stage != 0 && strcmp(stage, "E_ROM_FILE_TABLE_RANGE") == 0)
+        return "Tabela de arquivos da ROM TitanEYE invalida.";
+    if (stage != 0 &&
+        (strncmp(stage, "E_MALLOC", 8u) == 0 ||
+         strncmp(stage, "E_HEAP", 6u) == 0 ||
+         strncmp(stage, "E_TEX_ARENA", 11u) == 0 ||
+         strncmp(stage, "E_TEX_POOL", 10u) == 0 ||
+         strncmp(stage, "E_DYN_STAGEPOOL", 15u) == 0))
+        return "Memoria insuficiente durante a inicializacao do TitanEYE.";
+    return "Falha interna no TitanEYE. Consulte data/titaneye_boot.trace.";
+}
+
 static void TitanGeModule_CloseGame(void)
 {
     platformShutdownSDL();
@@ -134,12 +150,15 @@ static int TitanGeModule_Run(void)
     schedulerInitThread();
     TitanGeRuntime_Trace("11_SCHEDULER_INIT_AFTER");
     TitanGeRuntime_Trace("12_BOSS_ENTRY_BEFORE");
+    /* Persist boot diagnostics once, before the game takes the foreground
+     * loop. Runtime traces remain RAM-only until teardown/failure. */
+    TitanGeRuntime_TraceFlush();
     bossEntry();
     TitanGeRuntime_Trace("13_BOSS_ENTRY_RETURNED");
 
     if (TitanGeRuntime_HasFailed()) {
         TitanGeModule_Notify(TITAN_APP_NOTIFICATION_ERROR,
-            "Memoria insuficiente durante a inicializacao do TitanEYE.");
+            TitanGeModule_FailureMessage());
         TitanGeModule_CloseGame();
         return 0;
     }

@@ -2,6 +2,7 @@
 #include "titan_unified_input.h"
 #include "titan_bluetooth_runtime.h"
 #include "titan_diagnostics.h"
+#include "titan_health_trace.h"
 #include "titan_storage_io.h"
 #include <titan_pademu_telemetry.h>
 #include <string.h>
@@ -272,8 +273,13 @@ void TitanPademuInputBridge_BeginFrame(void)
         if(rt && rt->state==TITAN_BT_RUNTIME_READY && !g_bt_rpc.server &&
            !g_wireless_rpc_pending&&!g_pair_rpc_pending&&!g_trace_rpc_pending&&!g_bt_snapshot_rpc_pending&&!g_bond_rpc_pending &&
            (g_frame%15u)==1u){
+            int bind_result;
             g_metrics.bind_attempts++;
-            (void)sceSifBindRpc(&g_bt_rpc,TITAN_PADEMU_BT_TELEMETRY_RPC_ID,0);
+            TitanHealthTrace_Critical(TITAN_HT_BT_BIND_BEFORE, g_frame,
+                g_metrics.bind_attempts, TITAN_PADEMU_BT_TELEMETRY_RPC_ID, 0u);
+            bind_result = sceSifBindRpc(&g_bt_rpc,TITAN_PADEMU_BT_TELEMETRY_RPC_ID,0);
+            TitanHealthTrace_Critical(TITAN_HT_BT_BIND_AFTER, g_frame,
+                (uint32_t)bind_result, g_bt_rpc.server != 0 ? 1u : 0u, 0u);
         }
     }
 
@@ -283,8 +289,14 @@ void TitanPademuInputBridge_BeginFrame(void)
             TitanPademuBondSync request=g_bond_cache;
             request.version=TITAN_PADEMU_BOND_SYNC_VERSION;request.command=TITAN_PADEMU_BOND_SYNC_IMPORT;
             memset(g_bond_rpc_buf,0,sizeof(g_bond_rpc_buf));memset(g_bond_send_buf,0,sizeof(g_bond_send_buf));
+            int rpc_result;
             memcpy(g_bond_send_buf,&request,sizeof(request));g_bond_import_requested=0;g_bond_rpc_pending=1;g_bond_rpc_command=request.command;
-            if(sceSifCallRpc(&g_bt_rpc,TITAN_PADEMU_RPC_BOND_SYNC,SIF_RPC_M_NOWAIT,g_bond_send_buf,sizeof(request),g_bond_rpc_buf,sizeof(TitanPademuBondSync),TitanPademuInputBridge_BondRpcDone,0)<0){g_bond_rpc_pending=0;g_bond_import_requested=1;g_metrics.rpc_errors++;}
+            TitanHealthTrace_Critical(TITAN_HT_BOND_RPC_BEFORE, g_frame, request.command,
+                request.generation, request.flags);
+            rpc_result = sceSifCallRpc(&g_bt_rpc,TITAN_PADEMU_RPC_BOND_SYNC,SIF_RPC_M_NOWAIT,g_bond_send_buf,sizeof(request),g_bond_rpc_buf,sizeof(TitanPademuBondSync),TitanPademuInputBridge_BondRpcDone,0);
+            TitanHealthTrace_Critical(TITAN_HT_BOND_RPC_AFTER, g_frame,
+                (uint32_t)rpc_result, request.command, 0u);
+            if(rpc_result<0){g_bond_rpc_pending=0;g_bond_import_requested=1;g_metrics.rpc_errors++;}
             return;
         }
         if(g_bond_ack_requested&&!bt_busy){
@@ -296,13 +308,24 @@ void TitanPademuInputBridge_BeginFrame(void)
         }
         if(g_wireless_requested && !bt_busy &&
            !(g_wireless_request.command==TITAN_PADEMU_WIRELESS_QUERY && (g_frame%30u)==1u)){
+            int rpc_result;
+            unsigned int rpc_command = g_wireless_request.command;
             memset(g_wireless_rpc_buf,0,sizeof(g_wireless_rpc_buf));memset(g_wireless_send_buf,0,sizeof(g_wireless_send_buf));
-    memset(g_bond_rpc_buf,0,sizeof(g_bond_rpc_buf));memset(g_bond_send_buf,0,sizeof(g_bond_send_buf));
+            memset(g_bond_rpc_buf,0,sizeof(g_bond_rpc_buf));memset(g_bond_send_buf,0,sizeof(g_bond_send_buf));
             memcpy(g_wireless_send_buf,&g_wireless_request,sizeof(g_wireless_request));
             g_wireless_requested=0;g_wireless_rpc_pending=1;
-            if(sceSifCallRpc(&g_bt_rpc,TITAN_PADEMU_RPC_WIRELESS_ACCESSORIES,SIF_RPC_M_NOWAIT,
+            if (rpc_command == TITAN_PADEMU_WIRELESS_BOOTSTRAP)
+                TitanHealthTrace_Critical(TITAN_HT_WIRELESS_RPC_BEFORE, g_frame, rpc_command, 0u, 0u);
+            else
+                TitanHealthTrace_Mark(TITAN_HT_WIRELESS_RPC_BEFORE, g_frame, rpc_command, 0u, 0u);
+            rpc_result = sceSifCallRpc(&g_bt_rpc,TITAN_PADEMU_RPC_WIRELESS_ACCESSORIES,SIF_RPC_M_NOWAIT,
                 g_wireless_send_buf,sizeof(TitanPademuWirelessRequest),g_wireless_rpc_buf,sizeof(TitanPademuWirelessState),
-                TitanPademuInputBridge_WirelessRpcDone,0)<0){g_wireless_rpc_pending=0;g_metrics.rpc_errors++;}
+                TitanPademuInputBridge_WirelessRpcDone,0);
+            if (rpc_command == TITAN_PADEMU_WIRELESS_BOOTSTRAP)
+                TitanHealthTrace_Critical(TITAN_HT_WIRELESS_RPC_AFTER, g_frame, (uint32_t)rpc_result, rpc_command, 0u);
+            else
+                TitanHealthTrace_Mark(TITAN_HT_WIRELESS_RPC_AFTER, g_frame, (uint32_t)rpc_result, rpc_command, 0u);
+            if(rpc_result<0){g_wireless_rpc_pending=0;g_metrics.rpc_errors++;}
             return;
         }
         bt_busy=g_wireless_rpc_pending||g_pair_rpc_pending||g_trace_rpc_pending||g_bt_snapshot_rpc_pending||g_bond_rpc_pending;

@@ -9,7 +9,7 @@ k=(root/'kernel/src/core/titan_kernel.c').read_text()
 e=(root/'kernel/src/services/titan_early_input.c').read_text()
 p=(root/'modules/titan-ul-engine/modules/pademu/pademu.c').read_text()
 bt=(root/'modules/titan-ul-engine/modules/pademu/ds34bt.c').read_text()
-imp=(root/'modules/titan-ul-engine/modules/pademu/imports.lst').read_text()
+imp=(root/'modules/titan-ul-engine/modules/pademu/irx_imports.h').read_text()
 for t in ['TITAN_USB_PADEMU_IRX','TITAN_BT_PADEMU_IRX','TITAN_SMSUTILS_IRX']:
     req(t in mk,t+' build hook missing')
 req('TitanEarlyInput_Initialize();' in k,'Early Input not wired before runtime loop')

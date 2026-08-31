@@ -2,6 +2,7 @@
 
 #if defined(__EE__) || defined(_EE)
 #include "generated/titan_audsrv_irx.h"
+#include <kernel.h>
 #else
 static unsigned char titan_audsrv_irx[1];
 static unsigned int size_titan_audsrv_irx = 1u;
@@ -112,6 +113,7 @@ typedef struct TitanAudioVoice
 
 typedef struct TitanAudioState
 {
+    int lock_sema_id;
     int ready;
     int audsrv_started;
     int handoff_paused;
@@ -157,6 +159,7 @@ typedef struct TitanAudioState
 
 static TitanAudioState g_audio =
 {
+    .lock_sema_id = -1,
     .music_descriptor = -1,
     .sfx_load_descriptor = -1,
     .sfx_load_effect = -1,
@@ -177,6 +180,37 @@ static s16 g_mix_buffer[TITAN_AUDIO_OUTPUT_BYTES / sizeof(s16)]
     __attribute__((aligned(64)));
 static unsigned char g_pending_buffer[TITAN_AUDIO_OUTPUT_BYTES]
     __attribute__((aligned(64)));
+
+static int TitanAudio_CreateLock(void)
+{
+#if defined(__EE__) || defined(_EE)
+    ee_sema_t sema;
+    memset(&sema, 0, sizeof(sema));
+    sema.init_count = 1;
+    sema.max_count = 1;
+    g_audio.lock_sema_id = CreateSema(&sema);
+    return g_audio.lock_sema_id >= 0;
+#else
+    g_audio.lock_sema_id = -1;
+    return 1;
+#endif
+}
+
+static void TitanAudio_Lock(void)
+{
+#if defined(__EE__) || defined(_EE)
+    if (g_audio.lock_sema_id >= 0)
+        (void)WaitSema(g_audio.lock_sema_id);
+#endif
+}
+
+static void TitanAudio_Unlock(void)
+{
+#if defined(__EE__) || defined(_EE)
+    if (g_audio.lock_sema_id >= 0)
+        (void)SignalSema(g_audio.lock_sema_id);
+#endif
+}
 
 static const char *g_titan_audio_sfx_paths[TITAN_AUDIO_SFX_COUNT] =
 {
@@ -1508,10 +1542,16 @@ int TitanAudio_Initialize(void)
 
     TitanAudio_Shutdown();
     memset(&g_audio, 0, sizeof(g_audio));
+    g_audio.lock_sema_id = -1;
     g_audio.music_descriptor = -1;
     g_audio.sfx_load_descriptor = -1;
     g_audio.sfx_load_effect = -1;
     g_audio.status = TITAN_AUDIO_STATUS_NOT_INITIALIZED;
+    if (!TitanAudio_CreateLock())
+    {
+        g_audio.status = TITAN_AUDIO_STATUS_RPC_FAILED;
+        return 0;
+    }
 
     /* A bootloader or previous service may leave LIBSD/AUDSRV resident.
      * Duplicate module-load return codes are therefore only diagnostics; the
@@ -1588,7 +1628,11 @@ void TitanAudio_Shutdown(void)
 {
     unsigned int index;
     int had_audsrv;
+    int lock_sema_id;
 
+    lock_sema_id = g_audio.lock_sema_id;
+    g_audio.ready = 0;
+    g_audio.external_stream_active = 0;
     had_audsrv = g_audio.audsrv_started;
     if (had_audsrv)
     {
@@ -1611,8 +1655,15 @@ void TitanAudio_Shutdown(void)
     {
         audsrv_quit();
     }
+#if defined(__EE__) || defined(_EE)
+    if (lock_sema_id >= 0)
+        (void)DeleteSema(lock_sema_id);
+#else
+    (void)lock_sema_id;
+#endif
 
     memset(&g_audio, 0, sizeof(g_audio));
+    g_audio.lock_sema_id = -1;
     g_audio.music_descriptor = -1;
     g_audio.sfx_load_descriptor = -1;
     g_audio.sfx_load_effect = -1;
@@ -1633,14 +1684,22 @@ void TitanAudio_Update(void)
     (void)TitanAudio_StorageWorkerPumpDeferred();
 #endif
 
-    /* PS2 realtime path: AUDSRV + RAM mixing only.  No fileXio/TitanStorageIo
-     * call is allowed here; the storage worker owns the serialized I/O lane. */
+    /* The kernel main thread is the sole AUDSRV consumer. Titan-game workers
+     * only publish PCM into the bounded external ring. The EE semaphore keeps
+     * lifecycle transitions and the ring metadata from racing this drain. */
+    TitanAudio_Lock();
+    if (!g_audio.ready || g_audio.handoff_paused)
+    {
+        TitanAudio_Unlock();
+        return;
+    }
     TitanAudio_DrainPending();
     if (g_audio.pending_size == 0u && TitanAudio_HasOutput())
     {
         TitanAudio_MixPendingChunk();
         TitanAudio_DrainPending();
     }
+    TitanAudio_Unlock();
 }
 
 int TitanAudio_StorageWorkerNeedsRealtime(void)
@@ -1847,6 +1906,12 @@ int TitanAudio_BeginExternalStream(void)
         return 0;
     }
 
+    TitanAudio_Lock();
+    if (!g_audio.ready || g_audio.handoff_paused)
+    {
+        TitanAudio_Unlock();
+        return 0;
+    }
     g_audio.external_stream_active = 1;
     g_audio.external_ring_read = 0u;
     g_audio.external_ring_write = 0u;
@@ -1857,13 +1922,16 @@ int TitanAudio_BeginExternalStream(void)
     g_audio.pending_size = 0u;
     TitanAudio_ClearVoices();
     audsrv_stop_audio();
+    TitanAudio_Unlock();
     return 1;
 }
 
 void TitanAudio_EndExternalStream(void)
 {
+    TitanAudio_Lock();
     if (!g_audio.external_stream_active)
     {
+        TitanAudio_Unlock();
         return;
     }
     g_audio.external_stream_active = 0;
@@ -1877,6 +1945,7 @@ void TitanAudio_EndExternalStream(void)
     {
         g_audio.music_target_volume = TITAN_AUDIO_MUSIC_TARGET_VOLUME;
     }
+    TitanAudio_Unlock();
 }
 
 unsigned int TitanAudio_SubmitExternalPcm(
@@ -1890,17 +1959,30 @@ unsigned int TitanAudio_SubmitExternalPcm(
     size_t accepted;
     size_t first;
 
-    if (!g_audio.external_stream_active || interleaved_stereo == 0 || frames == 0u)
+    if (interleaved_stereo == 0 || frames == 0u)
     {
         return 0u;
     }
 
+    TitanAudio_Lock();
+    if (!g_audio.external_stream_active)
+    {
+        TitanAudio_Unlock();
+        return 0u;
+    }
+
+    if (frames > (unsigned int)(SIZE_MAX / TITAN_AUDIO_BYTES_PER_FRAME))
+    {
+        TitanAudio_Unlock();
+        return 0u;
+    }
     requested = (size_t)frames * TITAN_AUDIO_BYTES_PER_FRAME;
     free_bytes = TITAN_AUDIO_EXTERNAL_RING_BYTES - g_audio.external_ring_size;
     accepted = requested < free_bytes ? requested : free_bytes;
     accepted -= accepted % TITAN_AUDIO_BYTES_PER_FRAME;
     if (accepted == 0u)
     {
+        TitanAudio_Unlock();
         return 0u;
     }
 
@@ -1918,20 +2000,30 @@ unsigned int TitanAudio_SubmitExternalPcm(
     g_audio.external_ring_write =
         (g_audio.external_ring_write + accepted) % TITAN_AUDIO_EXTERNAL_RING_BYTES;
     g_audio.external_ring_size += accepted;
+    TitanAudio_Unlock();
     return (unsigned int)(accepted / TITAN_AUDIO_BYTES_PER_FRAME);
 }
 
 unsigned int TitanAudio_GetExternalBufferedFrames(void)
 {
-    return (unsigned int)(g_audio.external_ring_size / TITAN_AUDIO_BYTES_PER_FRAME);
+    unsigned int frames;
+    TitanAudio_Lock();
+    frames = (unsigned int)(
+        g_audio.external_ring_size / TITAN_AUDIO_BYTES_PER_FRAME);
+    TitanAudio_Unlock();
+    return frames;
 }
 
 unsigned int TitanAudio_GetExternalFreeFrames(void)
 {
-    return (unsigned int)(
+    unsigned int frames;
+    TitanAudio_Lock();
+    frames = (unsigned int)(
         (TITAN_AUDIO_EXTERNAL_RING_BYTES - g_audio.external_ring_size) /
         TITAN_AUDIO_BYTES_PER_FRAME
     );
+    TitanAudio_Unlock();
+    return frames;
 }
 
 int TitanAudio_IsExternalStreamActive(void)
@@ -1950,6 +2042,12 @@ void TitanAudio_PrepareHandoff(void)
     {
         return;
     }
+    TitanAudio_Lock();
+    if (!g_audio.ready)
+    {
+        TitanAudio_Unlock();
+        return;
+    }
     g_audio.handoff_paused = 1;
     g_audio.external_stream_active = 0;
     g_audio.external_ring_read = 0u;
@@ -1961,6 +2059,7 @@ void TitanAudio_PrepareHandoff(void)
     TitanAudio_ClearVoices();
     TitanAudio_ResetStreaming();
     audsrv_stop_audio();
+    TitanAudio_Unlock();
 }
 
 void TitanAudio_CancelHandoff(void)
@@ -1969,10 +2068,17 @@ void TitanAudio_CancelHandoff(void)
     {
         return;
     }
+    TitanAudio_Lock();
+    if (!g_audio.ready)
+    {
+        TitanAudio_Unlock();
+        return;
+    }
     g_audio.handoff_paused = 0;
     audsrv_stop_audio();
     TitanAudio_ResetStreaming();
     TitanAudio_StartMusic();
+    TitanAudio_Unlock();
 }
 
 void TitanAudio_PlayShutdownAndWait(void)

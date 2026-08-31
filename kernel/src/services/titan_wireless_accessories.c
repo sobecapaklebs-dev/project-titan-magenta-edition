@@ -2,6 +2,7 @@
 #include "titan_pademu_input_bridge.h"
 #include "titan_bluetooth_runtime.h"
 #include "titan_notifications.h"
+#include "titan_health_trace.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -61,18 +62,40 @@ void TitanWirelessAccessories_Initialize(void)
 
 void TitanWirelessAccessories_BeginStartupReconnect(void)
 {
+    int request_result;
+    int bootstrap_result;
     /* P10.6: Health & Safety is late enough for storage/USBD ownership and early
      * enough for couch-style wake/reconnect. The request is asynchronous. */
+    TitanHealthTrace_Mark(TITAN_HT_WIRELESS_BEGIN, g_wireless_frame,
+        g_startup_reconnect_active, g_startup_reconnect_attempts, 0u);
     g_startup_reconnect_active = 1;
     g_startup_reconnect_attempts = 0u;
     g_startup_reconnect_next_frame = g_wireless_frame;
-    (void)TitanBluetoothRuntime_Request();
+
+    TitanHealthTrace_Critical(TITAN_HT_WIRELESS_BT_REQUEST_BEFORE,
+        g_wireless_frame, 0u, 0u, 0u);
+    request_result = TitanBluetoothRuntime_Request();
+    TitanHealthTrace_Critical(TITAN_HT_WIRELESS_BT_REQUEST_AFTER,
+        g_wireless_frame, (uint32_t)request_result, 0u, 0u);
+
     /* P10.6.1: BOOTSTRAP is intentionally non-QUERY so the P10.2 IOP
      * worker executes pademu_transport_request_init(). It is init/state
      * only: discovery remains an explicit Settings action. */
-    (void)TitanPademuInputBridge_RequestWireless(TITAN_PADEMU_WIRELESS_BOOTSTRAP, 0u);
+    TitanHealthTrace_Critical(TITAN_HT_WIRELESS_BOOTSTRAP_BEFORE,
+        g_wireless_frame, TITAN_PADEMU_WIRELESS_BOOTSTRAP, 0u, 0u);
+    bootstrap_result = TitanPademuInputBridge_RequestWireless(
+        TITAN_PADEMU_WIRELESS_BOOTSTRAP, 0u);
+    TitanHealthTrace_Critical(TITAN_HT_WIRELESS_BOOTSTRAP_AFTER,
+        g_wireless_frame, (uint32_t)bootstrap_result, 0u, 0u);
+
     /* P10.6.3: defer P10.5 persisted-bond IMPORT until BT RPC bind. */
+    TitanHealthTrace_Critical(TITAN_HT_WIRELESS_BOND_BEFORE,
+        g_wireless_frame, 0u, 0u, 0u);
     TitanPademuInputBridge_RequestBondRestore();
+    TitanHealthTrace_Critical(TITAN_HT_WIRELESS_BOND_AFTER,
+        g_wireless_frame, 0u, 0u, 0u);
+    TitanHealthTrace_Mark(TITAN_HT_WIRELESS_END, g_wireless_frame,
+        (uint32_t)request_result, (uint32_t)bootstrap_result, 0u);
 }
 
 void TitanWirelessAccessories_EndStartupReconnect(void)

@@ -6,8 +6,9 @@ usage() {
 Usage: install_to_usb.sh --target /run/media/USER/PS [--package DIR]
 
 Installs a previously built Project Titan Magenta Edition runtime. The package
-must contain kernel.elf, titan.elf, TITAN/titan_ul_engine.elf and
-neutrino/neutrino.elf. Files are staged, hashed, published by sibling renames,
+must contain kernel.elf, titan.elf, both validated UL compatibility paths
+(TITAN/titan_ul_engine.elf and TITAN/titan_ul_loader.elf), and neutrino/neutrino.elf.
+Files are staged, hashed, published by sibling renames,
 and covered by a recovery journal. The canonical kernel path is always the
 root of the device; TITAN/kernel.elf is never installed.
 USAGE
@@ -34,6 +35,7 @@ required=(
     "kernel.elf"
     "titan.elf"
     "TITAN/titan_ul_engine.elf"
+    "TITAN/titan_ul_loader.elf"
     "neutrino/neutrino.elf"
 )
 for relative in "${required[@]}"; do
@@ -42,6 +44,14 @@ for relative in "${required[@]}"; do
         exit 1
     }
 done
+
+UL_ENGINE_SHA=$(sha256sum "$PACKAGE/TITAN/titan_ul_engine.elf" | awk '{print $1}')
+UL_LOADER_SHA=$(sha256sum "$PACKAGE/TITAN/titan_ul_loader.elf" | awk '{print $1}')
+[[ "$UL_ENGINE_SHA" == "$UL_LOADER_SHA" ]] || {
+    echo "Validated UL compatibility pair diverged: engine=$UL_ENGINE_SHA loader=$UL_LOADER_SHA" >&2
+    exit 1
+}
+echo "UL_COMPATIBILITY_PAIR_SHA256=$UL_ENGINE_SHA"
 
 transaction_root="$TARGET/TITAN/.install-transactions"
 mkdir -p "$transaction_root"
@@ -120,7 +130,7 @@ while IFS= read -r -d '' staged_file; do
         "$relative" "$backup" "$had_existing" >> "$journal"
 done < <(find "$staging" -type f ! -name INSTALL_SHA256.txt -print0 | sort -z)
 
-for legacy_relative in "TITAN/kernel.elf" "TITAN/titan_ul_loader.elf"; do
+for legacy_relative in "TITAN/kernel.elf"; do
     legacy="$TARGET/$legacy_relative"
     disabled="$legacy.legacy-disabled-$stamp"
     had_existing=0
@@ -151,9 +161,9 @@ while IFS= read -r -d '' staged_file; do
     mv -f -- "$temporary" "$destination"
 done < <(find "$staging" -type f ! -name INSTALL_SHA256.txt -print0 | sort -z)
 
-# Disable names used by experimental installers while keeping their bytes as
-# recovery material for this transaction.
-for legacy in "$TARGET/TITAN/kernel.elf" "$TARGET/TITAN/titan_ul_loader.elf"; do
+# TITAN/kernel.elf is a stale duplicate of the canonical root kernel path.
+# The UL loader compatibility name is validated runtime state and must remain live.
+for legacy in "$TARGET/TITAN/kernel.elf"; do
     if [[ -f "$legacy" ]]; then
         mv -f -- "$legacy" "$legacy.legacy-disabled-$stamp"
     fi

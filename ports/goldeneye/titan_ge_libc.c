@@ -25,6 +25,8 @@ static struct _reent s_titan_ge_reent;
 struct _reent *_impure_ptr = &s_titan_ge_reent;
 
 #define TITAN_GE_ALLOC_MAGIC 0x54474541u
+#define TITAN_GE_ALLOC_GUARD 0xC39A5E71u
+#define TITAN_GE_ALLOC_TAIL_BYTES ((uint32_t)sizeof(uint32_t))
 
 #define TITAN_GE_MALLOC_FAIL_TRACE_SLOTS 8u
 static uint32_t s_titan_ge_malloc_fail_sizes[TITAN_GE_MALLOC_FAIL_TRACE_SLOTS];
@@ -53,14 +55,51 @@ typedef struct TitanGeAllocationHeader
     uint32_t reserved1;
 } TitanGeAllocationHeader;
 
+static uint32_t TitanGeLibc_TailValue(uint32_t bytes)
+{
+    return TITAN_GE_ALLOC_MAGIC ^ TITAN_GE_ALLOC_GUARD ^ bytes;
+}
+
+static void TitanGeLibc_WriteTail(TitanGeAllocationHeader *header)
+{
+    uint32_t tail = TitanGeLibc_TailValue(header->bytes);
+    memcpy((unsigned char *)(header + 1) + header->bytes, &tail, sizeof(tail));
+}
+
+static int TitanGeLibc_AllocationValid(const TitanGeAllocationHeader *header)
+{
+    uint32_t tail;
+    if (header == 0 || header->magic != TITAN_GE_ALLOC_MAGIC ||
+        header->reserved0 != TITAN_GE_ALLOC_GUARD ||
+        header->reserved1 != (header->bytes ^ TITAN_GE_ALLOC_GUARD))
+        return 0;
+    memcpy(&tail, (const unsigned char *)(header + 1) + header->bytes,
+        sizeof(tail));
+    return tail == TitanGeLibc_TailValue(header->bytes);
+}
+
+static void TitanGeLibc_ReportCorruption(void)
+{
+    static int reported;
+    if (!reported)
+    {
+        reported = 1;
+        TitanGeRuntime_Trace("E_HEAP_GUARD_CORRUPTION");
+    }
+    TitanGeRuntime_Fail();
+}
+
 void *malloc(size_t bytes)
 {
     const TitanGameApiV1 *api = TitanGeRuntime_GetApi();
     TitanGeAllocationHeader *header;
-    if (api == 0 || bytes == 0u || bytes > 0xffffffffu - sizeof(*header))
+    if (api == 0 || bytes == 0u ||
+        bytes > 0xffffffffu - sizeof(*header) - TITAN_GE_ALLOC_TAIL_BYTES)
         return 0;
     header = (TitanGeAllocationHeader *)api->alloc(
-        (uint32_t)bytes + (uint32_t)sizeof(*header), 64u
+        (uint32_t)bytes + (uint32_t)sizeof(*header) +
+            TITAN_GE_ALLOC_TAIL_BYTES,
+        64u
     );
     if (header == 0)
     {
@@ -71,6 +110,9 @@ void *malloc(size_t bytes)
     }
     header->magic = TITAN_GE_ALLOC_MAGIC;
     header->bytes = (uint32_t)bytes;
+    header->reserved0 = TITAN_GE_ALLOC_GUARD;
+    header->reserved1 = header->bytes ^ TITAN_GE_ALLOC_GUARD;
+    TitanGeLibc_WriteTail(header);
     return header + 1;
 }
 
@@ -81,8 +123,15 @@ void free(void *pointer)
     if (pointer == 0) return;
     api = TitanGeRuntime_GetApi();
     header = ((TitanGeAllocationHeader *)pointer) - 1;
-    if (api == 0 || header->magic != TITAN_GE_ALLOC_MAGIC) return;
+    if (api == 0) return;
+    if (!TitanGeLibc_AllocationValid(header))
+    {
+        TitanGeLibc_ReportCorruption();
+        return;
+    }
     header->magic = 0u;
+    header->reserved0 = 0u;
+    header->reserved1 = 0u;
     api->release(header);
 }
 
@@ -105,7 +154,20 @@ void *realloc(void *pointer, size_t bytes)
     if (pointer == 0) return malloc(bytes);
     if (bytes == 0u) { free(pointer); return 0; }
     header = ((TitanGeAllocationHeader *)pointer) - 1;
-    if (header->magic != TITAN_GE_ALLOC_MAGIC) return 0;
+    if (!TitanGeLibc_AllocationValid(header))
+    {
+        TitanGeLibc_ReportCorruption();
+        return 0;
+    }
+    /* Shrinking never needs a second live block. This avoids the old peak-
+     * double allocation and fragmentation failure during model/table growth. */
+    if (bytes <= header->bytes)
+    {
+        header->bytes = (uint32_t)bytes;
+        header->reserved1 = header->bytes ^ TITAN_GE_ALLOC_GUARD;
+        TitanGeLibc_WriteTail(header);
+        return pointer;
+    }
     replacement = malloc(bytes);
     if (replacement == 0) return 0;
     copy_bytes = header->bytes < bytes ? header->bytes : bytes;

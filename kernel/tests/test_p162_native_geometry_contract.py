@@ -210,7 +210,14 @@ need('TITAN_GAME_VU1_DRAW_REQUIRED_QWORDS <=' in vc and
      'TITAN_GAME_VU1_UPLOAD_REQUIRED_QWORDS <=' in vc,
      'VU1 packet capacity compile-time inequalities missing')
 need('vertex->z >= -guard' not in vc and 'float clip_z = source->z;' in vc and 'if (clip_z < -source->w) clip_z = -source->w;' in vc, 'VU1 still rejects depth instead of clamping it')
-need('nx < -2.0f || nx > 2.0f || ny < -2.0f || ny > 2.0f' in mathh, 'EE XY guard changed unexpectedly')
+need('nx < -2.0005f || nx > 2.0005f' in mathh and
+     'ny < -2.0005f || ny > 2.0005f' in mathh,
+     'EE XY guard-band tolerance changed unexpectedly')
+for clamp in ('if (nx < -2.0f) nx = -2.0f;',
+              'if (nx > 2.0f) nx = 2.0f;',
+              'if (ny < -2.0f) ny = -2.0f;',
+              'if (ny > 2.0f) ny = 2.0f;'):
+    need(clamp in mathh, 'EE XY guard-band clamp missing: ' + clamp)
 need('nz < -2.0f' not in mathh and 'clamped_z = z;' in mathh and 'if (clamped_z < -w) clamped_z = -w;' in mathh, 'EE depth-clamp still has +/-2 Z reject')
 need('w < 0.0001f' in mathh and 'w <= 0.0001f' not in mathh, 'EE rejects the exact W_SAFE boundary')
 need('vertex->w < 0.0001f' in vc and 'vertex->w <= 0.0001f' not in vc, 'VU1 rejects the exact W_SAFE boundary')

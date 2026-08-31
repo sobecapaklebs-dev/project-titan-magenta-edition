@@ -547,7 +547,15 @@ static PortAiStats s_aiStats;
  * active, they use SDL exactly as before. */
 static inline u32 ai_queued_bytes(void) {
 #ifdef PROJECT_TITAN_TGR
-    return 0u;
+    /* Titan exposes free frames rather than queued bytes.  Report the real
+     * occupancy to the MGB64 queue controller so it neither floods TGR's
+     * bounded ring nor mistakes a full queue for an empty one. */
+    {
+        const u32 capacity_frames = (64u * 1024u) / 4u;
+        u32 free_frames = TitanGeRuntime_AudioFreeFrames();
+        if (free_frames > capacity_frames) free_frames = capacity_frames;
+        return (capacity_frames - free_frames) * 4u;
+    }
 #else
 #ifdef __EMSCRIPTEN__
     if (webAudioOutputActive()) return webAudioOutputQueuedBytes();

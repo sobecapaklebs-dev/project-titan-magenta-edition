@@ -3,7 +3,7 @@
 
 #include "titan_exec_handoff.h"
 #include "titan_user_profile.h"
-#include "titan_video_output.h"
+#include "titan_game_gsm.h"
 #include "titan_vmc.h"
 #include "titan_shell_busy.h"
 #include "titan_storage_io.h"
@@ -1162,49 +1162,21 @@ static TitanNeutrinoResult TitanNeutrino_PrepareLaunch(
             }
         }
 
-        /* The headless Titan UL path receives the already-scanned catalog
-         * metadata.  Re-reading ul.cfg after the engine resets the IOP made
-         * launch dependent on USB re-enumeration timing and duplicated work
-         * that the shell had already completed. */
+        /* Golden UL stays byte-exact. Titan materializes only the normal OPL
+         * per-game GSM keys before the unchanged three-argument handoff. */
+        if (!TitanGameGsm_PrepareUlGoldenConfig(
+                game->startup,
+                TitanGameGsm_GetMode(game->startup)))
+        {
+            return TITAN_NEUTRINO_VIDEO_PROFILE_FAILED;
+        }
+
         plan->arguments[plan->argument_count++] = g_opl_ul_loader;
         plan->arguments[plan->argument_count++] = (char *)game->startup;
         plan->arguments[plan->argument_count++] = "titan-ul";
-        plan->arguments[plan->argument_count++] = plan->vmc_argument;
-        plan->arguments[plan->argument_count++] = plan->ul_title_argument;
-        plan->arguments[plan->argument_count++] = plan->ul_parts_argument;
-        plan->arguments[plan->argument_count++] = plan->ul_media_argument;
-        plan->arguments[plan->argument_count++] = plan->ul_source_argument;
-
-#if defined(__EE__) || defined(_EE)
-        /* P10.6.1: controller-assignment policy belongs to the real EE launch
-         * path. Host catalog tests intentionally link titan_neutrino.c without
-         * the runtime assignment/storage graph; keeping this target-only avoids
-         * fake host dependencies while the PS2 kernel still resolves the strong
-         * TitanControllerAssignment implementation from kernel/Makefile. */
-        {
-            int pademu_mode = TitanControllerAssignment_GetGameplayPademuMode();
-            const char *mode_name = pademu_mode == 1 ? "bt" : (pademu_mode == 0 ? "usb" : "off");
-            snprintf(plan->ul_pademu_argument, sizeof(plan->ul_pademu_argument),
-                     "-titan-pademu=%s", mode_name);
-            snprintf(plan->ul_mtap_argument, sizeof(plan->ul_mtap_argument),
-                     "-titan-mtap=%u", TitanControllerAssignment_GetMultitapEnabled() ? 1u : 0u);
-            snprintf(plan->ul_mtap_port_argument, sizeof(plan->ul_mtap_port_argument),
-                     "-titan-mtap-port=%u", TitanControllerAssignment_GetMultitapPort());
-            plan->arguments[plan->argument_count++] = plan->ul_pademu_argument;
-            plan->arguments[plan->argument_count++] = plan->ul_mtap_argument;
-            plan->arguments[plan->argument_count++] = plan->ul_mtap_port_argument;
-        }
-#endif
-
-        /* BF28 external-engine policy is fail-closed. UNKNOWN titles receive
-         * the implemented Return-only backend; a later title/profile match
-         * upgrades these two arguments to minimal + CONTEXT2_SAFE. */
-        snprintf(plan->ul_igr_argument, sizeof(plan->ul_igr_argument), "%s", "-titan-igr=return-only");
-        snprintf(plan->ul_igr_profile_argument, sizeof(plan->ul_igr_profile_argument), "%s", "-titan-igr-profile=0");
-        plan->arguments[plan->argument_count++] = plan->ul_igr_argument;
-        plan->arguments[plan->argument_count++] = plan->ul_igr_profile_argument;
-        snprintf(plan->ul_exit_argument, sizeof(plan->ul_exit_argument), "%s", "-titan-exit=mc0:/BOOT/BOOT.ELF");
-        plan->arguments[plan->argument_count++] = plan->ul_exit_argument;
+        /* Recovery policy: preserve the proven 2026-08-05 OPL-derived UL
+         * contract exactly. The historical engine reads ul.cfg itself and
+         * expects only argv[0]=loader, argv[1]=startup, argv[2]=titan-ul. */
         return TITAN_NEUTRINO_OK;
     }
 
@@ -1269,17 +1241,9 @@ static TitanNeutrinoResult TitanNeutrino_PrepareLaunch(
     plan->arguments[plan->argument_count++] = plan->elf_argument;
     plan->arguments[plan->argument_count++] = "-logo";
 
-    /* BF28 Neutrino backend is present, but UNKNOWN titles remain return-only.
-       A compatibility-profile match may upgrade these strings to minimal/full
-       and set CONTEXT2_SAFE without changing the EE-core implementation. */
-    snprintf(plan->neutrino_igr_argument, sizeof(plan->neutrino_igr_argument), "%s", "-titan-igr=return-only");
-    snprintf(plan->neutrino_igr_profile_argument, sizeof(plan->neutrino_igr_profile_argument), "%s", "-titan-igr-profile=0");
-    snprintf(plan->neutrino_exit_argument, sizeof(plan->neutrino_exit_argument), "%s", "-titan-exit=mc0:/BOOT/BOOT.ELF");
-    plan->arguments[plan->argument_count++] = plan->neutrino_igr_argument;
-    plan->arguments[plan->argument_count++] = plan->neutrino_igr_profile_argument;
-    plan->arguments[plan->argument_count++] = plan->neutrino_exit_argument;
-
-    gsm_argument = TitanVideoOutput_GetGameGsmArgument();
+    gsm_argument = TitanGameGsm_GetNeutrinoArgument(
+        TitanGameGsm_GetMode(game->startup)
+    );
     if (gsm_argument != 0 && gsm_argument[0] != '\0')
     {
         if (plan->argument_count >= TITAN_NEUTRINO_LAUNCH_ARGUMENT_CAPACITY)
@@ -1298,7 +1262,6 @@ static TitanNeutrinoResult TitanNeutrino_PreparePhysicalDiscLaunch(
     TitanNeutrinoLaunchPlan *plan
 )
 {
-    const char *gsm_argument;
     int written;
 
     if (plan == 0 || boot_path == 0 || boot_path[0] == '\0')
@@ -1326,23 +1289,6 @@ static TitanNeutrinoResult TitanNeutrino_PreparePhysicalDiscLaunch(
     plan->arguments[plan->argument_count++] = plan->elf_argument;
     plan->arguments[plan->argument_count++] = "-logo";
 
-    /* Physical-disc sessions are compatibility-first. The resident Neutrino
-       EE core provides a proven Return-to-Titan path, but FULL/MINIMAL visual
-       overlay remains profile-gated and must not be inferred for unknown discs. */
-    snprintf(plan->neutrino_igr_argument, sizeof(plan->neutrino_igr_argument), "%s", "-titan-igr=return-only");
-    snprintf(plan->neutrino_igr_profile_argument, sizeof(plan->neutrino_igr_profile_argument), "%s", "-titan-igr-profile=0");
-    snprintf(plan->neutrino_exit_argument, sizeof(plan->neutrino_exit_argument), "%s", "-titan-exit=mc0:/BOOT/BOOT.ELF");
-    plan->arguments[plan->argument_count++] = plan->neutrino_igr_argument;
-    plan->arguments[plan->argument_count++] = plan->neutrino_igr_profile_argument;
-    plan->arguments[plan->argument_count++] = plan->neutrino_exit_argument;
-
-    gsm_argument = TitanVideoOutput_GetGameGsmArgument();
-    if (gsm_argument != 0 && gsm_argument[0] != '\0')
-    {
-        if (plan->argument_count >= TITAN_NEUTRINO_LAUNCH_ARGUMENT_CAPACITY)
-            return TITAN_NEUTRINO_ARGUMENT_OVERFLOW;
-        plan->arguments[plan->argument_count++] = (char *)gsm_argument;
-    }
     return TITAN_NEUTRINO_OK;
 }
 
@@ -1627,6 +1573,7 @@ const char *TitanNeutrino_GetResultName(TitanNeutrinoResult result)
         case TITAN_NEUTRINO_USBEXTREME_PART_MISSING: return "USBExtreme game has a missing split file";
         case TITAN_NEUTRINO_ARGUMENT_OVERFLOW: return "Launch argument is too long";
         case TITAN_NEUTRINO_OPL_UL_NOT_FOUND: return "Titan UL Engine not found in mass:/TITAN";
+        case TITAN_NEUTRINO_VIDEO_PROFILE_FAILED: return "Unable to prepare Golden engine resolution profile";
         case TITAN_NEUTRINO_OPL_UL_LOAD_FAILED: return "Unable to load Titan UL Engine from USB";
         case TITAN_NEUTRINO_ELF_LOAD_FAILED: return "Unable to load neutrino.elf from USB";
         case TITAN_NEUTRINO_EXEC_FAILED: return "Selected game backend returned unexpectedly";

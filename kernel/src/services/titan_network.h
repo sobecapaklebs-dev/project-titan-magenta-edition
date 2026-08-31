@@ -41,6 +41,40 @@ typedef struct TitanNetworkWifiAp
     unsigned char seen_count;
 } TitanNetworkWifiAp;
 
+typedef enum TitanNetworkTestResult
+{
+    TITAN_NETWORK_TEST_NOT_STARTED = 0,
+    TITAN_NETWORK_TEST_CHECKING,
+    TITAN_NETWORK_TEST_SUCCESS,
+    TITAN_NETWORK_TEST_FAILED,
+    TITAN_NETWORK_TEST_NOT_APPLICABLE
+} TitanNetworkTestResult;
+
+typedef struct TitanNetworkConnectionTestStatus
+{
+    unsigned int generation;
+    int valid;
+    int running;
+    int complete;
+    TitanNetworkPreference preference;
+    TitanNetworkTestResult software_result;
+    TitanNetworkTestResult physical_result;
+    TitanNetworkTestResult ip_result;
+    TitanNetworkTestResult internet_result;
+    int netman_ok;
+    int dev9_ok;
+    int smap_ok;
+    int ps2ip_ok;
+    int sm0_ok;
+    int link_ioctl_ok;
+    int main_if_ok;
+    int link_mode;
+    char software_detail[96];
+    char physical_detail[96];
+    char ip_detail[96];
+    char internet_detail[96];
+} TitanNetworkConnectionTestStatus;
+
 typedef struct TitanNetworkStatus
 {
     TitanNetworkPreference preference;
@@ -53,7 +87,14 @@ typedef struct TitanNetworkStatus
     int wifi_rpc_bound;
     int wifi_configured;
     int wifi_online;
+    int dev9_ready;
+    int netman_iop_ready;
+    int netman_rpc_ready;
+    int netman_ee_ready;
+    int ps2ip_ready;
+    int main_interface_ready;
     int ethernet_stack_loaded;
+    int ethernet_link_known;
     int ethernet_link_up;
     int ethernet_online;
     char ssid[TITAN_NETWORK_SSID_CAPACITY];
@@ -69,6 +110,7 @@ const TitanNetworkStatus *TitanNetwork_GetStatus(void);
 void TitanNetwork_SetEnabled(int enabled);
 int TitanNetwork_IsEnabled(void);
 void TitanNetwork_SetPreference(TitanNetworkPreference preference);
+void TitanNetwork_RequestPreference(TitanNetworkPreference preference);
 TitanNetworkPreference TitanNetwork_GetPreference(void);
 int TitanNetwork_SetWifiSsid(const char *ssid);
 int TitanNetwork_SetWifiPassword(const char *password);
@@ -80,6 +122,11 @@ const char *TitanNetwork_GetWifiSecurityName(unsigned int security);
 unsigned int TitanNetwork_GetWifiSignalPercent(const TitanNetworkWifiAp *ap);
 int TitanNetwork_ConnectWifi(void);
 int TitanNetwork_Retry(void);
+int TitanNetwork_StartConnectionTest(void);
+int TitanNetwork_IsBootstrapComplete(void);
+const char *TitanNetwork_GetBootstrapStageName(void);
+const TitanNetworkConnectionTestStatus *TitanNetwork_GetConnectionTestStatus(void);
+const char *TitanNetwork_GetTestResultName(TitanNetworkTestResult result);
 const char *TitanNetwork_GetStateName(void);
 const char *TitanNetwork_GetPreferenceName(void);
 

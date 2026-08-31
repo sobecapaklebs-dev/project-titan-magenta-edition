@@ -1,0 +1,17 @@
+BuildFix30 CP05 Global Language / Text / UX validation
+PARENT=CP04
+buildfix30-localization-host: OK
+titan-global-language-architecture-contract: OK
+titan-global-text-utf8-contract: OK
+titan-language-en-pt-es-contract: OK
+titan-localization-no-frame-io-contract: OK
+network-ps4-style-auto-scan-ui-bf3-contract: PASS
+network-bf17-persistence-contract: PASS 17/17
+buildfix20-update-package-contract: OK
+theme-engine-contract: OK
+magenta-audio-contract: OK BF30_LIFECYCLE_AWARE
+release-contract: PASS LOCALIZED_DEBUG_CATEGORY_ACCEPTED
+FULL_RUNNER_PROGRESS: reached post-audio/update region; timeout is NOT counted as global PASS
+TARGET_BUILD_VALIDATED=0 EXTERNAL_PS2DEV_PENDING
+PCSX2_VALIDATED=0 EXTERNAL_PENDING
+HARDWARE_VALIDATED=0 EXTERNAL_PENDING

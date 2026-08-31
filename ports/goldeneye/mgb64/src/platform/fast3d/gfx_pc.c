@@ -3050,6 +3050,7 @@ struct TextureHashmapNode {
      * reuse decoded/uploaded textures when the underlying pixels did not
      * actually change. */
     uint64_t content_signature;
+    uint32_t last_used_frame;
     uint8_t fmt, siz;
     uint8_t palette_index;
     uint8_t palette_lut_mode;
@@ -3120,13 +3121,11 @@ static struct {
 } pal_ref_table[PAL_REF_TABLE_SIZE];
 static bool pal_ref_reliable = true;
 
-/* P10.55: P154's cross-frame retention was not safe on hardware: Boris could
- * sample an earlier font/letter texture.  Keep dynamic content caching strictly
- * FRAME-LOCAL while preserving immutable/static entries across frames.
- *
- * These counters are intentionally cheap and RAM-only in the hot path.  One
- * aggregate line every 32 root frames reports whether frame-local reuse is
- * actually buying us anything. */
+/* Dynamic textures retain two root-frame generations.  Identity includes the
+ * source/address, exact bytes, palette and decode variant, fixing P154's stale
+ * Boris glyph while allowing alternating A/B transient buffers to hit again.
+ * A hard live-node ceiling keeps the 1 MiB GS arena bounded. */
+#define TITAN_DYNAMIC_TEXTURE_CACHE_LIMIT 160u
 static uint32_t s_p155_dynamic_hits;
 static uint32_t s_p155_dynamic_misses;
 static uint32_t s_p155_dynamic_purged;
@@ -3135,6 +3134,7 @@ static uint64_t s_p155_window_begin_us;
 static uint64_t s_p155_window_hits;
 static uint64_t s_p155_window_misses;
 static uint64_t s_p155_window_purged;
+static uint32_t s_p155_dynamic_live;
 
 static inline size_t pal_ref_hash(const uint8_t *addr) {
     uintptr_t p = (uintptr_t)addr;
@@ -3246,6 +3246,7 @@ static void tex_cache_init(void) {
         gfx_texture_cache.free_nodes[i] = TEXTURE_CACHE_MAX_SIZE - 1 - i;
     }
     gfx_texture_cache.free_node_count = TEXTURE_CACHE_MAX_SIZE;
+    s_p155_dynamic_live = 0u;
 }
 
 static inline size_t gfx_texture_cache_hash_key(uintptr_t texture_addr_key,
@@ -3261,16 +3262,9 @@ static inline size_t gfx_texture_cache_hash_key(uintptr_t texture_addr_key,
                                                 uint8_t palette_index,
                                                 uint8_t palette_lut_mode)
 {
-    /* P161-B: mutable textures are frame-local and already carry a fingerprint
-     * of the exact source rows (+ TLUT bytes for CI). Pointer addresses are NOT
-     * content identity and temporary upload buffers can move within one frame.
-     * Static entries (signature==0) retain the legacy address identity. */
-    if (content_signature != 0u) {
-        texture_addr_key = 0u;
-        texture_source_key = 0u;
-        palette_addr0 = NULL;
-        palette_addr1 = NULL;
-    }
+    /* Mutable entries must retain their source identity as well as their exact
+     * fingerprint. Content alone is insufficient when the decode path applies
+     * source-specific font/eye transformations. */
     return ((texture_addr_key >> 5) ^
             (texture_source_key >> 9) ^
             (uintptr_t)content_signature ^
@@ -3326,9 +3320,12 @@ static void tex_cache_evict_lru(void) {
         gfx_rapi->delete_texture(victim->texture_id);
     }
     victim->in_use = false;
+    if (victim->content_signature != 0u && s_p155_dynamic_live != 0u)
+        s_p155_dynamic_live--;
     victim->texture_addr_key = 0;
     victim->texture_source_key = 0;
     victim->content_signature = 0u;
+    victim->last_used_frame = 0u;
     victim->size_bytes = 0;
     victim->line_size_bytes = 0;
     victim->full_image_line_size_bytes = 0;
@@ -3378,8 +3375,12 @@ static void gfx_texture_cache_delete_matching(bool (*match_fn)(const struct Text
 
         node->in_use = false;
         node->hash_next = NULL;
+        if (node->content_signature != 0u && s_p155_dynamic_live != 0u)
+            s_p155_dynamic_live--;
         node->texture_addr_key = 0;
         node->texture_source_key = 0;
+        node->content_signature = 0u;
+        node->last_used_frame = 0u;
         node->fmt = 0;
         node->siz = 0;
         node->palette_index = 0;
@@ -3501,9 +3502,12 @@ static void gfx_texture_cache_discard_node(struct TextureHashmapNode *node) {
 
     node->in_use = false;
     node->hash_next = NULL;
+    if (node->content_signature != 0u && s_p155_dynamic_live != 0u)
+        s_p155_dynamic_live--;
     node->texture_addr_key = 0;
     node->texture_source_key = 0;
     node->content_signature = 0u;
+    node->last_used_frame = 0u;
     node->fmt = 0;
     node->siz = 0;
     node->palette_index = 0;
@@ -3527,22 +3531,37 @@ static void gfx_texture_cache_discard_node(struct TextureHashmapNode *node) {
     gfx_texture_cache.count--;
 }
 
-/* Remove only mutable/dynamic texture entries from the previous root frame.
- * Static game textures keep their long-lived cache residency.
- *
- * gfx_texture_cache_discard_node() also invalidates rendering_state references,
- * releases the Titan logical texture/backend texture, removes hash/LRU links and
- * returns the cache slot to the free stack, so no stale logical handle can
- * survive into the next frame. */
+/* Retain exactly enough history for the two alternating native transient
+ * buffers. Older dynamic entries are released before start_frame(), so GS
+ * backing can be reclaimed immediately rather than becoming frame-retired. */
 static void gfx_texture_cache_purge_dynamic_frame(void)
 {
+    uint32_t current_frame = (uint32_t)g_frame_count_diag;
     for (int i = 0; i < TEXTURE_CACHE_MAX_SIZE; i++) {
         struct TextureHashmapNode *node = &gfx_texture_cache.pool[i];
 
-        if (node->in_use && node->content_signature != 0u) {
+        if (node->in_use && node->content_signature != 0u &&
+            current_frame - node->last_used_frame > 2u) {
             gfx_texture_cache_discard_node(node);
             s_p155_dynamic_purged++;
         }
+    }
+}
+
+static void gfx_texture_cache_limit_dynamic(void)
+{
+    int index = gfx_texture_cache.lru_tail;
+    while (s_p155_dynamic_live >= TITAN_DYNAMIC_TEXTURE_CACHE_LIMIT &&
+           index >= 0)
+    {
+        struct TextureHashmapNode *node = &gfx_texture_cache.pool[index];
+        int previous = node->lru_prev;
+        if (node->in_use && node->content_signature != 0u)
+        {
+            gfx_texture_cache_discard_node(node);
+            s_p155_dynamic_purged++;
+        }
+        index = previous;
     }
 }
 
@@ -15938,9 +15957,8 @@ static bool gfx_texture_cache_lookup(int tile, struct TextureHashmapNode **n,
     while (node != NULL) {
         if (node->in_use &&
             node->content_signature == content_signature &&
-            (content_signature != 0u ||
-             (node->texture_addr_key == texture_addr_key &&
-              node->texture_source_key == texture_source_key)) &&
+            node->texture_addr_key == texture_addr_key &&
+            node->texture_source_key == texture_source_key &&
             node->fmt == fmt &&
             node->siz == siz &&
             node->size_bytes == size_bytes &&
@@ -15948,14 +15966,14 @@ static bool gfx_texture_cache_lookup(int tile, struct TextureHashmapNode **n,
             node->full_image_line_size_bytes == full_image_line_size_bytes &&
             node->tile_width == tile_width &&
             node->tile_height == tile_height &&
-            (content_signature != 0u ||
-             (node->palette_addr0 == palette_addr0 &&
-              node->palette_addr1 == palette_addr1)) &&
+            node->palette_addr0 == palette_addr0 &&
+            node->palette_addr1 == palette_addr1 &&
             node->palette_index == palette_index &&
             node->palette_lut_mode == palette_lut_mode) {
             /* HIT: move to LRU head (most recently used) */
             tex_lru_remove(node->pool_idx);
             tex_lru_push_front(node->pool_idx);
+            node->last_used_frame = (uint32_t)g_frame_count_diag;
             gfx_bind_texture(tile, node->texture_id);
             *n = node;
             if (content_signature != 0u)
@@ -15965,7 +15983,11 @@ static bool gfx_texture_cache_lookup(int tile, struct TextureHashmapNode **n,
         node = node->hash_next;
     }
 
-    /* MISS: evict until a free node is available */
+    /* MISS: cap mutable GS residency before allocating another logical node. */
+    if (content_signature != 0u)
+        gfx_texture_cache_limit_dynamic();
+
+    /* Evict until a free node is available. */
     while (gfx_texture_cache.free_node_count <= 0 && gfx_texture_cache.lru_tail >= 0) {
         tex_cache_evict_lru();
     }
@@ -15988,6 +16010,7 @@ static bool gfx_texture_cache_lookup(int tile, struct TextureHashmapNode **n,
     new_node->texture_addr_key = texture_addr_key;
     new_node->texture_source_key = texture_source_key;
     new_node->content_signature = content_signature;
+    new_node->last_used_frame = (uint32_t)g_frame_count_diag;
     new_node->fmt = fmt;
     new_node->siz = siz;
     new_node->size_bytes = size_bytes;
@@ -16013,6 +16036,8 @@ static bool gfx_texture_cache_lookup(int tile, struct TextureHashmapNode **n,
     /* Insert at LRU head */
     tex_lru_push_front(idx);
     gfx_texture_cache.count++;
+    if (content_signature != 0u)
+        s_p155_dynamic_live++;
 
     gfx_bind_texture(tile, new_node->texture_id);
     gfx_set_sampler_state(tile, false, 0, 0);
@@ -16882,6 +16907,41 @@ static bool import_texture(int slot, int tile_desc) {
                 ? rdp.texture_tile[tile_desc].palette
                 : 0u
         );
+
+    if (p154_content_signature != 0u)
+    {
+        /* Raw bytes are not the whole decode identity. I8 glyphs are coverage-
+         * remapped/upscaled, legacy eye strips bake primitive intensity, and
+         * the opt-in IA8 diagnostic can swap channels. Mixing those inputs is
+         * what makes two-generation retention visually safe. */
+        uint64_t variant = UINT64_C(0x9E3779B97F4A7C15);
+        if (fmt == G_IM_FMT_I && siz == G_IM_SIZ_8b)
+        {
+            if (gfx_is_font_texture_addr(loaded_texture->addr))
+            {
+                variant ^= UINT64_C(0x464F4E5400000000);
+                variant ^= (uint64_t)(unsigned int)gfx_font_upscale_factor() << 32u;
+                variant ^= (uint64_t)(unsigned int)gfx_font_alpha_cutoff() << 16u;
+                variant ^= (uint64_t)(unsigned int)gfx_font_alpha_white_point();
+            }
+            if (!p1624_eye_aggregate && slot == 0 &&
+                gfx_is_eye_intro_strip_material((uint8_t)tile_desc) &&
+                rdp.prim_color.r == rdp.prim_color.g &&
+                rdp.prim_color.r == rdp.prim_color.b)
+            {
+                variant ^= UINT64_C(0x4559450000000000) |
+                    (uint64_t)rdp.prim_color.r;
+            }
+        }
+        else if (fmt == G_IM_FMT_IA && siz == G_IM_SIZ_8b)
+        {
+            variant ^= (uint64_t)(unsigned int)
+                gfx_diag_ia8_channel_mode_for_key(loaded_texture->cache_key);
+        }
+        p154_content_signature ^= variant;
+        if (p154_content_signature == 0u)
+            p154_content_signature = UINT64_C(1);
+    }
 
     if (decode_size_bytes > 256 * 1024) {
         static int tex_size_warns = 0;
@@ -26656,7 +26716,7 @@ void gfx_init(void) {
     /* Clear state */
     tex_cache_init();
 #ifdef PROJECT_TITAN_TGR
-    TitanGeRuntime_Trace("P155_FRAME_LOCAL_DYNAMIC_TEXTURE_CACHE_ACTIVE");
+    TitanGeRuntime_Trace("P163_BOUNDED_GENERATIONAL_TEXTURE_CACHE_ACTIVE");
 #endif
     memset(&rsp, 0, sizeof(rsp));
     memset(&rdp, 0, sizeof(rdp));
@@ -26951,8 +27011,8 @@ void gfx_run_dl(Gfx *dl) {
         if (s_p155_window_begin_us == 0u)
             s_p155_window_begin_us = p155_now;
 
-        /* End the previous frame's dynamic residency before the next frame can
-         * bind anything.  This is the safety boundary P154 was missing. */
+        /* Retire dynamic entries older than the two-buffer generation window
+         * before start_frame(), when GS backing can be reclaimed immediately. */
         gfx_texture_cache_purge_dynamic_frame();
 
         s_p155_window_hits += s_p155_dynamic_hits;

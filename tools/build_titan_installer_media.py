@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import filecmp
 import shutil
 from pathlib import Path
 
@@ -22,8 +23,9 @@ def runtime_entries(runtime: Path) -> list[InputEntry]:
         if not p.is_file():
             continue
         rel = p.relative_to(runtime).as_posix()
-        # Canonical runtime does not deploy these duplicate loader/kernel paths.
-        if rel in {"TITAN/kernel.elf", "TITAN/titan_ul_loader.elf"}:
+        # The root kernel.elf is canonical. The validated UL runtime, however,
+        # deliberately ships both compatibility names and both must survive TINS.
+        if rel == "TITAN/kernel.elf":
             continue
         entries.append(InputEntry(KIND_SYSTEM, rel, p))
     return entries
@@ -45,10 +47,18 @@ def main() -> int:
     bootloader = (args.bootloader_elf or project / "BOOT.ELF").resolve()
     out = args.output.resolve()
 
-    required = [installer, bootloader, runtime / "kernel.elf"]
+    ul_engine = runtime / "TITAN/titan_ul_engine.elf"
+    ul_loader = runtime / "TITAN/titan_ul_loader.elf"
+    neutrino = runtime / "neutrino/neutrino.elf"
+    required = [installer, bootloader, runtime / "kernel.elf", ul_engine, ul_loader, neutrino]
     missing = [str(x) for x in required if not x.is_file()]
     if missing:
         raise SystemExit("Missing required build artifact(s):\n  " + "\n  ".join(missing))
+    if not filecmp.cmp(ul_engine, ul_loader, shallow=False):
+        raise SystemExit(
+            "Validated UL compatibility pair diverged: titan_ul_engine.elf and "
+            "titan_ul_loader.elf must contain the same runtime bytes"
+        )
 
     if out.exists():
         shutil.rmtree(out)

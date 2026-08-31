@@ -224,9 +224,17 @@ static inline int TitanVideoGame_MapClipVertex(
     reciprocal_w = 1.0f / w;
     nx = x * reciprocal_w;
     ny = y * reciprocal_w;
+    /* Fast3D clips exactly onto the +/-2 homogeneous guard-band. R5900/VU
+     * interpolation can differ by a few ULPs at that plane; a strict compare
+     * dropped the entire triangle and produced screen-position-locked cracks. */
     if (!isfinite(nx) || !isfinite(ny) ||
-        nx < -2.0f || nx > 2.0f || ny < -2.0f || ny > 2.0f)
+        nx < -2.0005f || nx > 2.0005f ||
+        ny < -2.0005f || ny > 2.0005f)
         return 0;
+    if (nx < -2.0f) nx = -2.0f;
+    if (nx > 2.0f) nx = 2.0f;
+    if (ny < -2.0f) ny = -2.0f;
+    if (ny > 2.0f) ny = 2.0f;
 
     /* P162 depth clamp is not a visibility test.  Clamp in homogeneous
      * clip-space before multiplying by 1/W so arbitrarily deep but finite

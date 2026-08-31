@@ -17,6 +17,7 @@
 #include "titan_datetime.h"
 #include "titan_localization.h"
 #include "titan_diagnostics.h"
+#include "titan_health_trace.h"
 #include "titan_early_input.h"
 #include "titan_vram_boot_guard.h"
 #include "titan_vlombiscore.h"
@@ -31,6 +32,7 @@
 #include "titan_icons.h"
 #include "titan_notifications.h"
 #include "titan_neutrino.h"
+#include "titan_game_gsm.h"
 #include "titan_network.h"
 #include "titan_library_scan.h"
 #include "titan_library_cache.h"
@@ -360,6 +362,7 @@ typedef enum TitanContextAction
     TITAN_CONTEXT_ACTION_INFO,
     TITAN_CONTEXT_ACTION_HIDE,
     TITAN_CONTEXT_ACTION_ENGINE,
+    TITAN_CONTEXT_ACTION_RESOLUTION_OPTIONS,
     TITAN_CONTEXT_ACTION_EDIT_FOLDER,
     TITAN_CONTEXT_ACTION_DELETE_FOLDER,
     TITAN_CONTEXT_ACTION_STORAGE_INFO,
@@ -454,6 +457,8 @@ typedef struct TitanShellSceneState
     TitanFolderUiMode folder_ui_mode;
     TitanFolderUiMode folder_previous_ui_mode;
     int folder_context_selected;
+    int resolution_options_open;
+    int resolution_options_selected;
     int folder_destination_selected;
     int folder_editor_selected;
     int folder_content_cursor;
@@ -482,6 +487,7 @@ typedef struct TitanShellSceneState
     char pending_uninstall_title_id[TITAN_APPLICATION_TITLE_ID_CAPACITY];
     char pending_uninstall_title[TITAN_APPLICATION_TITLE_CAPACITY];
     float folder_context_transition;
+    float resolution_options_transition;
     float folder_screen_transition;
     int video_test_active;
     int video_test_previous_progressive;
@@ -556,6 +562,10 @@ static void TitanShellScene_BeginApplicationLaunch(unsigned int application_inde
 static float TitanShellScene_GameLaunchProgress(unsigned int start, unsigned int end);
 static void TitanShellScene_DrawEngineBadge(unsigned char alpha);
 static void TitanShellScene_SetFolderUiMode(TitanFolderUiMode mode);
+static unsigned int TitanShellScene_BuildResolutionModes(
+    const TitanNeutrinoGame *game,
+    TitanPerGameGsmMode modes[4]
+);
 
 static void TitanShellScene_PlayNavigationAudio(
     const TitanInputState *input
@@ -1498,6 +1508,10 @@ static void TitanShellScene_SetFolderUiMode(TitanFolderUiMode mode)
     {
         g_scene.folder_context_transition = 0.0f;
     }
+    if (mode != TITAN_FOLDER_UI_CONTEXT)
+    {
+        g_scene.resolution_options_open = 0;
+    }
 }
 
 static void TitanShellScene_OpenHomeContext(const TitanHomeEntry *entry)
@@ -1511,6 +1525,9 @@ static void TitanShellScene_OpenHomeContext(const TitanHomeEntry *entry)
     g_scene.context_shell_page = entry->page;
     g_scene.context_shell_catalog_index = entry->shell_catalog_index;
     g_scene.folder_context_selected = 0;
+    g_scene.resolution_options_open = 0;
+    g_scene.resolution_options_selected = 0;
+    g_scene.resolution_options_transition = 0.0f;
     TitanShellScene_SetFolderUiMode(TITAN_FOLDER_UI_CONTEXT);
     g_scene.selected_hold_frames = 0u;
     g_scene.detail_visibility = 0.0f;
@@ -2267,6 +2284,8 @@ static int TitanShellScene_ApplyFolderEditor(void)
 
     TitanShellScene_SetFolderUiMode(TITAN_FOLDER_UI_CLOSED);
     g_scene.folder_context_selected = 0;
+    g_scene.resolution_options_open = 0;
+    g_scene.resolution_options_selected = 0;
     g_scene.folder_destination_selected = 0;
     g_scene.folder_open = 0;
     g_scene.selected_item =
@@ -2923,7 +2942,7 @@ static void TitanShellScene_BeginVmcFormat(void)
             "Formatar VMC do perfil?",
             "All saves on the active VMC will be erased.",
             "Uma cópia .bak será mantida no armazenamento.",
-            "Cancelar",
+            "Cancel",
             "Formatar VMC",
             TitanShellScene_ConfirmVmcFormat,
             0
@@ -2986,7 +3005,7 @@ static void TitanShellScene_BeginVmcRecreate(void)
             "Recriar VMC do perfil?",
             "All saves on this VMC will be erased.",
             "The profile and TITAN.DAT will be preserved.",
-            "Cancelar",
+            "Cancel",
             "Recriar VMC",
             TitanShellScene_ConfirmVmcRecreate,
             0
@@ -3049,7 +3068,7 @@ static void TitanShellScene_BeginPhysicalFormat(void)
             title,
             "All saves and data on the card will be erased.",
             "Escolha continuar para ver a confirmação final.",
-            "Cancelar",
+            "Cancel",
             "Continuar",
             TitanShellScene_ConfirmPhysicalFormatFirst,
             0
@@ -3088,7 +3107,7 @@ static void TitanShellScene_ConfirmPhysicalFormatFirst(
             "Confirmação final",
             line_1,
             "This operation cannot be undone.",
-            "Cancelar",
+            "Cancel",
             "APAGAR TUDO",
             TitanShellScene_ConfirmPhysicalFormatFinal,
             0
@@ -6441,13 +6460,21 @@ static unsigned int TitanShellScene_BuildContextMenu(
     {
         TITAN_ADD_CONTEXT_ITEM("Add to folder", TITAN_CONTEXT_ACTION_ADD_FOLDER);
         TITAN_ADD_CONTEXT_ITEM("Information", TITAN_CONTEXT_ACTION_INFO);
-        TITAN_ADD_CONTEXT_ITEM(
-            TitanNeutrino_GetGame(selected_home.game_index) != 0 &&
-            TitanNeutrino_GetGame(selected_home.game_index)->format == TITAN_NEUTRINO_GAME_USBEXTREME
-                ? "Opcoes do Titan UL Engine"
-                : "Opcoes do Titan-Neutrino Engine",
-            TITAN_CONTEXT_ACTION_ENGINE
-        );
+        {
+            const TitanNeutrinoGame *game;
+
+            game = TitanNeutrino_GetGame(selected_home.game_index);
+            TITAN_ADD_CONTEXT_ITEM(
+                "Resolution options",
+                TITAN_CONTEXT_ACTION_RESOLUTION_OPTIONS
+            );
+            TITAN_ADD_CONTEXT_ITEM(
+                game != 0 && game->format == TITAN_NEUTRINO_GAME_USBEXTREME
+                    ? "Opcoes do Titan UL Engine"
+                    : "Opcoes do Titan-Neutrino Engine",
+                TITAN_CONTEXT_ACTION_ENGINE
+            );
+        }
     }
     else if (selected_home.type == TITAN_HOME_ENTRY_APPLICATION)
     {
@@ -6510,6 +6537,8 @@ static unsigned int TitanShellScene_BuildContextMenu(
 static void TitanShellScene_DrawFolderContextMenu(void)
 {
     TitanContextMenuItem items[TITAN_CONTEXT_MENU_MAX_ITEMS];
+    TitanHomeEntry selected_home;
+    const TitanNeutrinoGame *game = 0;
     float transition;
     float panel_width;
     float panel_x;
@@ -6518,18 +6547,138 @@ static void TitanShellScene_DrawFolderContextMenu(void)
     unsigned char alpha;
     unsigned int index;
     unsigned int menu_count;
+    int is_game_context;
 
-    transition = TitanAnimation_SmoothStep(
-        TitanShellScene_Clamp(g_scene.folder_context_transition, 0.0f, 1.0f)
-    );
-    if (transition <= 0.01f)
-    {
-        return;
-    }
-
+    transition = TitanAnimation_SmoothStep(TitanShellScene_Clamp(g_scene.folder_context_transition, 0.0f, 1.0f));
+    if (transition <= 0.01f) return;
     menu_count = TitanShellScene_BuildContextMenu(items);
-    if (menu_count == 0u)
+    if (menu_count == 0u) return;
+
+    memset(&selected_home, 0, sizeof(selected_home));
+    is_game_context =
+        g_scene.context_source == TITAN_CONTEXT_SOURCE_HOME &&
+        TitanShellScene_GetHomeEntry((unsigned int)g_scene.selected_item, &selected_home) &&
+        selected_home.type == TITAN_HOME_ENTRY_GAME;
+    if (is_game_context) game = TitanNeutrino_GetGame(selected_home.game_index);
+
+    if (is_game_context)
     {
+        const float main_width = 286.0f;
+        const float option_width = 184.0f;
+        const float compact_step = 47.0f;
+        float submenu_transition = TitanAnimation_SmoothStep(
+            TitanShellScene_Clamp(g_scene.resolution_options_transition, 0.0f, 1.0f));
+        float main_target_x =
+            (float)TITAN_UI_WIDTH - main_width - (option_width * submenu_transition);
+        float main_closed_x = (float)TITAN_UI_WIDTH;
+        TitanPerGameGsmMode modes[4];
+        unsigned int mode_count = TitanShellScene_BuildResolutionModes(game, modes);
+        float option_x;
+        float option_visible_width;
+        float option_first_row_y;
+        TitanPerGameGsmMode current = game != 0 ? TitanGameGsm_GetMode(game->startup) : TITAN_PER_GAME_GSM_DEFAULT;
+
+        panel_x = main_closed_x + (main_target_x - main_closed_x) * transition;
+        option_x = panel_x + main_width;
+        option_visible_width = option_width * submenu_transition;
+        alpha = TitanShellScene_Alpha(255.0f * transition);
+        if (game != 0 && game->format != TITAN_NEUTRINO_GAME_USBEXTREME && current == TITAN_PER_GAME_GSM_720P)
+            current = TITAN_PER_GAME_GSM_DEFAULT;
+
+        /*
+         * Keep the SELECT surface attached to the physical UI edges.  The
+         * resolution column is not a floating card: it grows leftward while
+         * remaining contiguous with the main menu and pinned to the right
+         * edge, matching the original full-height SELECT presentation.
+         */
+        TitanVideo_DrawRectAlpha(
+            0.0f,
+            0.0f,
+            panel_x,
+            (float)TITAN_UI_HEIGHT,
+            0,
+            0,
+            0,
+            TitanShellScene_Alpha((124.0f + 18.0f * submenu_transition) * transition)
+        );
+        TitanVideo_DrawRectAlpha(
+            panel_x,
+            0.0f,
+            main_width,
+            (float)TITAN_UI_HEIGHT,
+            4,
+            5,
+            10,
+            TitanShellScene_Alpha(226.0f * transition)
+        );
+        if (submenu_transition > 0.01f)
+        {
+            TitanVideo_DrawRectAlpha(
+                option_x,
+                0.0f,
+                option_visible_width,
+                (float)TITAN_UI_HEIGHT,
+                4,
+                5,
+                10,
+                TitanShellScene_Alpha(226.0f * transition * submenu_transition)
+            );
+            TitanVideo_DrawRectAlpha(
+                option_x,
+                0.0f,
+                1.0f,
+                (float)TITAN_UI_HEIGHT,
+                58,
+                61,
+                72,
+                TitanShellScene_Alpha(118.0f * transition * submenu_transition)
+            );
+        }
+
+        first_row_y =
+            ((float)TITAN_UI_HEIGHT - ((float)menu_count * compact_step)) * 0.5f + 13.0f;
+        if (first_row_y < 54.0f) first_row_y = 54.0f;
+        for (index = 0u; index < menu_count; ++index)
+        {
+            float row_y = first_row_y + (float)index * compact_step;
+            int selected = (int)index == g_scene.folder_context_selected;
+            int resolution_row = items[index].action == TITAN_CONTEXT_ACTION_RESOLUTION_OPTIONS;
+            float de_emphasis = g_scene.resolution_options_open && !resolution_row ? 0.48f : 1.0f;
+            unsigned char row_alpha = TitanShellScene_Alpha((float)alpha * de_emphasis);
+            if (selected || (g_scene.resolution_options_open && resolution_row))
+                TitanShellScene_DrawOutline(panel_x + 15.0f, row_y - 8.0f, main_width - 31.0f, 35.0f,
+                    2.0f, 244, 247, 252, alpha);
+            TitanFont_DrawTextAlpha(panel_x + 26.0f, row_y, 0.60f,
+                TitanLocalization_Compat(items[index].label),
+                selected || resolution_row ? 253 : 206,
+                selected || resolution_row ? 253 : 211,
+                selected || resolution_row ? 255 : 222,
+                row_alpha);
+        }
+
+        if (submenu_transition > 0.01f && submenu_transition > 0.55f)
+        {
+            float text_reveal = TitanShellScene_Clamp((submenu_transition - 0.55f) / 0.45f, 0.0f, 1.0f);
+            unsigned char sub_alpha = TitanShellScene_Alpha(255.0f * transition * text_reveal);
+            option_first_row_y =
+                ((float)TITAN_UI_HEIGHT - ((float)mode_count * compact_step)) * 0.5f + 13.0f;
+            if (option_first_row_y < 54.0f) option_first_row_y = 54.0f;
+            for (index = 0u; index < mode_count; ++index)
+            {
+                float row_y = option_first_row_y + (float)index * compact_step;
+                int selected = (int)index == g_scene.resolution_options_selected;
+                int active = modes[index] == current;
+                if (selected)
+                    TitanShellScene_DrawOutline(option_x + 15.0f, row_y - 8.0f, option_width - 31.0f, 35.0f,
+                        2.0f, 244, 247, 252, sub_alpha);
+                if (active)
+                    TitanVideo_DrawRectAlpha(option_x + 19.0f, row_y - 1.0f, 3.0f, 15.0f,
+                        236, 45, 88, sub_alpha);
+                TitanFont_DrawTextAlpha(option_x + 26.0f, row_y, 0.60f,
+                    TitanLocalization_Compat(TitanGameGsm_GetModeName(modes[index])),
+                    selected ? 253 : 218, selected ? 253 : 223, selected ? 255 : 232, sub_alpha);
+            }
+        }
         return;
     }
 
@@ -6537,67 +6686,22 @@ static void TitanShellScene_DrawFolderContextMenu(void)
     panel_x = (float)TITAN_UI_WIDTH - (panel_width * transition);
     alpha = TitanShellScene_Alpha(255.0f * transition);
     row_step = menu_count > 6u ? 42.0f : 47.0f;
-    first_row_y =
-        ((float)TITAN_UI_HEIGHT - ((float)menu_count * row_step)) * 0.5f + 13.0f;
-    if (first_row_y < 54.0f)
-    {
-        first_row_y = 54.0f;
-    }
-
-    TitanVideo_DrawRectAlpha(
-        0.0f,
-        0.0f,
-        panel_x,
-        (float)TITAN_UI_HEIGHT,
-        0,
-        0,
-        0,
-        TitanShellScene_Alpha(124.0f * transition)
-    );
-    TitanVideo_DrawRectAlpha(
-        panel_x,
-        0.0f,
-        panel_width,
-        (float)TITAN_UI_HEIGHT,
-        4,
-        5,
-        10,
-        TitanShellScene_Alpha(226.0f * transition)
-    );
-
+    first_row_y = ((float)TITAN_UI_HEIGHT - ((float)menu_count * row_step)) * 0.5f + 13.0f;
+    if (first_row_y < 54.0f) first_row_y = 54.0f;
+    TitanVideo_DrawRectAlpha(0.0f, 0.0f, panel_x, (float)TITAN_UI_HEIGHT, 0, 0, 0,
+        TitanShellScene_Alpha(124.0f * transition));
+    TitanVideo_DrawRectAlpha(panel_x, 0.0f, panel_width, (float)TITAN_UI_HEIGHT, 4, 5, 10,
+        TitanShellScene_Alpha(226.0f * transition));
     for (index = 0u; index < menu_count; index++)
     {
-        float row_y;
-        int selected;
-
-        row_y = first_row_y + ((float)index * row_step);
-        selected = (int)index == g_scene.folder_context_selected;
-
+        float row_y = first_row_y + ((float)index * row_step);
+        int selected = (int)index == g_scene.folder_context_selected;
         if (selected)
-        {
-            TitanShellScene_DrawOutline(
-                panel_x + 15.0f,
-                row_y - 8.0f,
-                panel_width - 31.0f,
-                35.0f,
-                2.0f,
-                244,
-                247,
-                252,
-                alpha
-            );
-        }
-
-        TitanFont_DrawTextAlpha(
-            panel_x + 26.0f,
-            row_y,
-            menu_count > 6u ? 0.56f : 0.60f,
-            TitanLocalization_Compat(items[index].label),
-            selected ? 253 : 215,
-            selected ? 253 : 219,
-            selected ? 255 : 229,
-            alpha
-        );
+            TitanShellScene_DrawOutline(panel_x + 15.0f, row_y - 8.0f, panel_width - 31.0f, 35.0f,
+                2.0f, 244, 247, 252, alpha);
+        TitanFont_DrawTextAlpha(panel_x + 26.0f, row_y, menu_count > 6u ? 0.56f : 0.60f,
+            TitanLocalization_Compat(items[index].label), selected ? 253 : 215,
+            selected ? 253 : 219, selected ? 255 : 229, alpha);
     }
 }
 
@@ -6814,7 +6918,7 @@ static void TitanShellScene_DrawFolderEditorScreen(unsigned char alpha)
         376.0f,
         210.0f,
         38.0f,
-        "Cancelar",
+        "Cancel",
         g_scene.folder_editor_selected == 2,
         alpha
     );
@@ -7774,7 +7878,7 @@ static void TitanShellScene_DrawValueRow(
         498.0f + offset_x,
         y,
         0.68f,
-        value,
+        TitanLocalization_Compat(value != 0 ? value : ""),
         accent ? 237 : 225,
         accent ? 74 : 228,
         accent ? 108 : 235,
@@ -9742,8 +9846,8 @@ static void TitanShellScene_DrawSettingsListRow(
     TitanShellScene_DrawMenuOptionRow(
         icon,
         TitanLocalization_Compat(label),
-        line1 != 0 ? line1 : "",
-        line2 != 0 ? line2 : "",
+        TitanLocalization_Compat(line1 != 0 ? line1 : ""),
+        TitanLocalization_Compat(line2 != 0 ? line2 : ""),
         108.0f + offset_x,
         y,
         580.0f,
@@ -10954,7 +11058,7 @@ static void TitanShellScene_RequestStoredApplicationUninstall(unsigned int sourc
             "Excluir conteúdo?",
             g_scene.pending_uninstall_title,
             "O aplicativo/jogo e seus arquivos instalados serão removidos. Saves não serão apagados.",
-            "Cancelar", "Excluir",
+            "Cancel", "Excluir",
             TitanShellScene_ConfirmUninstallApplication, 0);
     }
     else
@@ -11052,8 +11156,6 @@ static void TitanShellScene_DrawSettingsSubpage(
     system_info = TitanSystemInfo_Get();
     memset(&pikavr_telemetry, 0, sizeof(pikavr_telemetry));
     memset(&vlombis_telemetry, 0, sizeof(vlombis_telemetry));
-    TitanVideo_GetPikaVrTelemetry(&pikavr_telemetry);
-    TitanVlombisCore_GetTelemetry(&vlombis_telemetry);
     technology_values[0][0] = '\0';
     technology_values[1][0] = '\0';
     technology_descriptions[0][0] = '\0';
@@ -11139,20 +11241,38 @@ static void TitanShellScene_DrawSettingsSubpage(
             descriptions[2] = "Checks the interface, IP acquisition and available connectivity.";
             values[2] = TitanNetwork_GetStateName();
             labels[3] = "View Connection Status";
-            descriptions[3] = network->detail;
+            descriptions[3] = "Shows live state from the currently selected interface.";
             values[3] = network->ip[0] ? network->ip : "Offline";
             labels[4] = "View Network Services Status";
-            descriptions[4] = "Shows the active network adapter, driver and backend.";
-            values[4] = network->wifi_adapter_present
-                ? "AR9271 detectado"
-                : (network->ethernet_stack_loaded ? "RJ45 / SMAP" : "Aguardando hardware");
-            labels[5] = "Dados de jogos";
+            descriptions[4] = "Shows live backend readiness without reusing an old connection test.";
+            if (network->preference == TITAN_NETWORK_PREFER_ETHERNET)
+            {
+                if (!network->main_interface_ready)
+                    values[4] = network->ethernet_stack_loaded
+                        ? "SMAP driver loaded"
+                        : "Ethernet backend not ready";
+                else if (!network->ethernet_link_known)
+                    values[4] = "RJ45 / SMAP";
+                else
+                    values[4] = network->ethernet_link_up
+                        ? "Cable connected"
+                        : "Cable disconnected";
+            }
+            else
+            {
+                values[4] = network->main_interface_ready && network->wifi_adapter_present
+                    ? "AR9271 / WFI"
+                    : (network->wifi_adapter_present
+                        ? "AR9271 detected"
+                        : "Waiting for AR9271");
+            }
+            labels[5] = "Game data";
             descriptions[5] = "Download, update or clear icons and backgrounds independently from connectivity.";
             {
                 const TitanAssetServiceStatus *assets = TitanAssetService_GetStatus();
                 values[5] = assets != 0 && assets->manual_session_active
-                    ? "Operação em andamento"
-                    : "Download manual";
+                    ? "Operation in progress"
+                    : "Manual download";
             }
             break;
         }
@@ -11188,9 +11308,9 @@ static void TitanShellScene_DrawSettingsSubpage(
                     ? "576i Interlaced"
                     : "480i Interlaced";
             }
-            labels[3] = "Game GSM";
-            descriptions[3] = "Experimental Neutrino handoff mode. Use only for game video compatibility tests.";
-            values[3] = TitanVideoOutput_GetGameGsmName();
+            labels[3] = "Resolution options";
+            descriptions[3] = "Configure each title from its SELECT menu.";
+            values[3] = "SELECT on a game";
             labels[4] = "Framebuffer";
             descriptions[4] = "Actual GS render target allocated for the selected output mode.";
             values[4] = TitanVideoOutput_IsShellProgressive()
@@ -11233,6 +11353,10 @@ static void TitanShellScene_DrawSettingsSubpage(
         }
 
         case TITAN_SETTINGS_SYSTEM:
+            /* These counters are only rendered on System. Do not collect
+             * them on every Settings page/frame. */
+            TitanVideo_GetPikaVrTelemetry(&pikavr_telemetry);
+            TitanVlombisCore_GetTelemetry(&vlombis_telemetry);
             labels[0] = "System Software Update";
             descriptions[0] = "Install official Project Titan updates from a .pup package on USB.";
             values[0] = "Press X";
@@ -11923,6 +12047,7 @@ static int TitanShellScene_GetNetworkPageRowCount(void)
             if (count > TITAN_SETTINGS_MAX_ROW_COUNT) count = TITAN_SETTINGS_MAX_ROW_COUNT;
             return (int)count;
         case TITAN_NETWORK_PAGE_TEST:
+            return 0; /* diagnostic/result page: no selectable rows */
         case TITAN_NETWORK_PAGE_STATUS:
         case TITAN_NETWORK_PAGE_SERVICES:
             return 5;
@@ -11954,30 +12079,30 @@ static void TitanShellScene_DrawNetworkPage(float offset_x, unsigned char alpha)
             snprintf(progress,sizeof(progress),"Press X");
         snprintf(auto_value,sizeof(auto_value),"%s",TitanAssetService_IsAutomaticDownloadEnabled()?"Enabled":"Disabled");
         TitanShellScene_DrawPanelBase(
-            "Dados de jogos",
+            "Game data",
             "Artwork downloads are separate from connectivity; automatic mode is disabled by default.",
             offset_x, alpha);
         TitanShellScene_DrawSettingsListRow(
-            TITAN_ICON_SYSTEM,"Baixar assets dos jogos",
-            "Baixa somente o que estiver ausente. Icones de todos os jogos vêm primeiro; backgrounds depois.",
+            TITAN_ICON_SYSTEM,"Download game assets",
+            "Downloads only missing artwork. Game icons are processed first; backgrounds follow.",
             assets != 0 && assets->manual_session_active ? progress : "Manual",
             TITAN_SETTINGS_ROW_TOP,offset_x,alpha,
             TitanShellScene_Clamp(1.0f-TitanAnimation_Absolute(g_scene.network_page_row_position),0.0f,1.0f));
         TitanShellScene_DrawSettingsListRow(
-            TITAN_ICON_SYSTEM,"Atualizar assets existentes",
-            "Refaz icon e background de cada jogo, uma transferência por vez, sobrescrevendo o cache atomico.",
+            TITAN_ICON_SYSTEM,"Update existing assets",
+            "Refreshes each game icon and background one transfer at a time, replacing the cache atomically.",
             assets != 0 && assets->manual_session_active ? "Active operation" : "Manual",
             TITAN_SETTINGS_ROW_TOP+TITAN_SETTINGS_ROW_STEP,offset_x,alpha,
             TitanShellScene_Clamp(1.0f-TitanAnimation_Absolute(1.0f-g_scene.network_page_row_position),0.0f,1.0f));
         TitanShellScene_DrawSettingsListRow(
-            TITAN_ICON_SYSTEM,"Limpar cache de assets",
-            "Remove TIMG em quanta do Storage Scheduler sem bloquear a navegação.",
-            assets != 0 && assets->manual_clear_cache ? progress : "Cache local",
+            TITAN_ICON_SYSTEM,"Clear asset cache",
+            "Removes TIMG cache through Storage Scheduler quanta without blocking navigation.",
+            assets != 0 && assets->manual_clear_cache ? progress : "Local cache",
             TITAN_SETTINGS_ROW_TOP+2.0f*TITAN_SETTINGS_ROW_STEP,offset_x,alpha,
             TitanShellScene_Clamp(1.0f-TitanAnimation_Absolute(2.0f-g_scene.network_page_row_position),0.0f,1.0f));
         TitanShellScene_DrawSettingsListRow(
-            TITAN_ICON_SYSTEM,"Download automático",
-            "Opcional. Aguarda 30 s ONLINE + Home ociosa; qualquer input pausa. Desligado por padrão.",
+            TITAN_ICON_SYSTEM,"Automatic download",
+            "Optional. Waits for 30 s ONLINE plus idle Home; any input pauses it. Disabled by default.",
             auto_value,
             TITAN_SETTINGS_ROW_TOP+3.0f*TITAN_SETTINGS_ROW_STEP,offset_x,alpha,
             TitanShellScene_Clamp(1.0f-TitanAnimation_Absolute(3.0f-g_scene.network_page_row_position),0.0f,1.0f));
@@ -12012,14 +12137,14 @@ static void TitanShellScene_DrawNetworkPage(float offset_x, unsigned char alpha)
                 assets->provider[0] ? assets->provider : TitanLocalization_Compat("Preparing"));
         else
             snprintf(line2,sizeof(line2),"%s",TitanLocalization_Compat("One transfer at a time; UI/input/audio have absolute priority."));
-        TitanShellScene_DrawPanelBase("Download de assets",line0,offset_x,alpha);
-        TitanShellScene_DrawSettingsListRow(TITAN_ICON_SYSTEM,"Estado",line1,line2,
+        TitanShellScene_DrawPanelBase("Asset download",line0,offset_x,alpha);
+        TitanShellScene_DrawSettingsListRow(TITAN_ICON_SYSTEM,"Status",line1,line2,
             TITAN_SETTINGS_ROW_TOP,offset_x,alpha,1.0f);
-        TitanShellScene_DrawSettingsListRow(TITAN_ICON_SYSTEM,"Executar em segundo plano",
+        TitanShellScene_DrawSettingsListRow(TITAN_ICON_SYSTEM,"Run in background",
             "Returns to Network while keeping the operation on the low-priority worker.","X",
             TITAN_SETTINGS_ROW_TOP+TITAN_SETTINGS_ROW_STEP,offset_x,alpha,0.0f);
-        TitanShellScene_DrawSettingsListRow(TITAN_ICON_SYSTEM,"Cancelar",
-            "Interrompe a sessão de assets; o cache já publicado permanece válido.","O",
+        TitanShellScene_DrawSettingsListRow(TITAN_ICON_SYSTEM,"Cancel",
+            "Stops the asset session; already published cache remains valid.","O",
             TITAN_SETTINGS_ROW_TOP+2.0f*TITAN_SETTINGS_ROW_STEP,offset_x,alpha,0.0f);
         return;
     }
@@ -12033,13 +12158,15 @@ static void TitanShellScene_DrawNetworkPage(float offset_x, unsigned char alpha)
         TitanShellScene_DrawSettingsListRow(
             TITAN_ICON_SYSTEM, "Use Wi-Fi",
             "Use the Qualcomm Atheros AR9271 USB adapter.",
-            network->wifi_adapter_present ? "Adaptador detectado" : "Busca automática ao detectar",
+            network->wifi_adapter_present ? "Adapter detected" : "Automatic scan when detected",
             TITAN_SETTINGS_ROW_TOP, offset_x, alpha,
             TitanShellScene_Clamp(1.0f-TitanAnimation_Absolute(g_scene.network_page_row_position),0.0f,1.0f));
         TitanShellScene_DrawSettingsListRow(
             TITAN_ICON_SYSTEM, "Use LAN Cable",
-            "Use a porta Ethernet RJ45 do Network Adapter / PS2 Slim.",
-            network->ethernet_link_up ? "Cabo conectado" : "RJ45 / SMAP",
+            "Use the RJ45 Ethernet port on the Network Adapter / PS2 Slim.",
+            !network->ethernet_link_known
+                ? "RJ45 / SMAP"
+                : (network->ethernet_link_up ? "Cable connected" : "Cable disconnected"),
             TITAN_SETTINGS_ROW_TOP+TITAN_SETTINGS_ROW_STEP, offset_x, alpha,
             TitanShellScene_Clamp(1.0f-TitanAnimation_Absolute(1.0f-g_scene.network_page_row_position),0.0f,1.0f));
         return;
@@ -12055,15 +12182,15 @@ static void TitanShellScene_DrawNetworkPage(float offset_x, unsigned char alpha)
                 : "How do you want to configure the LAN connection?",
             offset_x, alpha);
         TitanShellScene_DrawSettingsListRow(
-            TITAN_ICON_SYSTEM, "Fácil",
-            "O Titan configura endereço IP, DHCP e DNS automaticamente.",
-            "Recomendado",
+            TITAN_ICON_SYSTEM, "Easy",
+            "Titan configures IP address, DHCP and DNS automatically.",
+            "Recommended",
             TITAN_SETTINGS_ROW_TOP, offset_x, alpha,
             TitanShellScene_Clamp(1.0f-TitanAnimation_Absolute(g_scene.network_page_row_position),0.0f,1.0f));
         TitanShellScene_DrawSettingsListRow(
-            TITAN_ICON_SYSTEM, "Personalizada",
-            "Mantém o fluxo avançado de configuração e seleção da interface.",
-            "Configuração avançada",
+            TITAN_ICON_SYSTEM, "Custom",
+            "Keeps the advanced configuration and interface-selection flow.",
+            "Advanced configuration",
             TITAN_SETTINGS_ROW_TOP+TITAN_SETTINGS_ROW_STEP, offset_x, alpha,
             TitanShellScene_Clamp(1.0f-TitanAnimation_Absolute(1.0f-g_scene.network_page_row_position),0.0f,1.0f));
         return;
@@ -12075,7 +12202,7 @@ static void TitanShellScene_DrawNetworkPage(float offset_x, unsigned char alpha)
         TitanShellScene_DrawPanelBase(
             "Set Up Internet Connection",
             network->wifi_scanning
-                ? "Procurando redes Wi-Fi próximas..."
+                ? "Searching for nearby Wi-Fi networks..."
                 : "Which Wi-Fi network do you want to use?",
             offset_x, alpha);
 
@@ -12093,7 +12220,9 @@ static void TitanShellScene_DrawNetworkPage(float offset_x, unsigned char alpha)
                 char detail[112];
                 if (ap == 0) continue;
                 snprintf(value,sizeof(value),"%s  %u%%",
-                    TitanNetwork_GetWifiSecurityName(ap->security),
+                    TitanLocalization_Compat(
+                        TitanNetwork_GetWifiSecurityName(ap->security)
+                    ),
                     TitanNetwork_GetWifiSignalPercent(ap));
                 snprintf(detail,sizeof(detail),TitanLocalization_Compat("Channel %u / %d dBm%s"),
                     (unsigned int)ap->channel,(int)ap->rssi_dbm,
@@ -12110,7 +12239,7 @@ static void TitanShellScene_DrawNetworkPage(float offset_x, unsigned char alpha)
                 TitanShellScene_DrawSettingsListRow(
                     TITAN_ICON_SYSTEM,"Other network...",
                     "Use only for a hidden network or an SSID that did not appear in the scan.",
-                    "Inserir SSID manualmente",
+                    "Insert SSID manually",
                     TITAN_SETTINGS_ROW_TOP+((float)visible*TITAN_SETTINGS_ROW_STEP),
                     offset_x,alpha,focus);
             }
@@ -12121,36 +12250,266 @@ static void TitanShellScene_DrawNetworkPage(float offset_x, unsigned char alpha)
 
     if (g_scene.network_page_mode == TITAN_NETWORK_PAGE_TEST)
     {
-        const char *ip_ok = network->ip[0] ? "Successful" : "Not completed";
-        const char *internet_ok = network->state == TITAN_NETWORK_ONLINE ? "Successful" : "Not completed";
-        TitanShellScene_DrawPanelBase("Test Internet Connection","Current connection result",offset_x,alpha);
-        TitanShellScene_DrawSettingsListRow(TITAN_ICON_SYSTEM,"Obter endereço IP","Aquisição de endereço pela interface selecionada.",ip_ok,TITAN_SETTINGS_ROW_TOP,offset_x,alpha,1.0f);
-        TitanShellScene_DrawSettingsListRow(TITAN_ICON_SYSTEM,"Internet Connection","On Wi-Fi, TT1426 includes ICMP proof of the online path.",internet_ok,TITAN_SETTINGS_ROW_TOP+TITAN_SETTINGS_ROW_STEP,offset_x,alpha,0.0f);
-        TitanShellScene_DrawSettingsListRow(TITAN_ICON_SYSTEM,"Connection Type","Currently selected physical interface.",TitanNetwork_GetPreferenceName(),TITAN_SETTINGS_ROW_TOP+2.0f*TITAN_SETTINGS_ROW_STEP,offset_x,alpha,0.0f);
-        TitanShellScene_DrawSettingsListRow(TITAN_ICON_SYSTEM,"SSID",network->preference==TITAN_NETWORK_PREFER_WIFI?"Current wireless network":"Not applicable to LAN cable",network->ssid[0]?network->ssid:"-",TITAN_SETTINGS_ROW_TOP+3.0f*TITAN_SETTINGS_ROW_STEP,offset_x,alpha,0.0f);
-        TitanShellScene_DrawSettingsListRow(TITAN_ICON_SYSTEM,"Endereço IP","Endereço atual do ps2ip.",network->ip[0]?network->ip:"-",TITAN_SETTINGS_ROW_TOP+4.0f*TITAN_SETTINGS_ROW_STEP,offset_x,alpha,0.0f);
+        const TitanNetworkConnectionTestStatus *test = TitanNetwork_GetConnectionTestStatus();
+        const int test_valid = test != 0 && test->valid;
+        const char *ip_result = test_valid
+            ? TitanNetwork_GetTestResultName(test->ip_result) : "Not started";
+        const char *internet_result = test_valid
+            ? TitanNetwork_GetTestResultName(test->internet_result) : "Not started";
+        const char *physical_result = test_valid
+            ? TitanNetwork_GetTestResultName(test->physical_result) : "Not started";
+        const char *software_detail = test_valid && test->software_detail[0]
+            ? test->software_detail
+            : (test != 0 && test->generation > 0u
+                ? "Connection settings changed; run the test again."
+                : "Software self-test has not started");
+        const char *physical_detail = test_valid && test->physical_detail[0]
+            ? test->physical_detail
+            : "Physical link was not tested";
+        const char *ip_detail = test_valid && test->ip_detail[0]
+            ? test->ip_detail : "Address acquisition has not started";
+        const char *internet_detail = test_valid && test->internet_detail[0]
+            ? test->internet_detail : "External connectivity probe has not started";
+
+        TitanShellScene_DrawPanelBase(
+            "Test Internet Connection",
+            test_valid && test->running ? "Running connection test..." : "Current connection test",
+            offset_x,alpha
+        );
+        TitanShellScene_DrawSettingsListRow(
+            TITAN_ICON_SYSTEM,"Obtain IP Address",ip_detail,ip_result,
+            TITAN_SETTINGS_ROW_TOP,offset_x,alpha,0.0f
+        );
+        TitanShellScene_DrawSettingsListRow(
+            TITAN_ICON_SYSTEM,"Internet Connection",internet_detail,internet_result,
+            TITAN_SETTINGS_ROW_TOP+TITAN_SETTINGS_ROW_STEP,offset_x,alpha,0.0f
+        );
+        TitanShellScene_DrawSettingsListRow(
+            TITAN_ICON_SYSTEM,"Connection Type",software_detail,
+            TitanNetwork_GetPreferenceName(),
+            TITAN_SETTINGS_ROW_TOP+2.0f*TITAN_SETTINGS_ROW_STEP,offset_x,alpha,0.0f
+        );
+        TitanShellScene_DrawSettingsListRow(
+            TITAN_ICON_SYSTEM,"Physical Link",physical_detail,physical_result,
+            TITAN_SETTINGS_ROW_TOP+3.0f*TITAN_SETTINGS_ROW_STEP,offset_x,alpha,0.0f
+        );
+        TitanShellScene_DrawSettingsListRow(
+            TITAN_ICON_SYSTEM,"IP Address","Current IPv4 address.",
+            network->ip[0]?network->ip:"-",
+            TITAN_SETTINGS_ROW_TOP+4.0f*TITAN_SETTINGS_ROW_STEP,offset_x,alpha,0.0f
+        );
         return;
     }
 
     if (g_scene.network_page_mode == TITAN_NETWORK_PAGE_STATUS)
     {
-        TitanShellScene_DrawPanelBase("View Connection Status","Current connection information",offset_x,alpha);
-        TitanShellScene_DrawSettingsListRow(TITAN_ICON_SYSTEM,"Connection Type",network->detail,TitanNetwork_GetPreferenceName(),TITAN_SETTINGS_ROW_TOP,offset_x,alpha,1.0f);
-        TitanShellScene_DrawSettingsListRow(TITAN_ICON_SYSTEM,"SSID","Selected Wi-Fi network.",network->ssid[0]?network->ssid:"-",TITAN_SETTINGS_ROW_TOP+TITAN_SETTINGS_ROW_STEP,offset_x,alpha,0.0f);
-        TitanShellScene_DrawSettingsListRow(TITAN_ICON_SYSTEM,"Endereço IP","Endereço IPv4 atual.",network->ip[0]?network->ip:"-",TITAN_SETTINGS_ROW_TOP+2.0f*TITAN_SETTINGS_ROW_STEP,offset_x,alpha,0.0f);
-        TitanShellScene_DrawSettingsListRow(TITAN_ICON_SYSTEM,"Gateway","Router/gateway learned from the connection.",network->gateway[0]?network->gateway:"-",TITAN_SETTINGS_ROW_TOP+3.0f*TITAN_SETTINGS_ROW_STEP,offset_x,alpha,0.0f);
-        TitanShellScene_DrawSettingsListRow(TITAN_ICON_SYSTEM,"DNS","DNS server learned from the connection.",network->dns[0]?network->dns:"-",TITAN_SETTINGS_ROW_TOP+4.0f*TITAN_SETTINGS_ROW_STEP,offset_x,alpha,0.0f);
+        const char *connection_detail;
+        const char *second_label;
+        const char *second_detail;
+        const char *second_value;
+
+        if (!network->enabled)
+            connection_detail = "Network services are disabled";
+        else if (network->main_interface_ready)
+            connection_detail = "Selected interface is active.";
+        else if (network->state == TITAN_NETWORK_ERROR)
+            connection_detail = "Selected interface failed to become ready.";
+        else
+            connection_detail = "Selected interface is still initializing.";
+
+        if (network->preference == TITAN_NETWORK_PREFER_ETHERNET)
+        {
+            second_label = "Physical Link";
+            if (!network->ethernet_link_known)
+            {
+                second_detail = "Ethernet physical link has not been verified yet.";
+                second_value = "Not tested";
+            }
+            else if (network->ethernet_link_up)
+            {
+                second_detail = "Ethernet physical link is active.";
+                second_value = "Cable connected";
+            }
+            else
+            {
+                second_detail = "Ethernet PHY reported link down.";
+                second_value = "Cable disconnected";
+            }
+        }
+        else
+        {
+            second_label = "SSID";
+            second_detail = "Selected Wi-Fi network.";
+            second_value = network->ssid[0] ? network->ssid : "-";
+        }
+
+        TitanShellScene_DrawPanelBase(
+            "View Connection Status","Current connection information",
+            offset_x,alpha
+        );
+        TitanShellScene_DrawSettingsListRow(
+            TITAN_ICON_SYSTEM,"Connection Type",connection_detail,
+            TitanNetwork_GetPreferenceName(),
+            TITAN_SETTINGS_ROW_TOP,offset_x,alpha,1.0f
+        );
+        TitanShellScene_DrawSettingsListRow(
+            TITAN_ICON_SYSTEM,second_label,second_detail,second_value,
+            TITAN_SETTINGS_ROW_TOP+TITAN_SETTINGS_ROW_STEP,offset_x,alpha,0.0f
+        );
+        TitanShellScene_DrawSettingsListRow(
+            TITAN_ICON_SYSTEM,"IP Address","Current IPv4 address.",
+            network->ip[0]?network->ip:"-",
+            TITAN_SETTINGS_ROW_TOP+2.0f*TITAN_SETTINGS_ROW_STEP,offset_x,alpha,0.0f
+        );
+        TitanShellScene_DrawSettingsListRow(
+            TITAN_ICON_SYSTEM,"Gateway","Router/gateway learned from the connection.",
+            network->gateway[0]?network->gateway:"-",
+            TITAN_SETTINGS_ROW_TOP+3.0f*TITAN_SETTINGS_ROW_STEP,offset_x,alpha,0.0f
+        );
+        TitanShellScene_DrawSettingsListRow(
+            TITAN_ICON_SYSTEM,"DNS","DNS server learned from the connection.",
+            network->dns[0]?network->dns:"-",
+            TITAN_SETTINGS_ROW_TOP+4.0f*TITAN_SETTINGS_ROW_STEP,offset_x,alpha,0.0f
+        );
         return;
     }
 
     if (g_scene.network_page_mode == TITAN_NETWORK_PAGE_SERVICES)
     {
-        TitanShellScene_DrawPanelBase("Network Services Status","Project Titan drivers and backends",offset_x,alpha);
-        TitanShellScene_DrawSettingsListRow(TITAN_ICON_SYSTEM,"AR9271",network->wifi_adapter_present?"USB adapter detected by the resident driver.":"No AR9271 detected.",network->wifi_irx_loaded?"Driver loaded":"Driver inactive",TITAN_SETTINGS_ROW_TOP,offset_x,alpha,1.0f);
-        TitanShellScene_DrawSettingsListRow(TITAN_ICON_SYSTEM,"Busca Wi-Fi",network->wifi_scanning?"Varredura passiva de canais 2.4 GHz em andamento.":"Lista de redes em cache disponível quando detectada.",network->wifi_scanning?"Procurando":"Pronta",TITAN_SETTINGS_ROW_TOP+TITAN_SETTINGS_ROW_STEP,offset_x,alpha,0.0f);
-        TitanShellScene_DrawSettingsListRow(TITAN_ICON_SYSTEM,"RJ45 / SMAP",network->ethernet_link_up?"Link físico Ethernet ativo.":"Aguardando cabo/link físico.",network->ethernet_stack_loaded?"Driver loaded":"Driver inactive",TITAN_SETTINGS_ROW_TOP+2.0f*TITAN_SETTINGS_ROW_STEP,offset_x,alpha,0.0f);
-        TitanShellScene_DrawSettingsListRow(TITAN_ICON_SYSTEM,"NetMan + ps2ip","Camada comum usada pelas duas interfaces.",network->state==TITAN_NETWORK_ERROR?"Erro":"Disponível",TITAN_SETTINGS_ROW_TOP+3.0f*TITAN_SETTINGS_ROW_STEP,offset_x,alpha,0.0f);
-        TitanShellScene_DrawSettingsListRow(TITAN_ICON_SYSTEM,"Shared USB","AR9271 uses resident USBD without resetting USB mass/BDM.","Single-owner USBD",TITAN_SETTINGS_ROW_TOP+4.0f*TITAN_SETTINGS_ROW_STEP,offset_x,alpha,0.0f);
+        const char *netman_value;
+        const char *netman_detail;
+        const char *ethernet_value;
+        const char *ethernet_detail;
+        const char *wifi_value;
+        const char *wifi_detail;
+        const char *ps2ip_value;
+        const char *ps2ip_detail;
+        const char *active_value;
+        const char *active_detail;
+
+        if (network->netman_rpc_ready && network->netman_ee_ready)
+        {
+            netman_value = "Ready";
+            netman_detail = "IOP RPC server and EE NETMAN client are ready.";
+        }
+        else if (network->state == TITAN_NETWORK_ERROR &&
+                 (!network->netman_rpc_ready || !network->netman_ee_ready))
+        {
+            netman_value = "Failed";
+            netman_detail = "NETMAN did not complete its live bootstrap.";
+        }
+        else
+        {
+            netman_value = "Starting";
+            netman_detail = "NETMAN bootstrap is still in progress.";
+        }
+
+        if (network->dev9_ready && network->ethernet_stack_loaded)
+        {
+            ethernet_value = "Ready";
+            if (!network->ethernet_link_known)
+                ethernet_detail = "DEV9 and SMAP are ready; physical link is not verified yet.";
+            else if (network->ethernet_link_up)
+                ethernet_detail = "DEV9 and SMAP are ready; physical link is up.";
+            else
+                ethernet_detail = "DEV9 and SMAP are ready; physical link is down.";
+        }
+        else if (network->preference == TITAN_NETWORK_PREFER_ETHERNET &&
+                 network->state == TITAN_NETWORK_ERROR)
+        {
+            ethernet_value = "Failed";
+            ethernet_detail = "Ethernet backend did not complete DEV9 / SMAP initialization.";
+        }
+        else
+        {
+            ethernet_value = "Inactive";
+            ethernet_detail = "Ethernet backend has not been initialized in this session.";
+        }
+
+        if (network->wifi_irx_loaded && network->wifi_adapter_present &&
+            network->wifi_rpc_bound)
+        {
+            wifi_value = "Ready";
+            wifi_detail = "AR9271 driver, adapter and control RPC are available.";
+        }
+        else if (network->wifi_irx_loaded)
+        {
+            wifi_value = "Starting";
+            wifi_detail = network->wifi_adapter_present
+                ? "AR9271 detected; control path is still initializing."
+                : "AR9271 driver is resident; waiting for the USB adapter.";
+        }
+        else
+        {
+            wifi_value = "Inactive";
+            wifi_detail = "AR9271 / WFI backend is not active.";
+        }
+
+        if (network->ps2ip_ready)
+        {
+            ps2ip_value = "Ready";
+            ps2ip_detail = "ps2ip / lwIP is initialized on sm0.";
+        }
+        else if (network->state == TITAN_NETWORK_ERROR &&
+                 network->netman_ee_ready)
+        {
+            ps2ip_value = "Failed";
+            ps2ip_detail = "ps2ip / lwIP did not complete initialization.";
+        }
+        else
+        {
+            ps2ip_value = "Starting";
+            ps2ip_detail = "ps2ip / lwIP has not completed initialization yet.";
+        }
+
+        if (network->main_interface_ready)
+        {
+            active_value = TitanNetwork_GetPreferenceName();
+            active_detail = network->preference == TITAN_NETWORK_PREFER_ETHERNET
+                ? "SMAP is the live NETMAN main interface."
+                : "WFI is the live NETMAN main interface.";
+        }
+        else if (!network->enabled)
+        {
+            active_value = "Disabled";
+            active_detail = "Network services are disabled";
+        }
+        else if (network->state == TITAN_NETWORK_ERROR)
+        {
+            active_value = "Failed";
+            active_detail = "The selected interface did not become the NETMAN main interface.";
+        }
+        else
+        {
+            active_value = "Starting";
+            active_detail = "The selected interface is still being prepared.";
+        }
+
+        TitanShellScene_DrawPanelBase(
+            "Network Services Status","Project Titan drivers and backends",
+            offset_x,alpha
+        );
+        TitanShellScene_DrawSettingsListRow(
+            TITAN_ICON_SYSTEM,"NETMAN",netman_detail,netman_value,
+            TITAN_SETTINGS_ROW_TOP,offset_x,alpha,1.0f
+        );
+        TitanShellScene_DrawSettingsListRow(
+            TITAN_ICON_SYSTEM,"DEV9 / SMAP",ethernet_detail,ethernet_value,
+            TITAN_SETTINGS_ROW_TOP+TITAN_SETTINGS_ROW_STEP,offset_x,alpha,0.0f
+        );
+        TitanShellScene_DrawSettingsListRow(
+            TITAN_ICON_SYSTEM,"AR9271 / WFI",wifi_detail,wifi_value,
+            TITAN_SETTINGS_ROW_TOP+2.0f*TITAN_SETTINGS_ROW_STEP,offset_x,alpha,0.0f
+        );
+        TitanShellScene_DrawSettingsListRow(
+            TITAN_ICON_SYSTEM,"ps2ip / lwIP",ps2ip_detail,ps2ip_value,
+            TITAN_SETTINGS_ROW_TOP+3.0f*TITAN_SETTINGS_ROW_STEP,offset_x,alpha,0.0f
+        );
+        TitanShellScene_DrawSettingsListRow(
+            TITAN_ICON_SYSTEM,"Active interface",active_detail,active_value,
+            TITAN_SETTINGS_ROW_TOP+4.0f*TITAN_SETTINGS_ROW_STEP,offset_x,alpha,0.0f
+        );
+        return;
     }
 }
 
@@ -12308,7 +12667,7 @@ static int TitanShellScene_UpdateSettingsAction(const TitanInputState *input)
                 (void)TitanNotifications_OpenConfirmation(
                     "Excluir tema?", theme->name,
                     "O tema instalado será removido do armazenamento Titan.",
-                    "Cancelar", "Excluir", TitanShellScene_ConfirmDeleteStoredTheme,
+                    "Cancel", "Excluir", TitanShellScene_ConfirmDeleteStoredTheme,
                     (void *)(uintptr_t)g_scene.settings_action_source_index);
         }
     }
@@ -12620,6 +12979,7 @@ static int TitanShellScene_ExportDebugReport(void)
         sizeof(report),
         "Project Titan Magenta Edition Debug Report\n"
         "Kernel: %s\n"
+        "Recovery build: %s\n"
         "UI: %s\n"
         "Bootloader: %s\n"
         "Boot path: %s\n"
@@ -12627,6 +12987,7 @@ static int TitanShellScene_ExportDebugReport(void)
         "BIOS: %s\n"
         "Video: %s / %s\n"
         "DEX: %s\n"
+        "Performance Overlay: %s\n"
         "EE load: %u%%\n"
         "GS load: %u%%\n"
         "RAM used: %u KiB\n"
@@ -12634,6 +12995,7 @@ static int TitanShellScene_ExportDebugReport(void)
         "IOP RAM: valid=%u used=%u free=%u min_free=%u known_modules=%u\n"
         "Boot recovery: %s reason=%s failures=%u home_ready=%u\n"
         "IP: %s\n"
+        "Network bootstrap: %s / complete=%u\n"
         "Games: %u\n"
         "Applications: %u\n"
         "Packages visible: %u\n"
@@ -12662,6 +13024,7 @@ static int TitanShellScene_ExportDebugReport(void)
         "Frame time: %u us p95=%u us max=%u us\n"
         "Scale mode: %s\n",
         TITAN_KERNEL_VERSION_STRING,
+        TITAN_RECOVERY_BUILD_STRING,
         TITAN_UI_VERSION_STRING,
         system_info->bootloader_version,
         system_info->boot_path,
@@ -12670,6 +13033,7 @@ static int TitanShellScene_ExportDebugReport(void)
         TitanVideoOutput_GetConfiguredOutputName(),
         TitanVideoOutput_IsShellProgressive() ? "720p" : "interlaced",
         TitanDex_GetStateName(),
+        TitanDex_GetOverlayStateName(),
         TitanDex_GetEeLoadPercent(),
         TitanDex_GetGsLoadPercent(),
         TitanDex_GetRamUsedKilobytes(),
@@ -12680,6 +13044,8 @@ static int TitanShellScene_ExportDebugReport(void)
         TitanBootRecovery_GetModeName(), TitanBootRecovery_GetReasonName(),
         TitanBootRecovery_GetState()->failure_count, TitanBootRecovery_GetState()->home_ready,
         TitanDex_GetIpAddress(),
+        TitanNetwork_GetBootstrapStageName(),
+        (unsigned int)TitanNetwork_IsBootstrapComplete(),
         TitanNeutrino_GetGameCount(),
         TitanApplications_GetCount(),
         TitanPackageInstaller_GetCount(),
@@ -12876,6 +13242,7 @@ static void TitanShellScene_ConfirmWifiPassword(const char *text, void *user_dat
             "Wi-Fi",
             "Conectando com o driver AR9271 TT1426"
         );
+        (void)TitanNetwork_StartConnectionTest();
         g_scene.network_page_mode = TITAN_NETWORK_PAGE_TEST;
         g_scene.network_page_selected_row = 0;
         g_scene.network_page_row_position = 0.0f;
@@ -12932,6 +13299,7 @@ static void TitanShellScene_RunNetworkAction(int row)
     }
     else if (row == 2)
     {
+        (void)TitanNetwork_StartConnectionTest();
         TitanShellScene_OpenNetworkPage(TITAN_NETWORK_PAGE_TEST);
     }
     else if (row == 3)
@@ -13079,12 +13447,12 @@ static int TitanShellScene_UpdateNetworkPage(const TitanInputState *input)
     {
         if (g_scene.network_page_selected_row == 0)
         {
-            TitanNetwork_SetPreference(TITAN_NETWORK_PREFER_WIFI);
+            TitanNetwork_RequestPreference(TITAN_NETWORK_PREFER_WIFI);
             TitanShellScene_OpenNetworkPage(TITAN_NETWORK_PAGE_WIFI_MODE);
         }
         else
         {
-            TitanNetwork_SetPreference(TITAN_NETWORK_PREFER_ETHERNET);
+            TitanNetwork_RequestPreference(TITAN_NETWORK_PREFER_ETHERNET);
             TitanShellScene_OpenNetworkPage(TITAN_NETWORK_PAGE_LAN_MODE);
         }
         return 1;
@@ -13093,7 +13461,7 @@ static int TitanShellScene_UpdateNetworkPage(const TitanInputState *input)
     if (g_scene.network_page_mode == TITAN_NETWORK_PAGE_WIFI_MODE)
     {
         g_scene.network_setup_custom = g_scene.network_page_selected_row == 1;
-        TitanNetwork_SetPreference(TITAN_NETWORK_PREFER_WIFI);
+        TitanNetwork_RequestPreference(TITAN_NETWORK_PREFER_WIFI);
         (void)TitanNetwork_RequestWifiScan();
         TitanShellScene_OpenNetworkPage(TITAN_NETWORK_PAGE_WIFI_LIST);
         return 1;
@@ -13102,8 +13470,8 @@ static int TitanShellScene_UpdateNetworkPage(const TitanInputState *input)
     if (g_scene.network_page_mode == TITAN_NETWORK_PAGE_LAN_MODE)
     {
         g_scene.network_setup_custom = g_scene.network_page_selected_row == 1;
-        TitanNetwork_SetPreference(TITAN_NETWORK_PREFER_ETHERNET);
-        (void)TitanNetwork_Retry();
+        TitanNetwork_RequestPreference(TITAN_NETWORK_PREFER_ETHERNET);
+        (void)TitanNetwork_StartConnectionTest();
         TitanShellScene_OpenNetworkPage(TITAN_NETWORK_PAGE_TEST);
         return 1;
     }
@@ -14208,6 +14576,88 @@ static void TitanShellScene_ShowContextInformation(void)
     }
 }
 
+static unsigned int TitanShellScene_BuildResolutionModes(
+    const TitanNeutrinoGame *game,
+    TitanPerGameGsmMode modes[4]
+)
+{
+    unsigned int count = 0u;
+    if (modes == 0) return 0u;
+    modes[count++] = TITAN_PER_GAME_GSM_DEFAULT;
+    modes[count++] = TITAN_PER_GAME_GSM_480P;
+    if (game != 0 && game->format == TITAN_NEUTRINO_GAME_USBEXTREME)
+        modes[count++] = TITAN_PER_GAME_GSM_720P;
+    modes[count++] = TITAN_PER_GAME_GSM_1080I;
+    return count;
+}
+
+static int TitanShellScene_GetSelectedResolutionGame(
+    TitanHomeEntry *selected_home,
+    const TitanNeutrinoGame **game
+)
+{
+    if (selected_home == 0 || game == 0 ||
+        g_scene.context_source != TITAN_CONTEXT_SOURCE_HOME ||
+        !TitanShellScene_GetHomeEntry((unsigned int)g_scene.selected_item, selected_home) ||
+        selected_home->type != TITAN_HOME_ENTRY_GAME)
+        return 0;
+    *game = TitanNeutrino_GetGame(selected_home->game_index);
+    return *game != 0 && TitanGameGsm_IsValidStartup((*game)->startup);
+}
+
+static void TitanShellScene_OpenResolutionOptions(void)
+{
+    TitanHomeEntry selected_home;
+    const TitanNeutrinoGame *game;
+    TitanPerGameGsmMode modes[4];
+    TitanPerGameGsmMode current;
+    unsigned int index;
+    unsigned int count;
+
+    memset(&selected_home, 0, sizeof(selected_home));
+    if (!TitanShellScene_GetSelectedResolutionGame(&selected_home, &game)) return;
+    count = TitanShellScene_BuildResolutionModes(game, modes);
+    current = TitanGameGsm_GetMode(game->startup);
+    /* A stale pre-fix Neutrino 720p profile is represented as native/default. */
+    if (game->format != TITAN_NEUTRINO_GAME_USBEXTREME && current == TITAN_PER_GAME_GSM_720P)
+        current = TITAN_PER_GAME_GSM_DEFAULT;
+    g_scene.resolution_options_selected = 0;
+    for (index = 0u; index < count; ++index)
+        if (modes[index] == current) g_scene.resolution_options_selected = (int)index;
+    g_scene.resolution_options_open = 1;
+}
+
+static int TitanShellScene_SetSelectedGameResolution(TitanPerGameGsmMode mode)
+{
+    TitanHomeEntry selected_home;
+    const TitanNeutrinoGame *game;
+    TitanPerGameGsmMode previous;
+
+    memset(&selected_home, 0, sizeof(selected_home));
+    if (!TitanShellScene_GetSelectedResolutionGame(&selected_home, &game)) return 0;
+    if (game->format != TITAN_NEUTRINO_GAME_USBEXTREME && mode == TITAN_PER_GAME_GSM_720P)
+        return 0;
+
+    previous = TitanGameGsm_GetMode(game->startup);
+    if (!TitanGameGsm_SetMode(game->startup, mode)) goto fail;
+    if (game->format == TITAN_NEUTRINO_GAME_USBEXTREME &&
+        !TitanGameGsm_PrepareUlGoldenConfig(game->startup, mode))
+    {
+        (void)TitanGameGsm_SetMode(game->startup, previous);
+        (void)TitanGameGsm_PrepareUlGoldenConfig(game->startup, previous);
+        goto fail;
+    }
+    return 1;
+
+fail:
+    TitanNotifications_Push(
+        TITAN_NOTIFICATION_ERROR,
+        "Resolution options",
+        "GSM setting could not be saved"
+    );
+    return 0;
+}
+
 static void TitanShellScene_RunContextAction(TitanContextAction action)
 {
     TitanHomeEntry selected_home;
@@ -14255,7 +14705,7 @@ static void TitanShellScene_RunContextAction(TitanContextAction action)
                     "Uninstall application?",
                     g_scene.pending_uninstall_title,
                     "The application and its installed local data will be removed.",
-                    "Cancelar",
+                    "Cancel",
                     "Desinstalar",
                     TitanShellScene_ConfirmUninstallApplication,
                     0
@@ -14330,11 +14780,15 @@ static void TitanShellScene_RunContextAction(TitanContextAction action)
                 "Ocultar tile?",
                 selected_home.title,
                 "O tile pode ser restaurado pelas configuracoes padrao.",
-                "Cancelar",
+                "Cancel",
                 "Ocultar",
                 TitanShellScene_ConfirmHideHomeShell,
                 (void *)(uintptr_t)selected_home.shell_catalog_index
             );
+            return;
+
+        case TITAN_CONTEXT_ACTION_RESOLUTION_OPTIONS:
+            TitanShellScene_OpenResolutionOptions();
             return;
 
         case TITAN_CONTEXT_ACTION_ENGINE:
@@ -14375,7 +14829,7 @@ static void TitanShellScene_RunContextAction(TitanContextAction action)
                     "Delete folder?",
                     folder != 0 ? folder->name : "Folder",
                     "Os itens retornarao para a grade principal.",
-                    "Cancelar",
+                    "Cancel",
                     "Excluir",
                     TitanShellScene_ConfirmDeleteFolder,
                     (void *)(uintptr_t)selected_home.folder_index
@@ -14430,7 +14884,7 @@ static void TitanShellScene_RunContextAction(TitanContextAction action)
                 "Reatribuir controle",
                 line,
                 "Conecte o controle na nova porta antes de confirmar.",
-                "Cancelar",
+                "Cancel",
                 "Reatribuir",
                 TitanShellScene_ConfirmControllerPort,
                 (void *)(uintptr_t)target_port
@@ -14498,7 +14952,7 @@ static void TitanShellScene_RunContextAction(TitanContextAction action)
                 "Restaurar padroes?",
                 "Tile order and visibility will be restored.",
                 "Profiles, VMCs and games will not be erased.",
-                "Cancelar",
+                "Cancel",
                 "Restaurar",
                 TitanShellScene_ConfirmResetShellLayout,
                 0
@@ -15802,6 +16256,8 @@ void TitanShellScene_Initialize(void)
     g_scene.folder_ui_mode = TITAN_FOLDER_UI_CLOSED;
     g_scene.folder_previous_ui_mode = TITAN_FOLDER_UI_CLOSED;
     g_scene.folder_context_selected = 0;
+    g_scene.resolution_options_open = 0;
+    g_scene.resolution_options_selected = 0;
     g_scene.folder_destination_selected = 0;
     g_scene.folder_editor_selected = 0;
     g_scene.folder_content_cursor = 0;
@@ -15827,6 +16283,7 @@ void TitanShellScene_Initialize(void)
     memset(g_scene.folder_selected_shell, 0, sizeof(g_scene.folder_selected_shell));
     g_scene.folder_pending_name[0] = '\0';
     g_scene.folder_context_transition = 0.0f;
+    g_scene.resolution_options_transition = 0.0f;
     g_scene.folder_screen_transition = 1.0f;
     g_scene.video_test_active = 0;
     g_scene.video_test_previous_progressive = 0;
@@ -16279,6 +16736,44 @@ static int TitanShellScene_UpdateFolderUi(
             g_scene.folder_context_selected = 0;
         }
 
+        if (g_scene.resolution_options_open)
+        {
+            TitanHomeEntry selected_home;
+            const TitanNeutrinoGame *game;
+            TitanPerGameGsmMode modes[4];
+            unsigned int mode_count;
+
+            memset(&selected_home, 0, sizeof(selected_home));
+            if (!TitanShellScene_GetSelectedResolutionGame(&selected_home, &game))
+            {
+                g_scene.resolution_options_open = 0;
+                return 1;
+            }
+            mode_count = TitanShellScene_BuildResolutionModes(game, modes);
+            if ((input->pressed & TITAN_INPUT_BUTTON_CIRCLE) ||
+                (input->pressed & TITAN_INPUT_BUTTON_LEFT))
+            {
+                g_scene.resolution_options_open = 0;
+                return 1;
+            }
+            if (input->pressed & TITAN_INPUT_BUTTON_UP)
+            {
+                g_scene.resolution_options_selected--;
+                if (g_scene.resolution_options_selected < 0)
+                    g_scene.resolution_options_selected = (int)mode_count - 1;
+            }
+            if (input->pressed & TITAN_INPUT_BUTTON_DOWN)
+            {
+                g_scene.resolution_options_selected++;
+                if ((unsigned int)g_scene.resolution_options_selected >= mode_count)
+                    g_scene.resolution_options_selected = 0;
+            }
+            if ((input->pressed & TITAN_INPUT_BUTTON_CROSS) && mode_count > 0u)
+                (void)TitanShellScene_SetSelectedGameResolution(
+                    modes[g_scene.resolution_options_selected]);
+            return 1;
+        }
+
         if (input->pressed & TITAN_INPUT_BUTTON_CIRCLE)
         {
             TitanShellScene_SetFolderUiMode(TITAN_FOLDER_UI_CLOSED);
@@ -16300,6 +16795,7 @@ static int TitanShellScene_UpdateFolderUi(
                 g_scene.folder_context_selected = 0;
             }
         }
+
 
         if (input->pressed & TITAN_INPUT_BUTTON_CROSS)
         {
@@ -16829,18 +17325,40 @@ static void TitanShellScene_UpdateFixedStep(
             {
                 g_scene.startup_phase = TITAN_STARTUP_PHASE_HEALTH;
                 g_scene.startup_phase_frames = 0u;
+
+                /* RC5.6 H&S quiet mode: mute health-freeze trace while
+                 * the Health & Safety screen is visible. This also makes
+                 * nested Critical() calls true no-ops, avoiding USB flush
+                 * traffic and the bounded 180 ms waits during this phase. */
+                TitanHealthTrace_SetEnabled(0);
+                TitanHealthTrace_Critical(TITAN_HT_STARTUP_HEALTH_TRANSITION, 0u,
+                    TITAN_STARTUP_PHASE_INITIAL_BLACK, TITAN_STARTUP_PHASE_HEALTH, 0u);
+                TitanHealthTrace_Critical(TITAN_HT_STARTUP_AUDIO_BEFORE, 0u, 0u, 0u, 0u);
                 TitanAudio_StartMusic();
+                TitanHealthTrace_Critical(TITAN_HT_STARTUP_AUDIO_AFTER, 0u, 0u, 0u, 0u);
+                TitanHealthTrace_Critical(TITAN_HT_STARTUP_WIRELESS_BEFORE, 0u, 0u, 0u, 0u);
                 TitanWirelessAccessories_BeginStartupReconnect();
+                TitanHealthTrace_Critical(TITAN_HT_STARTUP_WIRELESS_AFTER, 0u, 0u, 0u, 0u);
             }
         }
         else if (g_scene.startup_phase == TITAN_STARTUP_PHASE_HEALTH)
         {
             g_scene.startup_phase_frames++;
+            TitanHealthTrace_Mark(TITAN_HT_STARTUP_HEALTH_FRAME,
+                g_scene.startup_phase_frames, g_scene.startup_phase_frames,
+                TITAN_STARTUP_HEALTH_DURATION_FRAMES, 0u);
 
             if (g_scene.startup_phase_frames >= TITAN_STARTUP_HEALTH_DURATION_FRAMES)
             {
+                TitanHealthTrace_Critical(TITAN_HT_STARTUP_WELCOME_TRANSITION,
+                    g_scene.startup_phase_frames, TITAN_STARTUP_PHASE_HEALTH,
+                    TITAN_STARTUP_PHASE_WELCOME_ENTER, 0u);
                 g_scene.startup_phase = TITAN_STARTUP_PHASE_WELCOME_ENTER;
                 g_scene.startup_phase_frames = 0u;
+
+                /* H&S is no longer visible: restore normal tracing for
+                 * Welcome, network, input, HOME and later UI. */
+                TitanHealthTrace_SetEnabled(1);
                 TitanVramBootGuard_EnterPhase(TITAN_VRAM_PHASE_WELCOME);
             }
         }
@@ -17057,6 +17575,16 @@ static void TitanShellScene_UpdateFixedStep(
             g_scene.folder_context_transition,
             g_scene.folder_ui_mode == TITAN_FOLDER_UI_CONTEXT ? 1.0f : 0.0f,
             0.15f
+        );
+
+    g_scene.resolution_options_transition =
+        TitanAnimation_Approach(
+            g_scene.resolution_options_transition,
+            g_scene.folder_ui_mode == TITAN_FOLDER_UI_CONTEXT &&
+                    g_scene.resolution_options_open
+                ? 1.0f
+                : 0.0f,
+            0.18f
         );
 
     g_scene.folder_screen_transition =
@@ -17872,25 +18400,6 @@ static void TitanShellScene_UpdateFixedStep(
                 )
                 {
                     TitanShellScene_ToggleDexMode();
-                }
-
-                if (
-                    g_scene.settings_selected_category == TITAN_SETTINGS_VIDEO &&
-                    g_scene.settings_selected_row == 3 &&
-                    (
-                        input->pressed &
-                        (TITAN_INPUT_BUTTON_LEFT | TITAN_INPUT_BUTTON_RIGHT)
-                    )
-                )
-                {
-                    TitanVideoOutput_CycleGameGsmMode(
-                        (input->pressed & TITAN_INPUT_BUTTON_LEFT) ? -1 : 1
-                    );
-                    TitanNotifications_Push(
-                        TITAN_NOTIFICATION_INFO,
-                        "Game GSM",
-                        TitanVideoOutput_GetGameGsmName()
-                    );
                 }
 
                 if (

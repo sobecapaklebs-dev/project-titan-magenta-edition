@@ -15,6 +15,7 @@ def require(condition, message):
 makefile = (kernel / "Makefile").read_text(encoding="utf-8")
 audio_c = (kernel / "src/services/titan_audio.c").read_text(encoding="utf-8")
 kernel_c = (kernel / "src/core/titan_kernel.c").read_text(encoding="utf-8")
+game_runtime_c = (kernel / "src/services/titan_game_runtime.c").read_text(encoding="utf-8")
 scene_c = (kernel / "src/ui/titan_shell_scene.c").read_text(encoding="utf-8")
 notifications_c = (kernel / "src/ui/titan_notifications.c").read_text(encoding="utf-8")
 avatar_c = (kernel / "src/ui/titan_avatar_picker.c").read_text(encoding="utf-8")
@@ -47,6 +48,13 @@ for token in (
 
 require("(void)TitanAudio_Initialize();" in kernel_c, "kernel does not initialize audio")
 require("TitanAudio_Update();" in kernel_c, "main loop does not pump audio")
+submit_start = audio_c.index("unsigned int TitanAudio_SubmitExternalPcm(")
+submit_end = audio_c.index("unsigned int TitanAudio_GetExternalBufferedFrames", submit_start)
+require("TitanAudio_Lock();" in audio_c[submit_start:submit_end] and
+        "audsrv_" not in audio_c[submit_start:submit_end],
+        "game worker must publish PCM under lock without consuming AUDSRV")
+require("TitanAudio_Update();" not in game_runtime_c,
+        "TGR must leave AUDSRV consumption exclusively on the kernel thread")
 require("TITAN_AUDIO_SFX_NOTIFICATION" in notifications_c, "notification event not wired")
 require("TITAN_AUDIO_SFX_PROFILE_ENTRY" in scene_c, "profile entry event not wired")
 require("TITAN_AUDIO_SFX_HOME_GRID_NAV" in scene_c, "Home navigation event not wired")
@@ -61,10 +69,14 @@ require(scene_c.count("TitanAudio_StartMusic();") >= 2,
         "music rebind paths must remain wired after lifecycle gating")
 require("TitanThemeLifecycle_MusicAllowed" in audio_c,
         "theme music must be gated by the BF30 lifecycle")
-health_transition = """g_scene.startup_phase = TITAN_STARTUP_PHASE_HEALTH;
-                g_scene.startup_phase_frames = 0u;
-                TitanAudio_StartMusic();"""
-require(health_transition in scene_c,
+health_transition = scene_c.find(
+    "g_scene.startup_phase = TITAN_STARTUP_PHASE_HEALTH;")
+health_music = scene_c.find("TitanAudio_StartMusic();", health_transition)
+health_branch_end = scene_c.find(
+    "else if (g_scene.startup_phase == TITAN_STARTUP_PHASE_HEALTH)",
+    health_transition)
+require(health_transition >= 0 and health_music > health_transition and
+        (health_branch_end < 0 or health_music < health_branch_end),
         "startup audio request path must remain wired; lifecycle gate decides whether HOME-only music may play")
 require("TitanShellScene_LeavePackageInstallerExclusiveMode" in scene_c and
         "package_music_suspended" in scene_c,

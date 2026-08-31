@@ -217,8 +217,12 @@ TITAN_NETMAN_IRX = \
 $(PS2SDK)/iop/irx/netman.irx
 TITAN_NETMAN_HEADER = \
 src/services/generated/titan_netman_irx.h
-TITAN_SMAP_IRX = \
+TITAN_SMAP_SOURCE_IRX = \
 $(PS2SDK)/iop/irx/smap.irx
+TITAN_SMAP_PATCH_TOOL = \
+tools/titan_patch_smap_netif_name.py
+TITAN_SMAP_IRX = \
+src/services/generated/titan_smap_netif.irx
 TITAN_SMAP_HEADER = \
 src/services/generated/titan_smap_irx.h
 TITAN_AR9271_IRX = iop/titan_ar9271/titan_ar9271.irx
@@ -253,6 +257,7 @@ src/services/titan_library_cache.o \
 src/services/titan_package_installer.o \
 src/services/titan_network.o \
 src/services/titan_diagnostics.o \
+src/services/titan_health_trace.o \
 src/services/titan_target_memory.o \
 src/services/titan_system_update.o \
 src/services/titan_home_folders.o \
@@ -291,6 +296,7 @@ src/services/titan_browser.o \
 src/services/titan_browser_net.o \
 src/services/titan_elf_validate.o \
 src/services/titan_neutrino.o \
+src/services/titan_game_gsm.o \
 src/services/titan_exec_handoff.o \
 src/services/titan_video_output.o \
 src/services/titan_theme_scene_graph.o \
@@ -362,8 +368,8 @@ EE_CFLAGS += -DPROJECT_TITAN_WIDESCREEN=1
 TITAN_REPRO_SOURCE_ROOT ?= $(abspath ..)
 TITAN_REPRO_CANONICAL_ROOT ?= /project-titan
 EE_CFLAGS += \
--ffile-prefix-map=$(TITAN_REPRO_SOURCE_ROOT)=$(TITAN_REPRO_CANONICAL_ROOT) \
--fdebug-prefix-map=$(TITAN_REPRO_SOURCE_ROOT)=$(TITAN_REPRO_CANONICAL_ROOT)
+-ffile-prefix-map="$(TITAN_REPRO_SOURCE_ROOT)=$(TITAN_REPRO_CANONICAL_ROOT)" \
+-fdebug-prefix-map="$(TITAN_REPRO_SOURCE_ROOT)=$(TITAN_REPRO_CANONICAL_ROOT)"
 
 # GCC LTO creates an artificial DWARF compilation unit during the final link
 # (producer: GNU GIMPLE ... -fltrans).  EE_CFLAGS normalize first-party CUs,
@@ -371,8 +377,8 @@ EE_CFLAGS += \
 # mktemp kernel cwd in DW_AT_comp_dir.  Feed the same maps to the link/LTO
 # stage so the final debug-bearing kernel.elf is reproducible without stripping.
 EE_LDFLAGS += \
--ffile-prefix-map=$(TITAN_REPRO_SOURCE_ROOT)=$(TITAN_REPRO_CANONICAL_ROOT) \
--fdebug-prefix-map=$(TITAN_REPRO_SOURCE_ROOT)=$(TITAN_REPRO_CANONICAL_ROOT)
+-ffile-prefix-map="$(TITAN_REPRO_SOURCE_ROOT)=$(TITAN_REPRO_CANONICAL_ROOT)" \
+-fdebug-prefix-map="$(TITAN_REPRO_SOURCE_ROOT)=$(TITAN_REPRO_CANONICAL_ROOT)"
 
 TITAN_VIDEO_BACKEND ?= gs
 
@@ -734,9 +740,14 @@ $(TITAN_NETMAN_HEADER): $(TITAN_NETMAN_IRX)
 	@test -f "$<" || (echo "ERRO: netman.irx nao encontrado em $<" && exit 1)
 	$(BIN2C) $< $@ titan_netman_irx
 
+$(TITAN_SMAP_IRX): $(TITAN_SMAP_SOURCE_IRX) $(TITAN_SMAP_PATCH_TOOL)
+	@mkdir -p $(dir $@)
+	@test -f "$(TITAN_SMAP_SOURCE_IRX)" || (echo "ERRO: smap.irx nao encontrado em $(TITAN_SMAP_SOURCE_IRX)" && exit 1)
+	$(PYTHON) $(TITAN_SMAP_PATCH_TOOL) "$(TITAN_SMAP_SOURCE_IRX)" "$@"
+
 $(TITAN_SMAP_HEADER): $(TITAN_SMAP_IRX)
 	@mkdir -p $(dir $@)
-	@test -f "$<" || (echo "ERRO: smap.irx nao encontrado em $<" && exit 1)
+	@test -f "$<" || (echo "ERRO: Titan SMAP alias IRX nao encontrado em $<" && exit 1)
 	$(BIN2C) $< $@ titan_smap_irx
 
 $(TITAN_AR9271_IRX):

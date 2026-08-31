@@ -13,6 +13,7 @@ mkdir -p "$package/TITAN/audio" "$package/neutrino" "$target/TITAN" "$target/neu
 printf 'new-kernel\n' > "$package/kernel.elf"
 printf 'new-boot\n' > "$package/titan.elf"
 printf 'new-ul\n' > "$package/TITAN/titan_ul_engine.elf"
+printf 'new-ul\n' > "$package/TITAN/titan_ul_loader.elf"
 printf 'new-neutrino\n' > "$package/neutrino/neutrino.elf"
 printf 'sound\n' > "$package/TITAN/audio/test.wav"
 
@@ -24,11 +25,15 @@ bash "$ROOT/scripts/install_to_usb.sh" --target "$target" --package "$package" >
 
 grep -qx 'new-kernel' "$target/kernel.elf"
 grep -qx 'new-ul' "$target/TITAN/titan_ul_engine.elf"
+grep -qx 'new-ul' "$target/TITAN/titan_ul_loader.elf"
 grep -qx 'new-neutrino' "$target/neutrino/neutrino.elf"
 [[ -f "$target/TITAN/INSTALL_MANIFEST.txt" ]]
 [[ -f "$target/TITAN/INSTALL_SHA256.txt" ]]
 compgen -G "$target/TITAN/kernel.elf.legacy-disabled-*" >/dev/null
-compgen -G "$target/TITAN/titan_ul_loader.elf.legacy-disabled-*" >/dev/null
+if compgen -G "$target/TITAN/titan_ul_loader.elf.legacy-disabled-*" >/dev/null; then
+    echo "ERROR: validated UL loader alias was legacy-disabled" >&2
+    exit 1
+fi
 
 # Simulate an interrupted transaction that had already replaced kernel.elf.
 mkdir -p "$target/TITAN/.install-transactions"
