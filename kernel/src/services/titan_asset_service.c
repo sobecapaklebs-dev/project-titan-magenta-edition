@@ -98,6 +98,8 @@ typedef struct TitanAssetGameState
     unsigned char background_download_pending;
     unsigned char icon_attempts;
     unsigned char background_attempts;
+    unsigned char icon_external_candidate;
+    unsigned char background_external_candidate;
 } TitanAssetGameState;
 
 typedef struct TitanAssetIconSlot
@@ -129,6 +131,7 @@ typedef struct TitanAssetStorageJob
     unsigned int total;
     uint32_t startup_hash;
     unsigned int session_generation;
+    unsigned int external_candidate;
     unsigned char manual_owner;
     char serial[24];
     char path[256];
@@ -226,6 +229,7 @@ typedef struct TitanAssetServiceState
     volatile int external_decode_busy;
     TitanAssetKind external_decode_kind;
     unsigned int external_decode_game;
+    unsigned int external_decode_candidate;
     uint32_t external_decode_startup_hash;
     unsigned int external_decode_catalog_generation;
     char external_decode_path[TITAN_ASSET_EXTERNAL_PATH_CAPACITY];
@@ -496,6 +500,8 @@ static void TitanAssetService_SyncGameIdentityLocked(unsigned int game_index)
     state->background_probe_pending = 0u;
     state->icon_download_pending = 0u;
     state->background_download_pending = 0u;
+    state->icon_external_candidate = 0u;
+    state->background_external_candidate = 0u;
     for (i = 0u; i < TITAN_ASSET_ICON_SLOT_CAPACITY; i++)
     {
         if (g_assets.icon_slots[i].valid && g_assets.icon_slots[i].game_index == game_index)
@@ -582,10 +588,16 @@ static int TitanAssetService_BuildExternalArtPath(
     {
         switch (candidate)
         {
-            case 0u: suffix = "_ICO.png"; break;
-            case 1u: suffix = "_ICO.jpg"; break;
-            case 2u: suffix = ".png"; break;
-            case 3u: suffix = ".jpg"; break;
+            /* OPL cover art is the expected tile artwork; retain ICO and
+             * PS2 Launcher bare-ID fallbacks for existing ART directories. */
+            case 0u: suffix = "_COV.png"; break;
+            case 1u: suffix = "_COV.jpg"; break;
+            case 2u: suffix = "_COV2.png"; break;
+            case 3u: suffix = "_COV2.jpg"; break;
+            case 4u: suffix = "_ICO.png"; break;
+            case 5u: suffix = "_ICO.jpg"; break;
+            case 6u: suffix = ".png"; break;
+            case 7u: suffix = ".jpg"; break;
             default: return 0;
         }
     }
@@ -612,19 +624,22 @@ static int TitanAssetService_BuildExternalArtPath(
 static int TitanAssetService_FindExternalArt(
     const char *serial,
     TitanAssetKind kind,
+    unsigned int first_candidate,
     char *path,
     unsigned int capacity,
-    unsigned int *size_out
+    unsigned int *size_out,
+    unsigned int *candidate_out
 )
 {
     unsigned int candidate;
-    unsigned int candidate_count = kind == TITAN_ASSET_KIND_ICON ? 4u : 8u;
+    unsigned int candidate_count = 8u;
     TitanStorageIoSize size = 0;
     int is_directory = 0;
-    if (path == 0 || capacity == 0u || size_out == 0) return 0;
+    if (path == 0 || capacity == 0u || size_out == 0 || candidate_out == 0) return 0;
     *size_out = 0u;
     path[0] = '\0';
-    for (candidate = 0u; candidate < candidate_count; candidate++)
+    if (first_candidate >= candidate_count) return 0;
+    for (candidate = first_candidate; candidate < candidate_count; candidate++)
     {
         if (!TitanAssetService_BuildExternalArtPath(serial, kind, candidate,
                 path, capacity))
@@ -635,6 +650,7 @@ static int TitanAssetService_FindExternalArt(
             is_directory || size == 0u || size > TITAN_ASSET_SOURCE_MAX_SIZE)
             continue;
         *size_out = (unsigned int)size;
+        *candidate_out = candidate;
         return 1;
     }
     path[0] = '\0';
@@ -670,19 +686,48 @@ static TitanAssetIconSlot *TitanAssetService_AllocateIconSlot(unsigned int game_
     if (slot != 0) return slot;
     for (i = 0u; i < TITAN_ASSET_ICON_SLOT_CAPACITY; i++)
     {
+        unsigned int visible_index;
+        int visible = 0;
         if (!g_assets.icon_slots[i].valid)
         {
             victim = i;
             oldest = 0u;
             break;
         }
-        if (g_assets.icon_slots[i].last_touch_frame < oldest)
+        for (visible_index = 0u; visible_index < g_assets.visible_count; visible_index++)
+        {
+            if (g_assets.visible_games[visible_index] == g_assets.icon_slots[i].game_index)
+            {
+                visible = 1;
+                break;
+            }
+        }
+        /* Keep currently displayed game art resident ahead of idle catalog
+         * prefetch. With 24 slots and at most 16 visible games, an invisible
+         * victim should normally always be available. */
+        if (!visible && g_assets.icon_slots[i].last_touch_frame < oldest)
         {
             oldest = g_assets.icon_slots[i].last_touch_frame;
             victim = i;
         }
     }
     slot = &g_assets.icon_slots[victim];
+    if (slot->valid && slot->game_index < TITAN_NEUTRINO_GAME_CAPACITY)
+    {
+        unsigned int visible_index;
+        TitanAssetGameState *evicted = &g_assets.games[slot->game_index];
+        evicted->icon_presence = TITAN_ASSET_PRESENCE_UNKNOWN;
+        evicted->icon_probe_pending = 0u;
+        for (visible_index = 0u; visible_index < g_assets.visible_count; visible_index++)
+        {
+            if (g_assets.visible_games[visible_index] == slot->game_index)
+            {
+                evicted->icon_probe_pending = 1u;
+                break;
+            }
+        }
+        g_assets.strip_generation++;
+    }
     memset(slot, 0, sizeof(*slot));
     slot->game_index = game_index;
     return slot;
@@ -699,6 +744,7 @@ static void TitanAssetService_CommitIcon(
     slot->valid = 1;
     slot->last_touch_frame = g_assets.frame_index;
     g_assets.games[game_index].icon_presence = TITAN_ASSET_PRESENCE_PRESENT;
+    g_assets.games[game_index].icon_probe_pending = 0u;
     g_assets.strip_generation++;
 }
 
@@ -805,14 +851,33 @@ void TitanAssetService_SetVisibleGames(
 
     if (g_assets.selected_game_index != selected_game_index)
     {
+        unsigned int previous_game = g_assets.selected_game_index;
+        /* Only one background surface is resident. Forget the old RAM
+         * residency so selecting that game again reloads its still-cached art. */
+        if (g_assets.active_background_ready &&
+            g_assets.active_background_game != selected_game_index)
+        {
+            g_assets.active_background_ready = 0;
+            g_assets.active_background_game = TITAN_ASSET_INVALID_GAME;
+            if (previous_game < TITAN_NEUTRINO_GAME_CAPACITY)
+                g_assets.games[previous_game].background_presence = TITAN_ASSET_PRESENCE_UNKNOWN;
+        }
         g_assets.selected_game_index = selected_game_index;
         g_assets.selected_since_frame = frame_index;
         changed = 1;
         if (selected_game_index < TITAN_NEUTRINO_GAME_CAPACITY)
-        {
-                TitanAssetService_RequestCacheProbeLocked(selected_game_index, TITAN_ASSET_KIND_ICON);
-            TitanAssetService_RequestCacheProbeLocked(selected_game_index, TITAN_ASSET_KIND_BACKGROUND);
-        }
+            TitanAssetService_RequestCacheProbeLocked(selected_game_index, TITAN_ASSET_KIND_ICON);
+    }
+    /* Re-arm a background probe whenever selected-game art is not resident,
+     * including after catalog/cache invalidation when selection itself did not
+     * change. This is what reloads the one-slot background RAM cache reliably. */
+    if (selected_game_index < TITAN_NEUTRINO_GAME_CAPACITY &&
+        (!g_assets.active_background_ready ||
+         g_assets.active_background_game != selected_game_index))
+    {
+        if (g_assets.games[selected_game_index].background_presence == TITAN_ASSET_PRESENCE_PRESENT)
+            g_assets.games[selected_game_index].background_presence = TITAN_ASSET_PRESENCE_UNKNOWN;
+        TitanAssetService_RequestCacheProbeLocked(selected_game_index, TITAN_ASSET_KIND_BACKGROUND);
     }
     if (changed)
     {
@@ -1133,6 +1198,8 @@ static void TitanAssetService_InvalidateGameRamLocked(unsigned int game_index)
         g_assets.games[game_index].background_probe_pending = 0u;
         g_assets.games[game_index].icon_download_pending = 0u;
         g_assets.games[game_index].background_download_pending = 0u;
+        g_assets.games[game_index].icon_external_candidate = 0u;
+        g_assets.games[game_index].background_external_candidate = 0u;
     }
     g_assets.strip_generation++;
 }
@@ -1600,6 +1667,7 @@ void TitanAssetService_UpdateMainThread(unsigned int frame_index)
                 memcpy(g_assets.active_background, &g_assets.storage_buffer[payload_offset], TITAN_ASSET_BACKGROUND_PAYLOAD);
                 g_assets.active_background_game = game; g_assets.active_background_ready = 1;
                 g_assets.games[game].background_presence = TITAN_ASSET_PRESENCE_PRESENT;
+                g_assets.games[game].background_probe_pending = 0u;
             }
         }
         else
@@ -1644,10 +1712,16 @@ int TitanAssetService_DrawIcon(
     unsigned int cell;
     unsigned int source_x;
     unsigned int source_y;
+    TitanAssetIconSlot *slot;
     if (!g_assets.initialized || alpha == 0u ||
-        !TitanAssetService_FindVisibleCell(game_index, &cell) ||
-        TitanAssetService_FindIconSlot(game_index) == 0)
+        !TitanAssetService_FindVisibleCell(game_index, &cell))
         return 0;
+    slot = TitanAssetService_FindIconSlot(game_index);
+    if (slot == 0 || !slot->valid) return 0;
+    /* Library rendering uses the shared thumbnail atlas rather than the
+     * selected-tile path; still refresh LRU or idle prefetch can evict visible
+     * artwork while the library is sitting on screen. */
+    slot->last_touch_frame = g_assets.frame_index;
 
     if (TitanVideo_UploadTransientAtlasPsm16(
             g_assets.transient_strip,
@@ -2048,6 +2122,9 @@ static int TitanAssetService_StartStorageJob(void)
         job->kind = kind;
         job->game_index = game;
         job->startup_hash = g_assets.games[game].startup_hash;
+        job->external_candidate = kind == TITAN_ASSET_KIND_ICON
+            ? g_assets.games[game].icon_external_candidate
+            : g_assets.games[game].background_external_candidate;
         job->session_generation = g_assets.manual_session_generation;
         job->manual_owner = (g_assets.manual_session_active && !g_assets.manual_clear_cache) ? 1u : 0u;
         ok = TitanAssetService_NormalizeSerial(game, serial, sizeof(serial));
@@ -2403,10 +2480,13 @@ int TitanAssetService_StorageWorkerPump(void)
         if (TitanStorageIo_PathInfo64(job->path, 0, &size) && size != 0u) (void)TitanStorageIo_Remove(job->path);
         {
             unsigned int external_size = 0u;
+            unsigned int external_candidate = 0u;
             char external_path[TITAN_ASSET_EXTERNAL_PATH_CAPACITY];
             if (TitanAssetService_FindExternalArt(job->serial, job->kind,
-                    external_path, sizeof(external_path), &external_size))
+                    job->external_candidate, external_path, sizeof(external_path),
+                    &external_size, &external_candidate))
             {
+                job->external_candidate = external_candidate;
                 TitanAssetService_CopyText(job->path, sizeof(job->path), external_path);
                 job->op = job->kind == TITAN_ASSET_KIND_ICON
                     ? TITAN_ASSET_STORAGE_LOAD_EXTERNAL_ICON
@@ -2470,6 +2550,7 @@ int TitanAssetService_StorageWorkerPump(void)
             {
                 g_assets.external_decode_kind = job->kind;
                 g_assets.external_decode_game = job->game_index;
+                g_assets.external_decode_candidate = job->external_candidate;
                 g_assets.external_decode_startup_hash = job->startup_hash;
                 g_assets.external_decode_catalog_generation = g_assets.catalog_generation;
                 TitanAssetService_CopyText(g_assets.external_decode_path,
@@ -3014,6 +3095,7 @@ typedef struct TitanAssetExternalDecodeContext
     unsigned int game_index;
     TitanAssetKind kind;
     unsigned int catalog_generation;
+    unsigned int candidate;
     uint32_t startup_hash;
 } TitanAssetExternalDecodeContext;
 
@@ -3056,6 +3138,7 @@ static int TitanAssetService_ProcessExternalDecode(void)
     context.game_index = g_assets.external_decode_game;
     context.kind = g_assets.external_decode_kind;
     context.catalog_generation = g_assets.external_decode_catalog_generation;
+    context.candidate = g_assets.external_decode_candidate;
     context.startup_hash = g_assets.external_decode_startup_hash;
     source = g_assets.external_source_buffer;
     source_size = g_assets.external_source_size;
@@ -3069,8 +3152,11 @@ static int TitanAssetService_ProcessExternalDecode(void)
     options.yield = TitanAssetService_ImageYield;
     options.user_data = &context;
     options.yield_every_rows = 8u;
-    options.minimum_source_width = context.kind == TITAN_ASSET_KIND_ICON ? 128u : 256u;
-    options.minimum_source_height = 128u;
+    /* OPL ICO art is commonly 64x64, while OPL covers are portrait images.
+     * Accept both local conventions; this lower bound applies only to the
+     * local ART reader, not to downloaded provider assets. */
+    options.minimum_source_width = context.kind == TITAN_ASSET_KIND_ICON ? 64u : 256u;
+    options.minimum_source_height = context.kind == TITAN_ASSET_KIND_ICON ? 64u : 128u;
 
     TitanDiagnostics_Event(TITAN_DIAG_INFO, TITAN_DIAG_ASSET,
         TITAN_ASSET_DIAG_EXTERNAL_DECODE_BEGIN, 0, context.game_index,
@@ -3091,6 +3177,10 @@ static int TitanAssetService_ProcessExternalDecode(void)
         g_assets.storage_stage_game = context.game_index;
         g_assets.storage_stage_startup_hash = context.startup_hash;
         g_assets.storage_stage_ready = 1;
+        if (context.kind == TITAN_ASSET_KIND_ICON)
+            g_assets.games[context.game_index].icon_external_candidate = 0u;
+        else
+            g_assets.games[context.game_index].background_external_candidate = 0u;
         if (g_assets.manual_session_active && !g_assets.manual_refresh_existing)
             g_assets.session_completed_assets++;
     }
@@ -3114,6 +3204,24 @@ static int TitanAssetService_ProcessExternalDecode(void)
                 state->background_probe_pending = 1u;
             }
         }
+            else if (context.candidate < 7u)
+            {
+                /* A higher-priority OPL image may exist but be corrupt or use
+                 * an unsupported encoding. Try the next supported suffix
+                 * before treating this game's artwork as unavailable. */
+                if (context.kind == TITAN_ASSET_KIND_ICON)
+                {
+                    state->icon_external_candidate = (unsigned char)(context.candidate + 1u);
+                    state->icon_presence = TITAN_ASSET_PRESENCE_UNKNOWN;
+                    state->icon_probe_pending = 1u;
+                }
+                else
+                {
+                    state->background_external_candidate = (unsigned char)(context.candidate + 1u);
+                    state->background_presence = TITAN_ASSET_PRESENCE_UNKNOWN;
+                    state->background_probe_pending = 1u;
+                }
+            }
             else
             {
                 TitanAssetStorageJob recovery;
@@ -3420,6 +3528,8 @@ void TitanAssetService_NotifyCatalogChanged(void)
         g_assets.games[i].background_download_pending = 0u;
         g_assets.games[i].icon_attempts = 0u;
         g_assets.games[i].background_attempts = 0u;
+        g_assets.games[i].icon_external_candidate = 0u;
+        g_assets.games[i].background_external_candidate = 0u;
     }
     for (i = 0u; i < TITAN_ASSET_ICON_SLOT_CAPACITY; i++) g_assets.icon_slots[i].valid = 0;
     g_assets.active_background_ready = 0;

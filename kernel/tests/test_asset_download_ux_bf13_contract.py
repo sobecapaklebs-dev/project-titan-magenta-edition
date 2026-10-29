@@ -13,6 +13,7 @@ notif=read('src/ui/titan_notifications.c')
 notif_h=read('src/ui/titan_notifications.h')
 kernel=read('src/core/titan_kernel.c')
 network=(ROOT/'src/services/titan_network.c').read_bytes()
+providers=service[service.index('static unsigned int TitanAssetService_BuildProviders'):service.index('static int TitanAssetService_SelectDownload')]
 
 def panel_base_body():
     a=ui.index('static void TitanShellScene_DrawPanelBase(')
@@ -25,8 +26,9 @@ def tile_body():
     return ui[a:b]
 
 checks={
- 'icon-provider-is-menu-art':('PSBBN square game art' in service or 'OSD-XMB ICON0' in service) and '_COV.png' not in service,
- 'covers-not-assets':'_COV.png' not in service and '_COV2.png' not in service and 'xlenore/ps2-covers' not in service,
+ 'icon-provider-is-menu-art':('PSBBN square game art' in service or 'OSD-XMB ICON0' in service) and '_COV.png' not in providers,
+ 'local-opl-covers-supported':'"_COV.png"' in service and '"_COV2.png"' in service,
+ 'remote-downloads-do-not-use-cover-providers':'_COV.png' not in providers and '_COV2.png' not in providers and 'xlenore/ps2-covers' not in providers,
  'background-only-bg-scr':'%s/%s_BG_00.png' in service and '%s/%s_SCR_00.png' in service,
  'timg-v2-cache-reset':'#define TITAN_TIMG_VERSION 2u' in image and 'ReadLe16(&data[4]) != 2u' in service,
  'round-robin-icon':'manual_icon_download_cursor' in service and '*cursor = ordinal + 1u' in service,

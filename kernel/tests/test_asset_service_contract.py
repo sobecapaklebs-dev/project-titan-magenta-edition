@@ -11,6 +11,7 @@ scene=(ROOT/'src/ui/titan_shell_scene.c').read_text()
 video=(ROOT/'src/graphics/titan_video.c').read_text()
 makefile=(ROOT/'Makefile').read_text()
 tls=(ROOT/'tools/titan_tls_deps.py').read_text()
+providers=service[service.index('static unsigned int TitanAssetService_BuildProviders'):service.index('static int TitanAssetService_SelectDownload')]
 checks={
  'service-object-linked':'src/services/titan_asset_service.o' in makefile,
  'native-http-object-linked':'src/services/titan_http_client.o' in makefile,
@@ -35,7 +36,8 @@ checks={
  'no-new-vram':'&g_video.transient_atlas,\n            g_video.avatar_atlas.address' in video and '&g_video.transient_atlas,\n            g_video.cached_layer.address' in video,
  'direct-square-icon-provider':'CosmicScale/psbbn-art-database/main/art/%s.png' in service and 'HiroTex/OSD-XMB-ARTDB/main/PS2/%s/ICON0.PNG' in service,
  'direct-luden-background':'Luden02/psx-ps2-opl-art-database/main/PS2/%s/%s_BG_00.png' in service,
- 'no-cover-as-icon-or-bg':'_COV.png' not in service and '_COV2.png' not in service and 'xlenore/ps2-covers' not in service,
+ 'local-opl-covers-supported':'"_COV.png"' in service and '"_COV2.png"' in service and 'xlenore/ps2-covers' not in service,
+ 'remote-provider-keeps-semantic-icons':'_COV.png' not in providers and '_COV2.png' not in providers,
  'no-runtime-gateway':'assets.cfg' not in service and 'gateway' not in service.lower(),
  'https-native':'br_ssl_client_init_full' in http and 'https://' in service,
  'tls-hostname-verify':'br_ssl_client_reset(&transport->ssl, url->host, 0)' in http,

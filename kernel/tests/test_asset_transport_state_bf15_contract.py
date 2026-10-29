@@ -7,6 +7,7 @@ http=(ROOT/'src/services/titan_http_client.c').read_text(errors='replace')
 h=(ROOT/'src/services/titan_http_client.h').read_text(errors='replace')
 image=(ROOT/'src/services/titan_asset_image.c').read_text(errors='replace')
 network=(ROOT/'src/services/titan_network.c').read_bytes()
+providers=service[service.index('static unsigned int TitanAssetService_BuildProviders'):service.index('static int TitanAssetService_SelectDownload')]
 checks={
  'no-stage-blind-network-watchdog':'if (g_assets.net_busy) return;' in service and 'TITAN_ASSET_PIPELINE_STALL_FRAMES' not in service,
  'storage-only-stall-recovery':'TITAN_ASSET_STORAGE_STALL_FRAMES 900u' in service and 'storage_abort_requested' in service,
@@ -21,7 +22,8 @@ checks={
  'adam7-bounded-target-rows':'png_set_interlace_handling' in image and 'display_rows' in image and 'target.height * (size_t)rowbytes' in image,
  'manual-inflight-kind':'g_assets.net_busy && g_assets.current_kind == TITAN_ASSET_KIND_ICON' in service and 'g_assets.net_busy && g_assets.current_kind == TITAN_ASSET_KIND_BACKGROUND' in service,
  'session-end-drained':'TitanAssetService_ManualPipelineDrainedLocked' in service and '!TitanAssetService_ManualBackgroundWorkRemainingLocked() &&' in service,
- 'semantic-icon-no-cover':'_COV.png' not in service and '_COV2.png' not in service and 'ICON0.PNG' in service and 'psbbn-art-database' in service,
+ 'semantic-icon-no-cover-in-download-providers':'_COV.png' not in providers and '_COV2.png' not in providers and 'ICON0.PNG' in providers and 'psbbn-art-database' in providers,
+ 'local-opl-cover-support':'"_COV.png"' in service and '"_COV2.png"' in service,
  'semantic-background-no-cover':'_BG_00.png' in service and '_SCR_00.png' in service and 'PIC2.PNG' in service,
  'cdn-raw-mirrors':'cdn.jsdelivr.net/gh/CosmicScale/psbbn-art-database' in service and 'raw.githubusercontent.com/CosmicScale/psbbn-art-database' in service,
  'round-robin-four-attempts':'TITAN_ASSET_MANUAL_MAX_ATTEMPTS 4u' in service and '*cursor = ordinal + 1u' in service,

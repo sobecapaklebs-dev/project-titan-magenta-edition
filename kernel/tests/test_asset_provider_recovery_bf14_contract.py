@@ -9,8 +9,10 @@ ui=read('src/ui/titan_shell_scene.c')
 video=read('src/graphics/titan_video.c')
 kernel=read('src/core/titan_kernel.c')
 network=(ROOT/'src/services/titan_network.c').read_bytes()
+providers=service[service.index('static unsigned int TitanAssetService_BuildProviders'):service.index('static int TitanAssetService_SelectDownload')]
 checks={
- 'only-icon-background':'TITAN_ASSET_KIND_ICON' in header and 'TITAN_ASSET_KIND_BACKGROUND' in header and '_COV.png' not in service and '_COV2.png' not in service,
+ 'only-icon-background':'TITAN_ASSET_KIND_ICON' in header and 'TITAN_ASSET_KIND_BACKGROUND' in header and '_COV.png' not in providers and '_COV2.png' not in providers,
+ 'local-opl-covers-supported':'"_COV.png"' in service and '"_COV2.png"' in service,
  'psbbn-square-icon':'CosmicScale/psbbn-art-database' in service and 'PSBBN square' in service,
  'osdxmb-icon-fallback':'HiroTex/OSD-XMB-ARTDB' in service and 'ICON0.PNG' in service,
  'background-providers':'%s/%s_BG_00.png' in service and '%s/%s_SCR_00.png' in service and 'PIC2.PNG' in service,

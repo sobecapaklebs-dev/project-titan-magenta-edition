@@ -11,8 +11,8 @@ with tempfile.TemporaryDirectory(prefix='titan_asset_qgate_') as td0:
 #include "titan_asset_image.h"
 #include <stdio.h>
 #include <stdlib.h>
-static int cv(const char*p){FILE*f=fopen(p,"rb");long n;unsigned char*s,*d;unsigned int os=0;TitanAssetImageOptions o;if(!f)return -1;fseek(f,0,SEEK_END);n=ftell(f);fseek(f,0,SEEK_SET);s=malloc(n);d=malloc(70000);fread(s,1,n,f);fclose(f);o.should_cancel=0;o.yield=0;o.user_data=0;o.yield_every_rows=8;o.minimum_source_width=128;o.minimum_source_height=128;int r=TitanAssetImage_ConvertToTimgEx(s,(unsigned)n,TITAN_ASSET_KIND_ICON,d,70000,&os,&o);free(s);free(d);return r;}
-int main(int ac,char**av){if(ac!=3)return 9;if(cv(av[1])!=0)return 2;if(cv(av[2])!=1)return 3;return 0;}
+static int cv(const char*p,unsigned min){FILE*f=fopen(p,"rb");long n;unsigned char*s,*d;unsigned int os=0;TitanAssetImageOptions o;if(!f)return -1;fseek(f,0,SEEK_END);n=ftell(f);fseek(f,0,SEEK_SET);s=malloc(n);d=malloc(70000);fread(s,1,n,f);fclose(f);o.should_cancel=0;o.yield=0;o.user_data=0;o.yield_every_rows=8;o.minimum_source_width=min;o.minimum_source_height=min;int r=TitanAssetImage_ConvertToTimgEx(s,(unsigned)n,TITAN_ASSET_KIND_ICON,d,70000,&os,&o);free(s);free(d);return r;}
+int main(int ac,char**av){if(ac!=3)return 9;if(cv(av[1],128)!=0)return 2;if(cv(av[1],64)!=1)return 4;if(cv(av[2],128)!=1)return 3;return 0;}
 ''')
  exe=td/'q'
  subprocess.run(['cc','-std=gnu99','-fsanitize=address,undefined','-fno-omit-frame-pointer',f'-I{root/"include"}',f'-I{root/"src/services"}',str(td/'h.c'),str(root/'src/services/titan_asset_image.c'),'-lpng','-ljpeg','-o',str(exe)],check=True)
