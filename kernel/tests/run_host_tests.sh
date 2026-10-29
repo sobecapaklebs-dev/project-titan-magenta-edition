@@ -787,6 +787,7 @@ gcc \
     -o /tmp/project_titan_vlombiscore_test
 ASAN_OPTIONS=detect_leaks=0 /tmp/project_titan_vlombiscore_test
 python3 "$kernel_root/tests/test_vlombis_scheduler_contract.py" "$kernel_root"
+python3 "$kernel_root/tests/test_storage_artwork_fairness_contract.py" "$kernel_root"
 
 python3 "$kernel_root/tests/test_diagnostics_categories_contract.py" "$kernel_root"
 python3 "$kernel_root/tests/test_package_installer_ui_contract.py" "$kernel_root"

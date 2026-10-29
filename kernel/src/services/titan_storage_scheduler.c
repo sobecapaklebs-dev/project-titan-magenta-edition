@@ -648,14 +648,29 @@ static void TitanStorageScheduler_Worker(void *argument)
             continue;
         }
 
-        /* RC5.6: an accepted Library request gets a guaranteed bounded quantum
-         * immediately after urgent audio / foreground / one-shot VMC work.
-         * RC5.5 still placed deferred audio and several always-active background
-         * lanes above discovery, which hardware proved could leave 0x610 without
-         * ever reaching 0x612. Deferred music refills must not starve the scan. */
+        /* When both the library scan and visible artwork are pending, alternate
+         * one bounded quantum of each. The old unconditional scan branch kept
+         * returning here while scan_running and starved every artwork job below. */
+        if (g_storage_scheduler.asset_scan_turn &&
+            TitanAssetService_HasStorageWork())
+        {
+            (void)TitanAssetService_StorageWorkerPump();
+            g_storage_scheduler.asset_scan_turn = 0;
+            g_storage_scheduler.inventory_bulk_turn = 0;
+            if (TitanAudio_StorageWorkerNeedsRealtime())
+                (void)TitanStorageScheduler_PumpAudioRealtime();
+            DelayThread(TITAN_STORAGE_WORKER_ACTIVE_DELAY_US);
+            continue;
+        }
+        if (!TitanAssetService_HasStorageWork())
+            g_storage_scheduler.asset_scan_turn = 0;
+
+        /* Keep the accepted library scan ahead of lower-priority background
+         * lanes, but give artwork its next turn after one scan quantum. */
         if (TitanStorageScheduler_StartOrStepScan())
         {
-            g_storage_scheduler.asset_scan_turn = 0;
+            g_storage_scheduler.asset_scan_turn =
+                TitanAssetService_HasStorageWork() ? 1 : 0;
             g_storage_scheduler.inventory_bulk_turn = 0;
             if (TitanAudio_StorageWorkerNeedsRealtime())
             {
@@ -783,7 +798,7 @@ static void TitanStorageScheduler_Worker(void *argument)
         if (TitanAssetService_HasStorageWork() && !g_storage_scheduler.asset_scan_turn)
         {
             (void)TitanAssetService_StorageWorkerPump();
-            g_storage_scheduler.asset_scan_turn = 1;
+            g_storage_scheduler.asset_scan_turn = 0;
             g_storage_scheduler.inventory_bulk_turn = 0;
             if (TitanAudio_StorageWorkerNeedsRealtime())
             {
@@ -796,7 +811,7 @@ static void TitanStorageScheduler_Worker(void *argument)
         if (TitanAssetService_HasStorageWork())
         {
             (void)TitanAssetService_StorageWorkerPump();
-            g_storage_scheduler.asset_scan_turn = 1;
+            g_storage_scheduler.asset_scan_turn = 0;
             g_storage_scheduler.inventory_bulk_turn = 0;
             DelayThread(TITAN_STORAGE_WORKER_ACTIVE_DELAY_US);
             continue;
@@ -934,9 +949,21 @@ static void TitanStorageScheduler_RunFallbackWork(void)
         return;
     }
 
+    if (g_storage_scheduler.asset_scan_turn &&
+        TitanAssetService_HasStorageWork())
+    {
+        (void)TitanAssetService_StorageWorkerPump();
+        g_storage_scheduler.asset_scan_turn = 0;
+        g_storage_scheduler.inventory_bulk_turn = 0;
+        return;
+    }
+    if (!TitanAssetService_HasStorageWork())
+        g_storage_scheduler.asset_scan_turn = 0;
+
     if (TitanStorageScheduler_StartOrStepScan())
     {
-        g_storage_scheduler.asset_scan_turn = 0;
+        g_storage_scheduler.asset_scan_turn =
+            TitanAssetService_HasStorageWork() ? 1 : 0;
         return;
     }
 
@@ -984,13 +1011,13 @@ static void TitanStorageScheduler_RunFallbackWork(void)
     if (TitanAssetService_HasStorageWork() && !g_storage_scheduler.asset_scan_turn)
     {
         (void)TitanAssetService_StorageWorkerPump();
-        g_storage_scheduler.asset_scan_turn = 1;
+        g_storage_scheduler.asset_scan_turn = 0;
         return;
     }
     if (TitanAssetService_HasStorageWork())
     {
         (void)TitanAssetService_StorageWorkerPump();
-        g_storage_scheduler.asset_scan_turn = 1;
+        g_storage_scheduler.asset_scan_turn = 0;
     }
 }
 

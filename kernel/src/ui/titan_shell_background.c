@@ -846,11 +846,13 @@ void TitanShellBackground_Draw(
     if (TitanBootRecovery_IsMinimum() ||
         TitanVramBootGuard_GetPressureState() == TITAN_VRAM_PRESSURE_CRITICAL)
     {
-        TitanShellBackground_DrawAtmosphere();
+        /* Keep the Flow ribbon behind the shell's atmosphere layer even in
+         * the low-VRAM fallback. */
         TitanXmbSpline_DrawWithOpacity(
             frame, TitanShellBackground_Clamp01(page_transition), 0.0f,
             TitanShellBackground_Clamp01(horizontal_motion), 0.0f, 0.35f
         );
+        TitanShellBackground_DrawAtmosphere();
         return;
     }
 
@@ -861,11 +863,11 @@ void TitanShellBackground_Draw(
         float ribbon_opacity = 1.0f - scene_opacity;
         if (ribbon_opacity > 0.001f || !g_scene_v4_ready)
         {
-            TitanShellBackground_DrawAtmosphere();
             TitanXmbSpline_DrawWithOpacity(
                 frame, TitanShellBackground_Clamp01(page_transition), 0.0f,
                 TitanShellBackground_Clamp01(horizontal_motion), 0.0f, ribbon_opacity
             );
+            TitanShellBackground_DrawAtmosphere();
             TitanShellBackground_DrawParticles(
                 frame, TitanShellBackground_Clamp01(page_transition), 0.0f,
                 TitanShellBackground_Clamp01(horizontal_motion), ribbon_opacity
@@ -888,12 +890,12 @@ void TitanShellBackground_Draw(
          * palette/ribbon. HOME and the top menu never render a ribbon. */
         if (system_amount > 0.001f && TitanTheme_GetSceneStyle()->system_flow_enabled)
         {
-            TitanShellBackground_DrawAtmosphere();
             TitanXmbSpline_DrawWithOpacity(
                 frame, TitanShellBackground_Clamp01(page_transition), 0.0f,
                 TitanShellBackground_Clamp01(horizontal_motion), 0.0f,
                 system_amount
             );
+            TitanShellBackground_DrawAtmosphere();
             TitanShellBackground_DrawParticles(
                 frame, TitanShellBackground_Clamp01(page_transition), 0.0f,
                 TitanShellBackground_Clamp01(horizontal_motion), system_amount
@@ -903,8 +905,6 @@ void TitanShellBackground_Draw(
         TitanShellBackground_DrawScene(vertical_transition, scene_alpha);
         return;
     }
-
-    TitanShellBackground_DrawAtmosphere();
 
     transition = TitanShellBackground_Clamp01(page_transition);
     idle_target = TitanShellBackground_Clamp01(idle_intensity) *
@@ -931,6 +931,9 @@ void TitanShellBackground_Draw(
         TitanShellBackground_Clamp01(horizontal_motion),
         TitanShellBackground_Clamp01(vertical_transition)
     );
+    /* The atmosphere is the shell's backdrop, not a wash painted behind an
+     * opaque ribbon layer. Draw it after the Flow geometry. */
+    TitanShellBackground_DrawAtmosphere();
     TitanShellBackground_DrawParticles(
         frame, transition, g_idle_blend,
         TitanShellBackground_Clamp01(horizontal_motion), 1.0f
