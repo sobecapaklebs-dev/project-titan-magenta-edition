@@ -80,10 +80,42 @@ typedef struct TitanDiagnosticsState {
     uint32_t last_network_state;
     uint32_t last_asset_completed;
     TitanDiagPerfSnapshot perf;
+    TitanDiagnosticsOperationStatus operation_status;
+#if defined(__EE__) || defined(_EE)
+    int operation_lock_sema;
+#endif
     TitanDiagEvent events[TITAN_DIAG_EVENT_CAPACITY];
 } TitanDiagnosticsState;
 
 static TitanDiagnosticsState g_diag;
+
+static void diag_operation_lock(void)
+{
+#if defined(__EE__) || defined(_EE)
+    if (g_diag.operation_lock_sema >= 0)
+        (void)WaitSema(g_diag.operation_lock_sema);
+#endif
+}
+
+static void diag_operation_unlock(void)
+{
+#if defined(__EE__) || defined(_EE)
+    if (g_diag.operation_lock_sema >= 0)
+        (void)SignalSema(g_diag.operation_lock_sema);
+#endif
+}
+
+static void diag_copy_text(char *destination, unsigned int capacity, const char *source)
+{
+    unsigned int i = 0u;
+    if (destination == 0 || capacity == 0u) return;
+    while (source != 0 && source[i] != '\0' && i + 1u < capacity)
+    {
+        destination[i] = source[i];
+        i++;
+    }
+    destination[i] = '\0';
+}
 
 static uint32_t diag_now_ms(void){ return (uint32_t)TitanTime_NowMilliseconds(); }
 static unsigned int diag_min_u(unsigned int a,unsigned int b){return a<b?a:b;}
@@ -139,7 +171,18 @@ void TitanDiagnostics_Event(TitanDiagLevel level,TitanDiagSubsystem subsystem,ui
 }
 
 void TitanDiagnostics_Initialize(void){
-    memset(&g_diag,0,sizeof(g_diag)); g_diag.initialized=1; g_diag.maximum_level=TITAN_DIAG_TRACE; g_diag.subsystem_mask=0xffffffffu; g_diag.session_id=diag_now_ms() ^ 0x5449544eu; g_diag.last_network_state=0xffffffffu;
+    memset(&g_diag,0,sizeof(g_diag));
+#if defined(__EE__) || defined(_EE)
+    g_diag.operation_lock_sema = -1;
+    {
+        ee_sema_t sema;
+        memset(&sema, 0, sizeof(sema));
+        sema.init_count = 1;
+        sema.max_count = 1;
+        g_diag.operation_lock_sema = CreateSema(&sema);
+    }
+#endif
+    g_diag.initialized=1; g_diag.maximum_level=TITAN_DIAG_TRACE; g_diag.subsystem_mask=0xffffffffu; g_diag.session_id=diag_now_ms() ^ 0x5449544eu; g_diag.last_network_state=0xffffffffu;
     TitanDiagnostics_Event(TITAN_DIAG_INFO,TITAN_DIAG_BOOT,1,0,g_diag.session_id,0,0,0);
 }
 void TitanDiagnostics_Shutdown(void){ if(g_diag.initialized){TitanDiagnostics_MarkCleanShutdown();} }
@@ -298,6 +341,61 @@ int TitanDiagnostics_IsSubsystemEnabled(TitanDiagSubsystem subsystem)
 {
     if ((unsigned int)subsystem >= 32u) return 0;
     return (g_diag.subsystem_mask & (1u << (unsigned int)subsystem)) != 0u;
+}
+
+void TitanDiagnostics_ReportOperation(
+    const char *area,
+    TitanDiagLevel level,
+    const char *stage,
+    const char *message,
+    int progress_percent
+)
+{
+    if (!g_diag.initialized || area == 0 || area[0] == '\0') return;
+    if (level < TITAN_DIAG_ERROR || level > TITAN_DIAG_TRACE)
+        level = TITAN_DIAG_INFO;
+    if (progress_percent < -1) progress_percent = -1;
+    if (progress_percent > 100) progress_percent = 100;
+    diag_operation_lock();
+    memset(&g_diag.operation_status, 0, sizeof(g_diag.operation_status));
+    g_diag.operation_status.active = 1;
+    g_diag.operation_status.level = level;
+    g_diag.operation_status.progress_percent = progress_percent;
+    g_diag.operation_status.updated_ms = diag_now_ms();
+    diag_copy_text(g_diag.operation_status.area,
+        sizeof(g_diag.operation_status.area), area);
+    diag_copy_text(g_diag.operation_status.stage,
+        sizeof(g_diag.operation_status.stage), stage);
+    diag_copy_text(g_diag.operation_status.message,
+        sizeof(g_diag.operation_status.message), message);
+    diag_operation_unlock();
+}
+
+void TitanDiagnostics_ClearOperation(const char *area)
+{
+    if (!g_diag.initialized) return;
+    diag_operation_lock();
+    if (area == 0 || area[0] == '\0' ||
+        strcmp(g_diag.operation_status.area, area) == 0)
+        memset(&g_diag.operation_status, 0, sizeof(g_diag.operation_status));
+    diag_operation_unlock();
+}
+
+int TitanDiagnostics_GetOperationStatus(TitanDiagnosticsOperationStatus *status)
+{
+    uint32_t now;
+    int active;
+    if (status == 0 || !g_diag.initialized) return 0;
+    now = diag_now_ms();
+    diag_operation_lock();
+    if (g_diag.operation_status.active &&
+        g_diag.operation_status.level != TITAN_DIAG_ERROR &&
+        now - g_diag.operation_status.updated_ms > 2500u)
+        memset(&g_diag.operation_status, 0, sizeof(g_diag.operation_status));
+    memcpy(status, &g_diag.operation_status, sizeof(*status));
+    active = status->active;
+    diag_operation_unlock();
+    return active;
 }
 
 static const char *diag_subsystem_name(unsigned int s){static const char *n[]={"?","BOOT","KERNEL","SHELL","INPUT","AUDIO","STORAGE","LIBRARY","PACKAGE","UPDATE","VMC","NETWORK","WIFI","NETMAN","PS2IP","ASSET","BROWSER","THEME","VIDEO","MEMORY","WATCHDOG","PIKAVR","SAS","BADGES","VLOMBIS","APP_RUNTIME"};return s<sizeof(n)/sizeof(n[0])?n[s]:"?";}

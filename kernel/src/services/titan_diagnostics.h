@@ -24,6 +24,20 @@ typedef enum TitanDiagPhase {
     TITAN_DIAG_PHASE_COUNT
 } TitanDiagPhase;
 
+#define TITAN_DIAG_OPERATION_AREA_CAPACITY 16u
+#define TITAN_DIAG_OPERATION_STAGE_CAPACITY 24u
+#define TITAN_DIAG_OPERATION_MESSAGE_CAPACITY 64u
+
+typedef struct TitanDiagnosticsOperationStatus {
+    int active;
+    TitanDiagLevel level;
+    int progress_percent; /* -1 when progress is not applicable */
+    uint32_t updated_ms;
+    char area[TITAN_DIAG_OPERATION_AREA_CAPACITY];
+    char stage[TITAN_DIAG_OPERATION_STAGE_CAPACITY];
+    char message[TITAN_DIAG_OPERATION_MESSAGE_CAPACITY];
+} TitanDiagnosticsOperationStatus;
+
 typedef struct TitanDiagPerfSnapshot {
     uint32_t frame_index;
     uint32_t frame_us;
@@ -67,5 +81,17 @@ void TitanDiagnostics_SetMaximumLevel(TitanDiagLevel maximum_level);
 TitanDiagLevel TitanDiagnostics_GetMaximumLevel(void);
 void TitanDiagnostics_SetSubsystemEnabled(TitanDiagSubsystem subsystem, int enabled);
 int TitanDiagnostics_IsSubsystemEnabled(TitanDiagSubsystem subsystem);
+
+/* DEX-only live operation ribbon. Any subsystem may publish bounded stage,
+ * progress, and error text; the UI decides visibility based on DEX mode. */
+void TitanDiagnostics_ReportOperation(
+    const char *area,
+    TitanDiagLevel level,
+    const char *stage,
+    const char *message,
+    int progress_percent
+);
+void TitanDiagnostics_ClearOperation(const char *area);
+int TitanDiagnostics_GetOperationStatus(TitanDiagnosticsOperationStatus *status);
 
 #endif

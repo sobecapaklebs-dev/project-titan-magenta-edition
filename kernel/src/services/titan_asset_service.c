@@ -1661,13 +1661,22 @@ void TitanAssetService_UpdateMainThread(unsigned int frame_index)
         if (valid)
         {
             if (kind == TITAN_ASSET_KIND_ICON)
-                TitanAssetService_CommitIcon(game, (const unsigned short *)&g_assets.storage_buffer[payload_offset]);
+            {
+                const TitanNeutrinoGame *ready_game = TitanNeutrino_GetGame(game);
+                TitanAssetService_CommitIcon(game,
+                    (const unsigned short *)&g_assets.storage_buffer[payload_offset]);
+                TitanDiagnostics_ReportOperation("ASSET", TITAN_DIAG_INFO,
+                    "READY", ready_game != 0 ? ready_game->title : "Icon ready", 100);
+            }
             else if (payload_size == TITAN_ASSET_BACKGROUND_PAYLOAD)
             {
+                const TitanNeutrinoGame *ready_game = TitanNeutrino_GetGame(game);
                 memcpy(g_assets.active_background, &g_assets.storage_buffer[payload_offset], TITAN_ASSET_BACKGROUND_PAYLOAD);
                 g_assets.active_background_game = game; g_assets.active_background_ready = 1;
                 g_assets.games[game].background_presence = TITAN_ASSET_PRESENCE_PRESENT;
                 g_assets.games[game].background_probe_pending = 0u;
+                TitanDiagnostics_ReportOperation("ASSET", TITAN_DIAG_INFO,
+                    "READY BG", ready_game != 0 ? ready_game->title : "Background ready", 100);
             }
         }
         else
@@ -2147,6 +2156,8 @@ static int TitanAssetService_StartStorageJob(void)
             return 1;
         }
         TitanAssetService_Unlock();
+        TitanDiagnostics_ReportOperation("ASSET", TITAN_DIAG_INFO,
+            "PROBE", job->serial, -1);
         return 1;
     }
     TitanAssetService_Unlock();
@@ -2271,6 +2282,9 @@ static int TitanAssetService_ReadExternalStorageChunk(TitanAssetStorageJob *job)
     g_assets.external_source_size = job->offset;
     g_assets.pipeline_last_progress_frame = g_assets.frame_index;
     g_assets.pipeline_last_storage_offset = job->offset;
+    TitanDiagnostics_ReportOperation("ASSET", TITAN_DIAG_INFO,
+        "READ", job->path,
+        job->total != 0u ? (int)((job->offset * 100u) / job->total) : -1);
     return job->offset >= job->total ? 2 : 1;
 }
 
@@ -2497,9 +2511,13 @@ int TitanAssetService_StorageWorkerPump(void)
                 TitanDiagnostics_Event(TITAN_DIAG_INFO, TITAN_DIAG_ASSET,
                     TITAN_ASSET_DIAG_EXTERNAL_FOUND, 0, job->game_index,
                     (uint32_t)job->kind, external_size, 0u);
+                TitanDiagnostics_ReportOperation("ASSET", TITAN_DIAG_INFO,
+                    "FOUND", job->path, 0);
                 return 1;
             }
         }
+        TitanDiagnostics_ReportOperation("ASSET", TITAN_DIAG_INFO,
+            "NOT FOUND", job->serial, -1);
         TitanAssetService_Lock();
         TitanAssetService_MarkStorageFailureLocked(job, 0, 1);
         g_assets.status.cache_misses++;
@@ -3161,6 +3179,8 @@ static int TitanAssetService_ProcessExternalDecode(void)
     TitanDiagnostics_Event(TITAN_DIAG_INFO, TITAN_DIAG_ASSET,
         TITAN_ASSET_DIAG_EXTERNAL_DECODE_BEGIN, 0, context.game_index,
         (uint32_t)context.kind, source_size, 0u);
+    TitanDiagnostics_ReportOperation("ASSET", TITAN_DIAG_INFO,
+        "DECODE", path, -1);
     ok = TitanAssetImage_ConvertToTimgEx(source, source_size, context.kind,
         g_assets.storage_buffer, sizeof(g_assets.storage_buffer), &timg_size, &options);
     if (ok)
@@ -3206,6 +3226,8 @@ static int TitanAssetService_ProcessExternalDecode(void)
         }
             else if (context.candidate < 7u)
             {
+                TitanDiagnostics_ReportOperation("ASSET", TITAN_DIAG_WARN,
+                    "FALLBACK", "Imagem recusada; tentando proxima", -1);
                 /* A higher-priority OPL image may exist but be corrupt or use
                  * an unsupported encoding. Try the next supported suffix
                  * before treating this game's artwork as unavailable. */
@@ -3224,6 +3246,8 @@ static int TitanAssetService_ProcessExternalDecode(void)
             }
             else
             {
+                TitanDiagnostics_ReportOperation("ASSET", TITAN_DIAG_ERROR,
+                    "DECODE ERROR", path, -1);
                 TitanAssetStorageJob recovery;
                 memset(&recovery, 0, sizeof(recovery));
                 recovery.game_index = context.game_index;

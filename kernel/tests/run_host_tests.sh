@@ -13,6 +13,7 @@ mkdir -p "$test_root"
 # Artwork cache/renderer regressions: OPL format compatibility, stable visible
 # icon residency, and reloading the single resident background on selection.
 python3 "$kernel_root/tests/test_external_opl_art_direct_contract.py"
+python3 "$kernel_root/tests/test_dex_operation_ribbon_contract.py"
 python3 "$kernel_root/tests/test_asset_service_syntax.py"
 
 gcc \

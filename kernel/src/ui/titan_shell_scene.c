@@ -4705,6 +4705,63 @@ static void TitanShellScene_DrawStartupSequence(
 }
 
 
+static void TitanShellScene_DrawDiagnosticsOperationStatus(
+    unsigned int frame,
+    unsigned char alpha
+)
+{
+    TitanDiagnosticsOperationStatus status;
+    char heading[48];
+    char message[64];
+    float box_x = (float)TITAN_UI_WIDTH - 396.0f;
+    float box_y = 12.0f;
+    float box_width = 194.0f;
+    float box_height = 32.0f;
+    unsigned char border_red;
+    unsigned char border_green;
+    unsigned char border_blue;
+
+    /* DEX mode, not the optional large telemetry panel, owns this live ribbon. */
+    if (!TitanDex_IsEnabled() ||
+        !TitanDiagnostics_GetOperationStatus(&status) || !status.active)
+        return;
+
+    snprintf(heading, sizeof(heading), "%s / %s", status.area, status.stage);
+    TitanShellScene_BuildTickerText(status.message, frame / 6u, 26u,
+        message, sizeof(message));
+
+    if (status.level == TITAN_DIAG_ERROR)
+    {
+        border_red = 255u; border_green = 65u; border_blue = 82u;
+    }
+    else if (status.level == TITAN_DIAG_WARN)
+    {
+        border_red = 255u; border_green = 194u; border_blue = 72u;
+    }
+    else
+    {
+        border_red = 222u; border_green = 43u; border_blue = 120u;
+    }
+
+    TitanVideo_DrawRoundedRectAlpha(box_x, box_y, box_width, box_height,
+        4.0f, 9u, 10u, 16u, TitanShellScene_ModulateAlpha(232u, alpha));
+    TitanShellScene_DrawOutline(box_x, box_y, box_width, box_height, 1.0f,
+        border_red, border_green, border_blue,
+        TitanShellScene_ModulateAlpha(245u, alpha));
+    TitanFont_DrawTextAlpha(box_x + 7.0f, box_y + 3.0f, 0.34f,
+        heading, 190u, 198u, 212u, alpha);
+    TitanFont_DrawTextAlpha(box_x + 7.0f, box_y + 15.0f, 0.43f,
+        message, 248u, 249u, 252u, alpha);
+    if (status.progress_percent >= 0)
+    {
+        float progress_width = (box_width - 2.0f) *
+            ((float)status.progress_percent / 100.0f);
+        if (progress_width > 0.0f)
+            TitanVideo_DrawRectAlpha(box_x + 1.0f, box_y + box_height - 2.0f,
+                progress_width, 1.0f, border_red, border_green, border_blue, alpha);
+    }
+}
+
 static void TitanShellScene_DrawHeader(
     unsigned int frame,
     const TitanInputState *input,
@@ -4910,6 +4967,8 @@ static void TitanShellScene_DrawHeader(
             alpha
         );
     }
+
+    TitanShellScene_DrawDiagnosticsOperationStatus(frame, alpha);
 }
 
 static void TitanShellScene_DrawFolderGlyph(
