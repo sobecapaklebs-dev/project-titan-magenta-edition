@@ -58,8 +58,8 @@ def main() -> int:
     require("TitanLibraryScan_Initialize();" in kernel, "cache/scanner is not initialized")
     require("TitanStorageScheduler_Initialize();" in kernel, "storage scheduler is not initialized")
     require("TitanStorageScheduler_RequestLibraryScan(0)" in kernel, "background scanner is not queued")
-    require("TitanLibraryScan_Update(1u);" not in kernel, "blocking scanner returned to the realtime kernel loop")
-    require("TitanLibraryScan_Update(1u);" in scheduler, "storage worker does not advance scanner incrementally")
+    require("TitanLibraryScan_Update(" not in kernel, "blocking scanner returned to the realtime kernel loop")
+    require("TitanLibraryScan_Update(2u);" in scheduler, "storage worker does not advance scanner incrementally")
     require("TitanStorageScheduler_Worker" in scheduler and "DelayThread(TITAN_STORAGE_WORKER_IDLE_DELAY_US)" in scheduler,
             "background scanner is not isolated on a cooperative worker")
     require("TitanNeutrino_Refresh();" not in kernel, "blocking game refresh returned to boot")

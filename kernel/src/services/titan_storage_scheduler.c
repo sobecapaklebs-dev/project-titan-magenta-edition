@@ -515,7 +515,9 @@ static int TitanStorageScheduler_StartOrStepScan(void)
             TITAN_VLOMBIS_CAP_STORAGE_QOS | TITAN_VLOMBIS_CAP_BACKGROUND_QOS |
                 TITAN_VLOMBIS_CAP_IO_COORDINATION | TITAN_VLOMBIS_CAP_LIBRARY_INCREMENTAL_SCAN,
             TITAN_VLOMBIS_EVENT_STORAGE_ARBITRATION);
-        TitanLibraryScan_Update(1u);
+        /* Advance two entries per scan turn: still bounded and preemptible by
+         * artwork, but avoids making large catalogs crawl under fair sharing. */
+        TitanLibraryScan_Update(2u);
     }
 
     if (!TitanLibraryScan_IsActive())

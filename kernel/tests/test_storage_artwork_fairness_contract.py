@@ -25,6 +25,8 @@ require("g_storage_scheduler.asset_scan_turn = 0;" in worker_asset_block,
         "worker must return the next shared turn to the scan")
 require("TitanAssetService_HasStorageWork() ? 1 : 0" in worker[worker_scan:worker_scan + 500],
         "scan step must yield next turn when artwork is waiting")
+require("TitanLibraryScan_Update(2u);" in scheduler,
+        "library scan must make bounded multi-entry progress per turn")
 
 fetch_abort = assets[assets.index("static int TitanAssetService_ShouldAbortFetch(void *user_data)"):assets.index("static void TitanAssetService_ImageYield")]
 decode_start = assets.index("static int TitanAssetService_ShouldAbortExternalDecode(void *user_data)")
