@@ -742,25 +742,42 @@ int TitanKernel_Run(
 
             if (!background_scan_started)
             {
-                int scan_request_ok;
+                const TitanLibraryScanStatus *library_status =
+                    TitanLibraryScan_GetStatus();
                 TitanVramBootGuard_EnterPhase(TITAN_VRAM_PHASE_OPTIONAL_ASSETS);
-                scan_request_ok = TitanStorageScheduler_RequestLibraryScan(0);
-                if (scan_request_ok)
+                if (library_status != 0 && library_status->cache_loaded)
                 {
+                    /* The integrity-checked cache was already published during
+                     * initialization. Trust it on normal boots; the explicit
+                     * Reload Home Catalog action rescans after USB changes. */
                     background_scan_started = 1;
                     TitanDiagnostics_Event(
-                        TITAN_DIAG_INFO, TITAN_DIAG_LIBRARY, 0x610, 0,
-                        context.frame_count, 1u, 0u, 0u
+                        TITAN_DIAG_INFO, TITAN_DIAG_LIBRARY, 0x614, 0,
+                        TitanNeutrino_GetGameCount(),
+                        TitanApplications_GetCount(),
+                        library_status->cache_loaded, context.frame_count
                     );
                 }
                 else
                 {
-                    /* Do not latch a failed request forever. The next frame
-                     * retries after scheduler initialization/recovery. */
-                    TitanDiagnostics_Event(
-                        TITAN_DIAG_WARN, TITAN_DIAG_LIBRARY, 0x611, -1,
-                        context.frame_count, 0u, 0u, 0u
-                    );
+                    int scan_request_ok = TitanStorageScheduler_RequestLibraryScan(0);
+                    if (scan_request_ok)
+                    {
+                        background_scan_started = 1;
+                        TitanDiagnostics_Event(
+                            TITAN_DIAG_INFO, TITAN_DIAG_LIBRARY, 0x610, 0,
+                            context.frame_count, 1u, 0u, 0u
+                        );
+                    }
+                    else
+                    {
+                        /* Do not latch a failed request forever. The next frame
+                         * retries after scheduler initialization/recovery. */
+                        TitanDiagnostics_Event(
+                            TITAN_DIAG_WARN, TITAN_DIAG_LIBRARY, 0x611, -1,
+                            context.frame_count, 0u, 0u, 0u
+                        );
+                    }
                 }
             }
 

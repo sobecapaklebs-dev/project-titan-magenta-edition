@@ -5,6 +5,7 @@ import sys
 root = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(__file__).resolve().parents[1]
 scheduler = (root / "src/services/titan_storage_scheduler.c").read_text()
 assets = (root / "src/services/titan_asset_service.c").read_text()
+kernel = (root / "src/core/titan_kernel.c").read_text()
 background = (root / "src/ui/titan_shell_background.c").read_text()
 
 
@@ -37,6 +38,14 @@ for abort_guard, owner in ((fetch_abort, "HTTP fetch"), (decode_abort, "local de
             f"library scan must not repeatedly cancel {owner}")
     require("TitanStorageScheduler_IsForegroundBusy()" in abort_guard,
             f"foreground-exclusive work must still preempt {owner}")
+
+boot_block = kernel[kernel.index("if (!background_scan_started)"):kernel.index(
+    "/* Package extraction", kernel.index("if (!background_scan_started)"))]
+require(boot_block.index("library_status->cache_loaded") <
+        boot_block.index("TitanStorageScheduler_RequestLibraryScan(0)"),
+        "boot must trust a checksum-validated catalog instead of rescanning")
+require("TitanStorageScheduler_RequestLibraryScan(0)" in boot_block,
+        "cold boot without a valid catalog must still scan")
 
 fallback = scheduler[scheduler.index("static void TitanStorageScheduler_RunFallbackWork(void)"):]
 fallback_scan = fallback.index("if (TitanStorageScheduler_StartOrStepScan())")
@@ -71,5 +80,6 @@ require(v2_flow.index("TitanXmbSpline_DrawWithOpacity") <
         "V2 system transition must layer ribbon below atmosphere and scene")
 
 print("storage-artwork-fairness: PASS scan/artwork alternation in worker and fallback")
+print("storage-artwork-fairness: PASS valid catalog cache skips automatic boot scan")
 print("storage-artwork-fairness: PASS library scan no longer cancels asset fetch/decode")
 print("storage-artwork-fairness: PASS shell atmosphere layered above Flow ribbon")

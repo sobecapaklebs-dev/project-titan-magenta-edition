@@ -31,7 +31,7 @@ checks = {
         'TITAN_ASSET_MANUAL_PROBE_BACKGROUNDS' in service and
         'TITAN_ASSET_MANUAL_DOWNLOAD_BACKGROUNDS' in service,
     'single-download-worker': service.count('TitanAssetService_DownloadOne(game, kind)') == 1,
-    'library-scan-wins': service.count('TitanStorageScheduler_IsLibraryScanBusy()') >= 2,
+    'library-scan-only-blocks-new-download-start': service.count('TitanStorageScheduler_IsLibraryScanBusy()') == 1,
     '8k-storage-quantum': 'TITAN_ASSET_IO_QUANTUM (8u * 1024u)' in service,
     'atomic-cache': 'TitanStorageIo_AtomicReplace' in service and '"%s.part"' in service,
     'http-trace-callback': 'TitanHttpTraceCallback trace;' in http_h and

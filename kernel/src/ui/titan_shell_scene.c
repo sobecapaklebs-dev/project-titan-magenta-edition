@@ -11663,7 +11663,7 @@ static void TitanShellScene_DrawSettingsSubpage(
             descriptions[2] = "Show or hide EE, GS, RAM and IP diagnostics without disabling DEX Mode.";
             values[2] = TitanDex_GetOverlayStateName();
             labels[3] = "Reload Home Catalog";
-            descriptions[3] = "Rescan games and applications and republish the Home catalog.";
+            descriptions[3] = "Force-rescan after USB changes; normal boot reuses a valid saved catalog.";
             values[3] = TitanStorageScheduler_IsLibraryScanBusy() ? "Working" : "Press X";
             labels[4] = "Clear Library Cache";
             descriptions[4] = "Remove catalog cache, temporary file and backup before a clean scan.";
