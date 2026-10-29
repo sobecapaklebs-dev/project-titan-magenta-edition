@@ -4,6 +4,7 @@ import sys
 
 root = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(__file__).resolve().parents[1]
 scheduler = (root / "src/services/titan_storage_scheduler.c").read_text()
+assets = (root / "src/services/titan_asset_service.c").read_text()
 background = (root / "src/ui/titan_shell_background.c").read_text()
 
 
@@ -24,6 +25,16 @@ require("g_storage_scheduler.asset_scan_turn = 0;" in worker_asset_block,
         "worker must return the next shared turn to the scan")
 require("TitanAssetService_HasStorageWork() ? 1 : 0" in worker[worker_scan:worker_scan + 500],
         "scan step must yield next turn when artwork is waiting")
+
+fetch_abort = assets[assets.index("static int TitanAssetService_ShouldAbortFetch(void *user_data)"):assets.index("static void TitanAssetService_ImageYield")]
+decode_start = assets.index("static int TitanAssetService_ShouldAbortExternalDecode(void *user_data)")
+decode_end = assets.index("static int TitanAssetService_ProcessExternalDecode(void)\n{", decode_start)
+decode_abort = assets[decode_start:decode_end]
+for abort_guard, owner in ((fetch_abort, "HTTP fetch"), (decode_abort, "local decode")):
+    require("TitanStorageScheduler_IsLibraryScanBusy()" not in abort_guard,
+            f"library scan must not repeatedly cancel {owner}")
+    require("TitanStorageScheduler_IsForegroundBusy()" in abort_guard,
+            f"foreground-exclusive work must still preempt {owner}")
 
 fallback = scheduler[scheduler.index("static void TitanStorageScheduler_RunFallbackWork(void)"):]
 fallback_scan = fallback.index("if (TitanStorageScheduler_StartOrStepScan())")
@@ -58,4 +69,5 @@ require(v2_flow.index("TitanXmbSpline_DrawWithOpacity") <
         "V2 system transition must layer ribbon below atmosphere and scene")
 
 print("storage-artwork-fairness: PASS scan/artwork alternation in worker and fallback")
+print("storage-artwork-fairness: PASS library scan no longer cancels asset fetch/decode")
 print("storage-artwork-fairness: PASS shell atmosphere layered above Flow ribbon")

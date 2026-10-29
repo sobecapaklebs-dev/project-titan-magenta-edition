@@ -2690,13 +2690,14 @@ static int TitanAssetService_ShouldAbortFetch(void *user_data)
     const TitanAssetFetchContext *context = (const TitanAssetFetchContext *)user_data;
     const TitanNetworkStatus *network = TitanNetwork_GetStatus();
     int abort = 0;
+    /* Library scan is a background lane, not an exclusive operation. Aborting
+     * on each scan quantum repeatedly restarts the same selected download. */
     if (g_assets.net_shutdown || g_assets.manual_cancel_requested || g_assets.watchdog_abort_requested ||
         (context != 0 && context->catalog_generation != g_assets.catalog_generation) ||
         (context != 0 && !context->manual_owner && !g_assets.automatic_download_enabled) ||
         network == 0 || network->state != TITAN_NETWORK_ONLINE ||
         TitanPackageInstaller_IsActive() || TitanSystemUpdate_IsActive() ||
-        TitanAppRuntime_IsActive() || TitanStorageScheduler_IsForegroundBusy() ||
-        TitanStorageScheduler_IsLibraryScanBusy())
+        TitanAppRuntime_IsActive() || TitanStorageScheduler_IsForegroundBusy())
         return 1;
     if (!g_assets.manual_session_active && g_assets.automatic_download_enabled &&
         (!g_assets.automatic_idle_eligible ||
@@ -3121,13 +3122,14 @@ static int TitanAssetService_ShouldAbortExternalDecode(void *user_data)
 {
     const TitanAssetExternalDecodeContext *context =
         (const TitanAssetExternalDecodeContext *)user_data;
+    /* Decode cooperatively yields; a catalog scan is not a reason to discard
+     * the source and start the same ART read/decode cycle again. */
     if (g_assets.net_shutdown || context == 0 ||
         context->catalog_generation != g_assets.catalog_generation ||
         context->game_index >= TITAN_NEUTRINO_GAME_CAPACITY ||
         g_assets.games[context->game_index].startup_hash != context->startup_hash ||
         TitanPackageInstaller_IsActive() || TitanSystemUpdate_IsActive() ||
-        TitanAppRuntime_IsActive() || TitanStorageScheduler_IsForegroundBusy() ||
-        TitanStorageScheduler_IsLibraryScanBusy())
+        TitanAppRuntime_IsActive() || TitanStorageScheduler_IsForegroundBusy())
         return 1;
     if (context->kind == TITAN_ASSET_KIND_BACKGROUND &&
         g_assets.selected_game_index != context->game_index)
