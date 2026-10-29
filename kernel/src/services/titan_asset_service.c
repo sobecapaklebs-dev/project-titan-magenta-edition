@@ -1855,15 +1855,10 @@ static int TitanAssetService_SelectProbeLocked(
             *kind = TITAN_ASSET_KIND_ICON;
             return 1;
         }
-        if (s->background_probe_pending &&
-            g_assets.frame_index - g_assets.selected_since_frame >= TITAN_ASSET_BACKGROUND_DEBOUNCE_FRAMES)
-        {
-            s->background_probe_pending = 0u;
-            *game_index = g_assets.selected_game_index;
-            *kind = TITAN_ASSET_KIND_BACKGROUND;
-            return 1;
-        }
     }
+    /* The whole visible tile window outranks decorative backgrounds. A selected
+     * game's background used to jump ahead of neighboring tile icons after the
+     * debounce, making visible artwork look serialized behind the slowest item. */
     for (i = 0u; i < g_assets.visible_count; i++)
     {
         unsigned int game = g_assets.visible_games[i];
@@ -1872,6 +1867,18 @@ static int TitanAssetService_SelectProbeLocked(
             g_assets.games[game].icon_probe_pending = 0u;
             *game_index = game;
             *kind = TITAN_ASSET_KIND_ICON;
+            return 1;
+        }
+    }
+    if (g_assets.selected_game_index < TITAN_NEUTRINO_GAME_CAPACITY)
+    {
+        TitanAssetGameState *s = &g_assets.games[g_assets.selected_game_index];
+        if (s->background_probe_pending &&
+            g_assets.frame_index - g_assets.selected_since_frame >= TITAN_ASSET_BACKGROUND_DEBOUNCE_FRAMES)
+        {
+            s->background_probe_pending = 0u;
+            *game_index = g_assets.selected_game_index;
+            *kind = TITAN_ASSET_KIND_BACKGROUND;
             return 1;
         }
     }

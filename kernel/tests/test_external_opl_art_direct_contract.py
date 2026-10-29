@@ -5,6 +5,7 @@ ROOT = Path(__file__).resolve().parents[1]
 service = (ROOT / 'src/services/titan_asset_service.c').read_text()
 scheduler = (ROOT / 'src/services/titan_storage_scheduler.c').read_text()
 image = (ROOT / 'src/services/titan_asset_image.c').read_text()
+probe = service[service.index('static int TitanAssetService_SelectProbeLocked'):service.index('static int TitanAssetService_EnsureCacheDirs')]
 
 checks = {
     'opl-art-root': '#define TITAN_ASSET_EXTERNAL_ART_DIR "mass:/ART"' in service,
@@ -24,6 +25,7 @@ checks = {
     'ram-only-stage': 'g_assets.storage_stage_ready = 1' in service and 'external_decode_path' in service,
     'external-decode-no-persistent-publish': 'TitanAssetService_ProcessExternalDecode' in service,
     'preempt-selection-background': 'context->kind == TITAN_ASSET_KIND_BACKGROUND' in service and 'g_assets.selected_game_index != context->game_index' in service,
+    'visible-icons-before-selected-background': probe.index('for (i = 0u; i < g_assets.visible_count; i++)') < probe.index('if (s->background_probe_pending'),
     'local-opl-small-icons-accepted': 'minimum_source_width = context.kind == TITAN_ASSET_KIND_ICON ? 64u : 256u' in service and 'minimum_source_height = context.kind == TITAN_ASSET_KIND_ICON ? 64u : 128u' in service,
     'visible-icons-protected-from-lru': 'if (!visible && g_assets.icon_slots[i].last_touch_frame < oldest)' in service and 'evicted->icon_presence = TITAN_ASSET_PRESENCE_UNKNOWN' in service,
     'library-draw-refreshes-lru': 'slot->last_touch_frame = g_assets.frame_index;' in service[service.index('int TitanAssetService_DrawIcon('):service.index('int TitanAssetService_DrawIconHighQuality(')],
