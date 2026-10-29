@@ -365,10 +365,11 @@ need('0x96000 - 0xb6000 = 128KiB' in neu_common,
      'Neutrino module checksum range documentation is stale after relocation')
 
 kernel_make = text('kernel/Makefile')
-need('TITAN_REPRO_SOURCE_ROOT ?= $(abspath ..)' in kernel_make and
-     'TITAN_REPRO_CANONICAL_ROOT ?= /project-titan' in kernel_make and
-     kernel_make.count('-ffile-prefix-map=$(TITAN_REPRO_SOURCE_ROOT)=$(TITAN_REPRO_CANONICAL_ROOT)') >= 2 and
-     kernel_make.count('-fdebug-prefix-map=$(TITAN_REPRO_SOURCE_ROOT)=$(TITAN_REPRO_CANONICAL_ROOT)') >= 2 and
+kernel_make_flat=' '.join(kernel_make.split())
+need('TITAN_REPRO_SOURCE_ROOT ?= $(abspath ..)' in kernel_make_flat and
+     'TITAN_REPRO_CANONICAL_ROOT ?= /project-titan' in kernel_make_flat and
+     kernel_make_flat.count('-ffile-prefix-map="$(TITAN_REPRO_SOURCE_ROOT)=$(TITAN_REPRO_CANONICAL_ROOT)"') >= 2 and
+     kernel_make_flat.count('-fdebug-prefix-map="$(TITAN_REPRO_SOURCE_ROOT)=$(TITAN_REPRO_CANONICAL_ROOT)"') >= 2 and
      'EE_LDFLAGS += \\' in kernel_make,
      'Kernel release ELF can depend on mktemp DWARF/source or LTO link paths and break reproducible builds')
 need('src/services/titan_repository_protocol.o \\' in kernel_make,

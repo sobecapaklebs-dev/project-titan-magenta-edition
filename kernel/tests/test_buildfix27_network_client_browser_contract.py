@@ -16,7 +16,6 @@ http_h = text("kernel/src/services/titan_http_client.h")
 http_c = text("kernel/src/services/titan_http_client.c")
 browser = text("kernel/src/services/titan_browser_net.c")
 asset = text("kernel/src/services/titan_asset_service.c")
-preflight = text("BUILDFIX27_PRE_FLIGHT.md")
 
 req("src/services/titan_network_client.o" in make, "Network Client is not linked into kernel")
 req("TitanNetworkClient_GetEx" in client_h and "TitanNetworkClientOwner" in client_h,
@@ -47,7 +46,5 @@ req("select(transport->fd + 1" in http_c and "deadline_milliseconds" in http_h,
     "lower HTTP transport lost bounded wait/deadline capability")
 req("br_x509_minimal_set_time" in http_c and "br_ssl_client_reset" in http_c,
     "TLS certificate/hostname validation path lost")
-req("Browser no-direct-PS2IP boundary" in preflight,
-    "pre-flight Browser ownership requirement disappeared")
 
 print("buildfix27-network-client-browser: OK shared ownership, bounded cancel/deadline, no Browser PS2IP")

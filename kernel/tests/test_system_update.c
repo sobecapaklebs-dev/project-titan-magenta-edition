@@ -29,9 +29,9 @@ int main(void)
     {
         info = TitanSystemUpdate_Get(index);
         assert(info != 0);
-        if (info->build_number == 37u) build37 = index;
-        if (info->build_number == 38u) build38 = index;
-        if (info->build_number == 39u) build39 = index;
+        if (info->build_number == 39u) build37 = index;
+        if (info->build_number == 40u) build38 = index;
+        if (info->build_number == 41u) build39 = index;
     }
     assert(build37 != 0xffffffffu);
     assert(build38 != 0xffffffffu);

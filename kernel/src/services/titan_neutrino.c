@@ -1291,6 +1291,11 @@ static TitanNeutrinoResult TitanNeutrino_PreparePhysicalDiscLaunch(
     plan->arguments[plan->argument_count++] = plan->cwd_argument;
     plan->arguments[plan->argument_count++] = "-bsd=no";
     plan->arguments[plan->argument_count++] = "-dvd=no";
+    /* Physical-disc sessions are explicitly RETURN_ONLY until an overlay
+     * profile is proven. Route the engine's IGR exit to the installed Titan
+     * boot entry; library game launch arguments remain unchanged. */
+    plan->arguments[plan->argument_count++] = "-titan-igr=return-only";
+    plan->arguments[plan->argument_count++] = "-titan-exit=mc0:/BOOT/BOOT.ELF";
     if (vmc_argument != 0 && vmc_argument[0] != '\0')
         plan->arguments[plan->argument_count++] = (char *)vmc_argument;
     plan->arguments[plan->argument_count++] = plan->elf_argument;
@@ -1526,6 +1531,42 @@ TitanNeutrinoResult TitanNeutrino_Launch(unsigned int index)
 
     game = TitanNeutrino_GetGame(index);
     TitanNeutrino_BeginExternalSession(game);
+
+#if defined(__EE__) || defined(_EE)
+        /* P10.6.1: Feed runtime controller policy to Titan's UL parser only
+         * when the user has an active modern P1 transport or enabled MTAP.
+         * No options are appended for the default path, preserving OPL's
+         * historical three-argument argv exactly. */
+        if (game != 0 && game->format == TITAN_NEUTRINO_GAME_USBEXTREME)
+        {
+            int pademu_mode = TitanControllerAssignment_GetGameplayPademuMode();
+            if (pademu_mode >= 0)
+            {
+                int written = snprintf(g_launch_plan.ul_pademu_argument,
+                    sizeof(g_launch_plan.ul_pademu_argument),
+                    "-titan-pademu=%s", pademu_mode == 1 ? "bt" : "usb");
+                if (written < 0 || (unsigned int)written >= sizeof(g_launch_plan.ul_pademu_argument) ||
+                    g_launch_plan.argument_count >= TITAN_NEUTRINO_LAUNCH_ARGUMENT_CAPACITY)
+                    return TITAN_NEUTRINO_ARGUMENT_OVERFLOW;
+                g_launch_plan.arguments[g_launch_plan.argument_count++] = g_launch_plan.ul_pademu_argument;
+            }
+            if (TitanControllerAssignment_GetMultitapEnabled())
+            {
+                int enabled_written = snprintf(g_launch_plan.ul_mtap_argument,
+                    sizeof(g_launch_plan.ul_mtap_argument), "-titan-mtap=1");
+                int port_written = snprintf(g_launch_plan.ul_mtap_port_argument,
+                    sizeof(g_launch_plan.ul_mtap_port_argument), "-titan-mtap-port=%u",
+                    TitanControllerAssignment_GetMultitapPort());
+                if (enabled_written < 0 || (unsigned int)enabled_written >= sizeof(g_launch_plan.ul_mtap_argument) ||
+                    port_written < 0 || (unsigned int)port_written >= sizeof(g_launch_plan.ul_mtap_port_argument) ||
+                    g_launch_plan.argument_count + 2 > TITAN_NEUTRINO_LAUNCH_ARGUMENT_CAPACITY)
+                    return TITAN_NEUTRINO_ARGUMENT_OVERFLOW;
+                g_launch_plan.arguments[g_launch_plan.argument_count++] = g_launch_plan.ul_mtap_argument;
+                g_launch_plan.arguments[g_launch_plan.argument_count++] = g_launch_plan.ul_mtap_port_argument;
+            }
+        }
+#endif
+
     TitanNeutrino_WriteLaunchLog(game, &g_launch_plan, 0);
 
 #if defined(__EE__) || defined(_EE)

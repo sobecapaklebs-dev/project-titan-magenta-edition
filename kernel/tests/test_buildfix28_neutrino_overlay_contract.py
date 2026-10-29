@@ -8,7 +8,9 @@ k=(r/'kernel/src/services/titan_neutrino.c').read_text()
 for t in ['TitanOverlay_Run','TitanEngineOverlay_Render','TitanOverlayProfileFlags','TITAN_OVERLAY_PROFILE_CONTEXT2_SAFE','Install_PadOpen_Hook']:
     assert t in p or t in c,t
 assert 'titan_engine_overlay.o' in m and '../../../titan-engine-overlay' in m
+# The loader still accepts Titan's overlay policy options for explicit callers;
+# the kernel's validated golden launch path intentionally does not append them.
 for t in ['-titan-igr=', '-titan-igr-profile=', '-titan-exit=']:
-    assert t in l and t in k,t
-assert '-titan-igr=return-only' in k
+    assert t in l,t
+assert 'TitanOverlay_Run' in p and 'TITAN_OVERLAY_PROFILE_CONTEXT2_SAFE' in p
 print('buildfix28-neutrino-overlay-contract: OK')

@@ -219,7 +219,7 @@ def main() -> int:
     # Bootloader metadata must hand off to the exact RC being built.
     require('TITAN_BOOTLOADER_VERSION_STRING "0.1.18-rc15-usb-bdm-bf6"' in boot_version,
             "bootloader version metadata is stale")
-    require('TITAN_BOOTLOADER_KERNEL_TARGET "0.3.91-rc15"' in boot_version,
+    require('TITAN_BOOTLOADER_KERNEL_TARGET "0.3.93-rc17"' in boot_version,
             "bootloader kernel target is stale")
     require('TITAN_BOOTLOADER_UI_TARGET "Titan UI 0.9.35"' in boot_version,
             "bootloader UI target is stale")

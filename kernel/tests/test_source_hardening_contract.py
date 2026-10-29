@@ -322,7 +322,10 @@ require("refuses to overwrite curated" in asset_generator and
 require("CURATED_ASSET_SHA256SUMS" in asset_verifier and
         "hashlib.sha256" in asset_verifier,
         "curated UI asset integrity verifier is missing")
-require(text("VERSION").strip() == "0.3.91-rc15",
-        "release version is not synchronized")
+release_version = text("VERSION").strip()
+require(bool(re.fullmatch(r"0\.3\.\d+-rc\d+", release_version)),
+        "release version is missing or malformed")
+require(release_version in text("kernel/include/titan_version.h"),
+        "kernel version header does not match the release version")
 
 print("source-hardening: OK")

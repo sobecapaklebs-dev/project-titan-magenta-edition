@@ -110,6 +110,10 @@ with tempfile.TemporaryDirectory(prefix='titan-installer-test-') as td:
     td=Path(td); runtime=td/'runtime'; (runtime/'TITAN').mkdir(parents=True)
     (runtime/'kernel.elf').write_bytes(b'kernel-test')
     (runtime/'TITAN'/'config.dat').write_bytes(b'config-test')
+    (runtime/'TITAN'/'titan_ul_engine.elf').write_bytes(b'ul-engine-test')
+    (runtime/'TITAN'/'titan_ul_loader.elf').write_bytes(b'ul-engine-test')
+    (runtime/'neutrino').mkdir()
+    (runtime/'neutrino'/'neutrino.elf').write_bytes(b'neutrino-test')
     installer_elf=td/'titan-installer.elf'; installer_elf.write_bytes(b'installer-test')
     boot=td/'BOOT.ELF'; boot.write_bytes(b'boot-test')
     out=td/'out'

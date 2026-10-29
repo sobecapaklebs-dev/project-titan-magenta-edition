@@ -6602,7 +6602,9 @@ static void TitanShellScene_DrawFolderContextMenu(void)
             TitanShellScene_Clamp(g_scene.patch_options_transition, 0.0f, 1.0f));
         float submenu_transition = resolution_transition > patch_transition ?
             resolution_transition : patch_transition;
-        float option_width = patch_transition > resolution_transition ? patch_width : resolution_width;
+        float option_width = 184.0f;
+        if (patch_transition > resolution_transition)
+            option_width = patch_width;
         float main_target_x =
             (float)TITAN_UI_WIDTH - main_width - (option_width * submenu_transition);
         float main_closed_x = (float)TITAN_UI_WIDTH;

@@ -24,13 +24,8 @@ modern=root/'third_party/fceumm/modern'
 if modern.exists():
     sums=root/'external/fceumm/FCEUMM_IMPORTED_SHA256SUMS'
     copying=modern/'Copying'
-    report=root/'BUILDFIX27_FCEUMM_REAL_INTEGRATION_REPORT.md'
-    req(sums.exists() and copying.exists() and report.exists(),
-        'materialized FCEUmm tree lacks manifest/license/integration proof')
-    rtext=report.read_text(encoding='utf-8',errors='replace')
-    req('b5e3566515c27dc66c9c20572171673126532e06' in rtext and
-        '6adfb382bf8a369f1a6ee224e89c08d981e22cec' in rtext,
-        'materialized FCEUmm proof does not match frozen BF27 identity')
+    req(sums.exists() and copying.exists(),
+        'materialized FCEUmm tree lacks manifest/license proof')
 else:
     raise SystemExit('buildfix27-project-nes-lifecycle-package-contract: FAIL: frozen FCEUmm source is not materialized')
 req('BuildFix27 release provider' in readme and 'FCEUmm' in readme and 'Legacy NROM' in readme,

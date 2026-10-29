@@ -33,8 +33,8 @@ if "-m elf32lr5900" in eye:
 
 if "check_titan_native_n32.py" not in builder:
     errors.append("TitanEYE: private builder can package an unchecked .tmod")
-if '"--version", "1.0.1"' not in builder:
-    errors.append("TitanEYE: private N32 package version is not 1.0.1")
+if '"--version", "1.0.2"' not in builder:
+    errors.append("TitanEYE: private N32 package version is not 1.0.2")
 if "--version 0.1.3" not in wle or "version=0.1.3" not in wle:
     errors.append("wLaunchELF: N32 version is not 0.1.3")
 

@@ -72,7 +72,7 @@ for source in (pkg, wle_pkg):
     req('theme packages cannot contain executable or microprogram files' in source,
         'TPKG declarative-only theme policy missing')
 
-req('TITAN_SYSTEM_UPDATE_CURRENT_BUILD 36u' in update_h, 'Build 36 system generation missing')
+req('TITAN_SYSTEM_UPDATE_CURRENT_BUILD 38u' in update_h, 'current system generation missing')
 req('--build 36' in make and '--version 0.3.90-build36' in make and
     'build36-complex-theme-api-v3-compat7.pup' in make, 'Build 36 PUP metadata missing')
 # Hardware bootstrap contract: preserve the exact seven-entry envelope used by

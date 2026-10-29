@@ -707,9 +707,20 @@ static void TitanLibraryScan_StepUlCfg(void)
         return;
     }
 
-    if (read_size != 0u || ferror(g_library_scan.ul_file))
+    /* ul.cfg consists of fixed-size 64-byte records. A short trailing read
+     * at EOF is a truncated final record, not a device read failure; retain
+     * the complete records already parsed. A real stdio error remains fatal
+     * so a USB I/O failure cannot publish a silently partial catalog. */
+    if (ferror(g_library_scan.ul_file))
     {
         g_library_scan.scan_failed = 1u;
+        TitanLibraryScan_Diag(
+            TITAN_DIAG_WARN, 0x0715u, -errno,
+            g_library_scan.device_pass,
+            (uint32_t)read_size,
+            g_library_scan.game_count,
+            0u
+        );
     }
 
     fclose(g_library_scan.ul_file);

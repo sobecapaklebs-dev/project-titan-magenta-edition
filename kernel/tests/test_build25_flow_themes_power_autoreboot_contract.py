@@ -92,9 +92,9 @@ req('status->result == TITAN_SYSTEM_UPDATE_OK' in poll and
 req('Atualizacao aplicada; reinicio automatico' in update_c,
     'updater completion status still asks for manual restart')
 
-# Build 25 power/theme capabilities must survive the newer Build 35 generation.
-req('TITAN_SYSTEM_UPDATE_CURRENT_BUILD 36u' in update_h,
-    'Build 35 generation missing')
+# Build 25 power/theme capabilities must survive the current Build 38 generation.
+req('TITAN_SYSTEM_UPDATE_CURRENT_BUILD 38u' in update_h,
+    'current system-update generation missing')
 req('--build 36' in make and '--version 0.3.90-build36' in make,
     'Build 35 PUP metadata missing')
 req('<= TITAN_SYSTEM_UPDATE_CURRENT_BUILD' in update_c,

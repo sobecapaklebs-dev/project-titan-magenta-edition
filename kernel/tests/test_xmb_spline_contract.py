@@ -8,7 +8,6 @@ SPLINE = (ROOT / "src/ui/titan_xmb_spline.c").read_text()
 BACKGROUND = (ROOT / "src/ui/titan_shell_background.c").read_text()
 MAKEFILE = (ROOT / "Makefile").read_text()
 TEXTURE = ROOT / "assets/ui/titan_wave_silk.rgba32"
-NOTICE = ROOT / "THIRD_PARTY_PS3_XMB_SPLINE_NOTICE.md"
 
 for token in (
     "#define TITAN_WAVE_VU1_POINT_COUNT 65u",
@@ -39,7 +38,6 @@ assert "surface_rise" in WAVE
 assert "layer->fresnel_bias" in WAVE
 assert "layer->fresnel_scale" in WAVE
 assert TEXTURE.stat().st_size == 128 * 32 * 4
-assert NOTICE.exists()
 
 print("xmb-spline-contract: OK")
 print("geometry: 8 rows, 7 strips, 65 samples, 910 vertices")

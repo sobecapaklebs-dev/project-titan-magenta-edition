@@ -9,6 +9,7 @@ for t in ['TitanOverlay_Run','TitanEngineOverlay_Render','TitanOverlayProfileFla
 assert 'plan->arguments[plan->argument_count++] = g_opl_ul_loader;' in k
 assert 'plan->arguments[plan->argument_count++] = (char *)game->startup;' in k
 assert 'plan->arguments[plan->argument_count++] = "titan-ul";' in k
-assert '-titan-igr=return-only' not in k and '-titan-igr-profile=0' not in k
+ul_branch=k.split('if (game->format == TITAN_NEUTRINO_GAME_USBEXTREME)',1)[1].split('if (g_neutrino_elf[0]',1)[0]
+assert '-titan-igr=' not in ul_branch and '-titan-igr-profile=' not in ul_branch
 assert 'metadata->overlay_level = 2' in o
 print('buildfix28-ul-overlay-contract: OK')

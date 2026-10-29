@@ -51,7 +51,10 @@ for forbidden in ('OpenTuna','FunTuna','Fortuna'):
     req(forbidden not in media and forbidden not in core and forbidden not in cnf, forbidden+' connected to production autonomous path')
 # Synthetic media proves concrete FMCB material becomes BOOTSTRAP entries without packaging a standalone installer.
 with tempfile.TemporaryDirectory(prefix='titan-fmcb-media-') as td:
-    td=Path(td); runtime=td/'runtime'; runtime.mkdir(); (runtime/'kernel.elf').write_bytes(b'kernel')
+    td=Path(td); runtime=td/'runtime'; (runtime/'TITAN').mkdir(parents=True); (runtime/'neutrino').mkdir(); (runtime/'kernel.elf').write_bytes(b'kernel')
+    (runtime/'TITAN'/'titan_ul_engine.elf').write_bytes(b'ul')
+    (runtime/'TITAN'/'titan_ul_loader.elf').write_bytes(b'ul')
+    (runtime/'neutrino'/'neutrino.elf').write_bytes(b'neutrino')
     installer=td/'installer.elf'; installer.write_bytes(b'installer'); boot=td/'titan.elf'; boot.write_bytes(b'boot')
     fake=td/'fmcb'; fake.mkdir(); (fake/'libtitanfmcb_integrated.a').write_bytes(b'archive'); (fake/'titan-fmcb-entry.elf').write_bytes(b'entry')
     out=td/'out'

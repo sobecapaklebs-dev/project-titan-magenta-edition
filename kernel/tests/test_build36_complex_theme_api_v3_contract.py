@@ -81,7 +81,7 @@ for source in (pkg, wle_pkg):
     req('scene_{state}_idle_ms' in source and '40 <= frame_ms <= 2000' in source,
         'builder/verifier does not validate idle timing')
 
-req('TITAN_SYSTEM_UPDATE_CURRENT_BUILD 36u' in update_h, 'Build 36 updater generation missing')
+req('TITAN_SYSTEM_UPDATE_CURRENT_BUILD 38u' in update_h, 'current updater generation missing')
 req('--build 36' in make and '--version 0.3.90-build36' in make and
     'build36-complex-theme-api-v3-compat7.pup' in make,
     'Build 36 PUP metadata missing')

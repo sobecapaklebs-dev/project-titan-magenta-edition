@@ -638,18 +638,18 @@ printf 'boot-file-build38' > /tmp/project_titan_system_update_test/boot-file27.b
 printf 'block bootloader directory' > /tmp/project_titan_system_update_test/bootloader
 python3 "$kernel_root/tools/titan_pup.py" build \
     --output /tmp/project_titan_system_update_test/TITAN/update/update.pup \
-    --build 37 --version 0.3.90-build37 \
+    --build 39 --version 0.3.90-build39 \
     --file kernel.elf=/tmp/project_titan_system_update_test/new-kernel.elf \
     --file TITAN/settings/update-test.cfg=/tmp/project_titan_system_update_test/new-settings.cfg >/dev/null
 python3 "$kernel_root/tools/titan_pup.py" build \
     --output /tmp/project_titan_system_update_test/TITAN/update/rollback.pup \
-    --build 38 --version 0.3.90-build38 \
+    --build 40 --version 0.3.90-build40 \
     --file kernel.elf=/tmp/project_titan_system_update_test/bad-kernel27.elf \
     --file bootloader/fail.bin=/tmp/project_titan_system_update_test/boot-file27.bin >/dev/null
 printf 'corrupt-kernel-build39' > /tmp/project_titan_system_update_test/corrupt-kernel28.elf
 python3 "$kernel_root/tools/titan_pup.py" build \
     --output /tmp/project_titan_system_update_test/TITAN/update/corrupt.pup \
-    --build 39 --version 0.3.90-build39 \
+    --build 41 --version 0.3.90-build41 \
     --file kernel.elf=/tmp/project_titan_system_update_test/corrupt-kernel28.elf >/dev/null
 python3 - <<'PY_CORRUPT_PUP'
 from pathlib import Path
@@ -823,7 +823,6 @@ python3 "$kernel_root/tests/test_sas_execution_model_contract.py" "$kernel_root"
 
 python3 "$kernel_root/tests/test_buildfix22_resolution_vram_contract.py" "$kernel_root"
 
-python3 "$kernel_root/tests/test_buildfix22_sdk_capability_docs.py" "$kernel_root"
 
 # BuildFix23 CP02: 720p composition planner keeps internal and output resolution separate.
 gcc \

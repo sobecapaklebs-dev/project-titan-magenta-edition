@@ -259,6 +259,7 @@ int main(void)
         launch_command,
         "mass:/neutrino/neutrino.elf "
         "-cwd=mass:/neutrino -bsd=no -dvd=no "
+        "-titan-igr=return-only -titan-exit=mc0:/BOOT/BOOT.ELF "
         "-mc0=mass:/TITAN/users/user_0001/profile.vmc "
         "-elf=cdrom0:\\SLUS_123.45;1 -logo"
     ) == 0);

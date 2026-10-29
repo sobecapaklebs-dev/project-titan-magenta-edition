@@ -29,6 +29,11 @@ ALLOW_PAYLOADS={
         'requires':['kernel/src/graphics/vu1/titan_wave_vu1.vsm','kernel/Makefile'],
         'reason':'generated VU1 microprogram binary with source present'
     },
+    'kernel/src/graphics/vu1/titan_game_vu1_micro.bin': {
+        'sha256':'f51b6f8c0362d5d037b08effd45696e36628234250d972326a55d92f9894d03f',
+        'requires':['kernel/src/graphics/vu1/titan_game_vu1.vsm','kernel/tools/extract_vu_micro.py','kernel/Makefile'],
+        'reason':'reproducibly extracted Titan Game VU1 microprogram with source present'
+    },
     'third_party/fmcb/upstream/installer/irx/compiled/bdm.irx': {
         'sha256':'d658f84662f3e23b468d5c84f18c7f2c53e320068cdbd744ed48730fbba3831b',
         'requires':['docs/history/buildfix/BUILDFIX30_FMCB_PROVENANCE.md','third_party/fmcb/upstream/README.upstream.md'],

@@ -3,6 +3,17 @@ from pathlib import Path
 import subprocess,tempfile
 from PIL import Image
 root=Path(__file__).resolve().parents[1]
+# This host integration test needs the system JPEG/PNG development headers and
+# link libraries. Keep the rest of the host suite runnable on source-only images.
+with tempfile.TemporaryDirectory(prefix='titan_img_prereq_') as prereq_td:
+    probe=Path(prereq_td)/'probe'
+    check=subprocess.run(
+        ['cc','-x','c','-','-lpng','-ljpeg','-o',str(probe)],
+        input='#include <jpeglib.h>\n#include <png.h>\nint main(void){return 0;}\n',
+        text=True,capture_output=True)
+    if check.returncode:
+        print('buildfix27-app-image-fit: SKIP missing system JPEG/PNG development headers or libraries')
+        raise SystemExit(0)
 with tempfile.TemporaryDirectory(prefix='titan_app_img_') as td0:
     td=Path(td0)
     Image.new('RGB',(640,360),(220,30,80)).save(td/'wide.jpg',quality=95)

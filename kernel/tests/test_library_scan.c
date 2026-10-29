@@ -110,6 +110,8 @@ static void create_ul_cfg(const char *path)
     assert(file != 0);
     write_ul_entry(file, "UL Alpha", "SLUS_100.01", 1u, 0x14u);
     write_ul_entry(file, "UL Beta", "SLES_200.02", 2u, 0x14u);
+    /* A truncated final record must not discard the valid records before it. */
+    assert(fputc(0x55, file) != EOF);
     fclose(file);
 }
 
