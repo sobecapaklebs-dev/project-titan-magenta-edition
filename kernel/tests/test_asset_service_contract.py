@@ -24,6 +24,7 @@ checks={
  'background-debounce':'TITAN_ASSET_BACKGROUND_DEBOUNCE_FRAMES 10u' in service,
  'compressed-source-transient':'TITAN_ASSET_SOURCE_MAX_SIZE' in service and 'malloc(TITAN_ASSET_SOURCE_MAX_SIZE)' in service and 'g_assets.source_buffer' in service and 'free(g_assets.source_buffer)' in service,
  '8k-storage-quantum':'TITAN_ASSET_IO_QUANTUM (8u * 1024u)' in service,
+ 'larger-bounded-opl-art-reads':('TITAN_ASSET_EXTERNAL_IO_QUANTUM (32u * 1024u)' in service and 'quantum = remaining > TITAN_ASSET_EXTERNAL_IO_QUANTUM' in service and 'quantum = remaining > TITAN_ASSET_IO_QUANTUM' in service),
  'atomic-part':'"%s.part"' in service and 'TitanStorageIo_AtomicReplace' in service,
  'crc-validation':'TitanAssetService_Crc32' in service and 'declared_crc' in service,
  'storage-scheduler-owner':'TitanAssetService_StorageWorkerPump' in scheduler,

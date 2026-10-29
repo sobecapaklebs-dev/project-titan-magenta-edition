@@ -39,6 +39,9 @@ extern int DeleteThread(int thread_id);
 #define TITAN_ASSET_NETWORK_STABLE_FRAMES 1800u /* 30 s @ 60 Hz, automatic mode only */
 #define TITAN_ASSET_AUTOMATIC_IDLE_FRAMES 120u /* 2 s of no user input on Home */
 #define TITAN_ASSET_IO_QUANTUM (8u * 1024u)
+/* OPL ART reads reopen/seek each quantum. A larger but still bounded local-file
+ * slice cuts FileXio RPC churn without changing cache-write fairness. */
+#define TITAN_ASSET_EXTERNAL_IO_QUANTUM (32u * 1024u)
 #define TITAN_ASSET_SOURCE_MAX_SIZE (1536u * 1024u)
 #define TITAN_ASSET_PROVIDER_URL_CAPACITY 768u
 #define TITAN_ASSET_BACKGROUND_DEBOUNCE_FRAMES 10u
@@ -2267,7 +2270,8 @@ static int TitanAssetService_ReadExternalStorageChunk(TitanAssetStorageJob *job)
         return 0;
     remaining = job->total - job->offset;
     if (remaining == 0u) return 2;
-    quantum = remaining > TITAN_ASSET_IO_QUANTUM ? TITAN_ASSET_IO_QUANTUM : remaining;
+    quantum = remaining > TITAN_ASSET_EXTERNAL_IO_QUANTUM
+        ? TITAN_ASSET_EXTERNAL_IO_QUANTUM : remaining;
     fd = TitanStorageIo_Open(job->path, TITAN_STORAGE_IO_READ);
     if (fd < 0) return 0;
     if (job->offset > 0u &&

@@ -16,7 +16,7 @@ checks = {
     'cache-first': service.find('TITAN_ASSET_STORAGE_LOAD_ICON') < service.find('TitanAssetService_FindExternalArt(job->serial'),
     'bounded-source-size': 'size > TITAN_ASSET_SOURCE_MAX_SIZE' in service,
     'serialized-filexio': 'TitanAssetService_ReadExternalStorageChunk' in service and 'TitanStorageIo_ReadExact' in service,
-    'eight-kib-quantum': 'TITAN_ASSET_IO_QUANTUM (8u * 1024u)' in service,
+    'bounded-io-quantums': ('TITAN_ASSET_IO_QUANTUM (8u * 1024u)' in service and 'TITAN_ASSET_EXTERNAL_IO_QUANTUM (32u * 1024u)' in service and 'quantum = remaining > TITAN_ASSET_EXTERNAL_IO_QUANTUM' in service),
     'storage-scheduler-owner': 'TitanAssetService_StorageWorkerPump' in scheduler,
     'low-priority-decode-worker': 'TitanAssetService_ProcessExternalDecode()' in service and 'TITAN_ASSET_NET_PRIORITY 110' in service,
     'cooperative-decode': 'options.yield = TitanAssetService_ImageYield' in service and 'options.yield_every_rows = 8u' in service,
