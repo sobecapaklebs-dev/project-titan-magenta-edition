@@ -2862,9 +2862,9 @@ int TitanAssetService_StorageWorkerPump(void)
                 if (elapsed > 0xffffffffu) elapsed = 0xffffffffu;
                 if (io_ms > elapsed) io_ms = elapsed;
                 wait_ms = elapsed - io_ms;
-                (void)snprintf(stage, sizeof(stage), "%s %ums I%u W%u",
-                    completed_prefetch ? "PREFETCH" : "READ",
-                    (unsigned int)elapsed, (unsigned int)io_ms,
+                (void)snprintf(stage, sizeof(stage), "%s %us I%u W%u",
+                    completed_prefetch ? "PREF" : "READ",
+                    (unsigned int)(elapsed / 1000u), (unsigned int)io_ms,
                     (unsigned int)wait_ms);
                 TitanDiagnostics_ReportOperation("ASSET", TITAN_DIAG_INFO,
                     stage, completed_path, -1);

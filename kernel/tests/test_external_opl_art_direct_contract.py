@@ -43,7 +43,7 @@ checks = {
     'external-candidate-resume': 'job->external_candidate, external_path' in service and '*candidate_out = candidate;' in service,
     'flight-recorder': 'TITAN_ASSET_DIAG_EXTERNAL_FOUND' in service and 'TITAN_ASSET_DIAG_EXTERNAL_DECODE_END' in service,
     'read-decode-duration-telemetry': 'TITAN_ASSET_DIAG_EXTERNAL_READ_TIMING' in service and 'TITAN_ASSET_DIAG_EXTERNAL_READ_IO_TIMING' in service and 'TITAN_ASSET_DIAG_EXTERNAL_PROBE_TIMING' in service and 'TITAN_ASSET_DIAG_EXTERNAL_DISPATCH_TIMING' in service and 'TITAN_ASSET_DIAG_STAGE_READY_TIMING' in service and 'DECODE WAIT %ums' in service and 'ready_stage' in service,
-    'external-read-splits-io-and-scheduler-wait': 'external_io_elapsed_us' in service and '"%s %ums I%u W%u"' in service,
+    'external-read-splits-io-and-scheduler-wait': 'external_io_elapsed_us' in service and '"%s %us I%u W%u"' in service,
     'external-file-stat-once-per-job': 'if (!job->external_path_checked)' in service and 'job->external_path_checked = 1u;' in service,
 }
 
