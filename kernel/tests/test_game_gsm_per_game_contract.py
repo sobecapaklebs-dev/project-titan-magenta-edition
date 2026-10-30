@@ -20,7 +20,11 @@ assert "TitanShellScene_SetSelectedGameResolution" in shell
 draw_context = shell.split("static void TitanShellScene_DrawFolderContextMenu(void)", 1)[1].split(
     "static void TitanShellScene_DrawFolderScreenBackdrop", 1
 )[0]
-assert "option_width = 184.0f" in draw_context
+assert "const float resolution_width = 184.0f" in draw_context
+assert "const float patch_width = 300.0f" in draw_context
+assert "float option_width = 184.0f;" in draw_context
+assert "if (patch_transition > resolution_transition)" in draw_context
+assert "option_width = patch_width;" in draw_context
 assert "main_width = 286.0f" in draw_context
 assert "option_x = panel_x + main_width" in draw_context
 assert "option_visible_width = option_width * submenu_transition" in draw_context

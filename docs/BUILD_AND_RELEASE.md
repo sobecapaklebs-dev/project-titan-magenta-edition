@@ -22,6 +22,13 @@ JOBS=8 scripts/build_all.sh
 JOBS=8 scripts/build_all.sh --verify-reproducible
 ```
 
+If the raw AR9271 firmware is not available, the target preflight accepts an
+external validated frozen IRX. Set `TITAN_AR9271_FROZEN_IRX` to its absolute
+path; the preflight and kernel build both verify SHA-256
+`6bc9275efbc1de6e643575867a0e14dac02a3a6cf0d5d6ea12906ac7ef73aa17`, and the
+clean temporary build copies that artifact into the target tree. Otherwise,
+provide the raw firmware as `TITAN_AR9271_FW=/absolute/path/to/htc_9271-1.4.0-titan-data-crypto-tt1424.fw`.
+
 The verification mode builds twice in separate temporary trees and compares all
 runtime hashes. Each runtime contains `BUILD_MANIFEST.txt` with source commit,
 tool versions and output hashes.

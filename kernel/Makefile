@@ -11,6 +11,7 @@ DVP_OBJCOPY ?= $(PS2DEV)/dvp/bin/dvp-objcopy
 DVP_OBJCOPYFLAGS ?= -O binary
 TITAN_FONT_SOURCE ?=
 TITAN_AR9271_FW ?=
+TITAN_AR9271_FROZEN_IRX ?=
 
 # BF30 integrated FMCB: upstream PerformInstallation/SignKELF is linked into
 # titan-installer/kernel.elf. No standalone FMCBInstaller.elf is launched.
@@ -751,8 +752,21 @@ $(TITAN_SMAP_HEADER): $(TITAN_SMAP_IRX)
 	@test -f "$<" || (echo "ERRO: Titan SMAP alias IRX nao encontrado em $<" && exit 1)
 	$(BIN2C) $< $@ titan_smap_irx
 
+ifneq ($(strip $(TITAN_AR9271_FW)),)
 $(TITAN_AR9271_IRX):
 	$(MAKE) -C iop/titan_ar9271 all TITAN_AR9271_FW="$(TITAN_AR9271_FW)"
+else
+ifneq ($(strip $(TITAN_AR9271_FROZEN_IRX)),)
+$(TITAN_AR9271_IRX):
+	@test -f "$(TITAN_AR9271_FROZEN_IRX)" || (echo "ERRO: frozen AR9271 IRX nao encontrado: $(TITAN_AR9271_FROZEN_IRX)" && exit 1)
+	@$(PYTHON) -c "import hashlib,sys; p=sys.argv[1]; expected='6bc9275efbc1de6e643575867a0e14dac02a3a6cf0d5d6ea12906ac7ef73aa17'; actual=hashlib.sha256(open(p,'rb').read()).hexdigest(); sys.exit(0 if actual==expected else 1)" "$(TITAN_AR9271_FROZEN_IRX)" || (echo "ERRO: hash do frozen AR9271 IRX nao validado" && exit 1)
+	@mkdir -p $(dir $@)
+	cp "$(TITAN_AR9271_FROZEN_IRX)" "$@"
+else
+$(TITAN_AR9271_IRX):
+	$(MAKE) -C iop/titan_ar9271 all TITAN_AR9271_FW="$(TITAN_AR9271_FW)"
+endif
+endif
 
 $(TITAN_AR9271_HEADER): $(TITAN_AR9271_IRX)
 	@mkdir -p $(dir $@)

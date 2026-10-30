@@ -85,6 +85,9 @@ need('if (!TitanAssetService_EnsureLock())' in worker and 'return 0;' in worker,
 
 build=text('scripts/build_all.sh')
 need('titan_target_preflight.py' in build, 'target preflight not wired')
+makefile=text('kernel/Makefile')
+need('TITAN_AR9271_FROZEN_IRX ?=' in makefile and 'cp "$(TITAN_AR9271_FROZEN_IRX)" "$@"' in makefile, 'validated frozen AR9271 IRX is not wired into the clean build')
+need('6bc9275efbc1de6e643575867a0e14dac02a3a6cf0d5d6ea12906ac7ef73aa17' in makefile, 'frozen AR9271 IRX copy lacks integrity validation')
 pre=text('tools/titan_target_preflight.py')
 for token in ('mips64r5900el-ps2-elf-strip','mipsel-none-elf-ar','mipsel-none-elf-strip','iopfixup','ps2-packer','ps2kbd.irx','ps2mouse.irx','udnl-t300.irx','eesync-nano.irx','IEEE1394_bd.irx','ps2hdd-bdm.irx','libvorbisfile.a','libfreetype.a','resolve_gskit','TARGET_PREFLIGHT_GSKIT','TITAN_AR9271_FW'):
     need(token in pre, 'preflight missing '+token)
