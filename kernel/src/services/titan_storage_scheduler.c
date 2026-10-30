@@ -793,10 +793,10 @@ static void TitanStorageScheduler_Worker(void *argument)
         }
 
         /* Game artwork is deliberately below foreground/VMC/audio/app assets,
-         * and shares the bulk lane fairly with Library scan. Exactly one 8 KiB
-         * asset quantum may run before scan gets the next turn. This prevents a
-         * large artwork queue from starving catalog discovery and, conversely,
-         * prevents a long USB scan from keeping every visible game on placeholders. */
+         * and shares the bulk lane fairly with Library scan. One bounded asset
+         * storage step gets a turn before scan; local ART read-ahead overlaps
+         * the decode worker through a separate buffer, without adding another
+         * FileXio owner. This keeps both catalog discovery and visible tiles moving. */
         if (TitanAssetService_HasStorageWork() && !g_storage_scheduler.asset_scan_turn)
         {
             (void)TitanAssetService_StorageWorkerPump();

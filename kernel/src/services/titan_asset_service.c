@@ -135,6 +135,9 @@ typedef struct TitanAssetStorageJob
     uint32_t startup_hash;
     unsigned int session_generation;
     unsigned int external_candidate;
+    unsigned int catalog_generation;
+    unsigned char external_prefetch;
+    unsigned char external_buffer_allocated;
     unsigned char manual_owner;
     char serial[24];
     char path[256];
@@ -236,6 +239,20 @@ typedef struct TitanAssetServiceState
     uint32_t external_decode_startup_hash;
     unsigned int external_decode_catalog_generation;
     char external_decode_path[TITAN_ASSET_EXTERNAL_PATH_CAPACITY];
+
+    /* One-slot look-ahead: while the decode worker reads external_source_buffer,
+     * the storage owner may fill this separate buffer. It is promoted only after
+     * the decoder releases the current slot. */
+    unsigned char *external_prefetch_buffer;
+    unsigned int external_prefetch_size;
+    unsigned int external_prefetch_capacity;
+    volatile int external_prefetch_ready;
+    TitanAssetKind external_prefetch_kind;
+    unsigned int external_prefetch_game;
+    unsigned int external_prefetch_candidate;
+    uint32_t external_prefetch_startup_hash;
+    unsigned int external_prefetch_catalog_generation;
+    char external_prefetch_path[TITAN_ASSET_EXTERNAL_PATH_CAPACITY];
 
     TitanAssetStorageJob storage_job;
     char last_provider[96];
@@ -667,6 +684,66 @@ static void TitanAssetService_FreeExternalSource(void)
     g_assets.external_source_size = 0u;
     g_assets.external_source_capacity = 0u;
     if (buffer != 0) free(buffer);
+}
+
+static void TitanAssetService_FreeExternalPrefetchLocked(void)
+{
+    unsigned char *buffer = g_assets.external_prefetch_buffer;
+    g_assets.external_prefetch_buffer = 0;
+    g_assets.external_prefetch_size = 0u;
+    g_assets.external_prefetch_capacity = 0u;
+    g_assets.external_prefetch_ready = 0;
+    g_assets.external_prefetch_path[0] = '\0';
+    if (buffer != 0) free(buffer);
+}
+
+/* Caller holds the asset lock. A prefetched source becomes the decode source
+ * only after the current decoder has released its buffer. */
+static void TitanAssetService_PromoteExternalPrefetchLocked(void)
+{
+    if (!g_assets.external_prefetch_ready || g_assets.external_decode_busy ||
+        g_assets.external_decode_ready || g_assets.external_source_buffer != 0)
+        return;
+    if (g_assets.external_prefetch_catalog_generation != g_assets.catalog_generation ||
+        g_assets.external_prefetch_game >= TITAN_NEUTRINO_GAME_CAPACITY ||
+        g_assets.games[g_assets.external_prefetch_game].startup_hash !=
+            g_assets.external_prefetch_startup_hash)
+    {
+        TitanAssetService_FreeExternalPrefetchLocked();
+        return;
+    }
+    g_assets.external_source_buffer = g_assets.external_prefetch_buffer;
+    g_assets.external_source_size = g_assets.external_prefetch_size;
+    g_assets.external_source_capacity = g_assets.external_prefetch_capacity;
+    g_assets.external_decode_kind = g_assets.external_prefetch_kind;
+    g_assets.external_decode_game = g_assets.external_prefetch_game;
+    g_assets.external_decode_candidate = g_assets.external_prefetch_candidate;
+    g_assets.external_decode_startup_hash = g_assets.external_prefetch_startup_hash;
+    g_assets.external_decode_catalog_generation = g_assets.external_prefetch_catalog_generation;
+    TitanAssetService_CopyText(g_assets.external_decode_path,
+        sizeof(g_assets.external_decode_path), g_assets.external_prefetch_path);
+    g_assets.external_prefetch_buffer = 0;
+    g_assets.external_prefetch_size = 0u;
+    g_assets.external_prefetch_capacity = 0u;
+    g_assets.external_prefetch_ready = 0;
+    g_assets.external_prefetch_path[0] = '\0';
+    g_assets.external_decode_ready = 1;
+}
+
+static void TitanAssetService_FreeExternalReadBufferLocked(TitanAssetStorageJob *job)
+{
+    if (job == 0 || !job->external_buffer_allocated) return;
+    if (job->external_prefetch) TitanAssetService_FreeExternalPrefetchLocked();
+    else TitanAssetService_FreeExternalSource();
+    job->external_buffer_allocated = 0u;
+}
+
+static void TitanAssetService_FreeExternalReadBuffer(TitanAssetStorageJob *job)
+{
+    if (job == 0 || !job->external_buffer_allocated) return;
+    TitanAssetService_Lock();
+    TitanAssetService_FreeExternalReadBufferLocked(job);
+    TitanAssetService_Unlock();
 }
 
 static TitanAssetIconSlot *TitanAssetService_FindIconSlot(unsigned int game_index)
@@ -1248,7 +1325,9 @@ static int TitanAssetService_ManualPipelineDrainedLocked(void)
     if (g_assets.net_busy) return 0;
     if (g_assets.download_ready_for_storage) return 0;
     if (g_assets.storage_job.op != TITAN_ASSET_STORAGE_NONE) return 0;
-    if (g_assets.storage_stage_ready) return 0;
+    if (g_assets.storage_stage_ready || g_assets.external_decode_ready ||
+        g_assets.external_decode_busy || g_assets.external_prefetch_ready ||
+        g_assets.external_prefetch_buffer != 0) return 0;
     return 1;
 }
 
@@ -1508,7 +1587,8 @@ static void TitanAssetService_RefreshStatus(void)
     g_assets.status.storage_busy =
         g_assets.storage_job.op != TITAN_ASSET_STORAGE_NONE ||
         g_assets.download_ready_for_storage ||
-        g_assets.external_decode_ready || g_assets.external_decode_busy;
+        g_assets.external_decode_ready || g_assets.external_decode_busy ||
+        g_assets.external_prefetch_ready || g_assets.external_prefetch_buffer != 0;
     g_assets.status.automatic_download_enabled = g_assets.automatic_download_enabled;
     g_assets.status.manual_session_active = g_assets.manual_session_active || g_assets.manual_start_queued;
     g_assets.status.manual_start_queued = g_assets.manual_start_queued;
@@ -2141,6 +2221,7 @@ static int TitanAssetService_StartStorageJob(void)
         job->kind = kind;
         job->game_index = game;
         job->startup_hash = g_assets.games[game].startup_hash;
+        job->catalog_generation = g_assets.catalog_generation;
         job->external_candidate = kind == TITAN_ASSET_KIND_ICON
             ? g_assets.games[game].icon_external_candidate
             : g_assets.games[game].background_external_candidate;
@@ -2178,9 +2259,18 @@ int TitanAssetService_HasStorageWork(void)
 {
     unsigned int i;
     if (!g_assets.initialized) return 0;
-    /* While a compressed external ART file is waiting for or undergoing the
-     * low-priority decode, keep the serialized storage lane free. */
-    if (g_assets.external_decode_ready || g_assets.external_decode_busy) return 0;
+    /* Ready slots are immutable until consumed. While decoding, storage may
+     * read ahead only when the active job is an external ART read (or no job
+     * exists yet); cached TIMG reads share the decoder output buffer and wait. */
+    if (g_assets.external_decode_ready || g_assets.external_prefetch_ready) return 0;
+    if (g_assets.external_decode_busy &&
+        (g_assets.manual_clear_cache || g_assets.download_ready_for_storage ||
+         (g_assets.storage_job.op != TITAN_ASSET_STORAGE_NONE &&
+          g_assets.storage_job.op != TITAN_ASSET_STORAGE_PROBE_ICON &&
+          g_assets.storage_job.op != TITAN_ASSET_STORAGE_PROBE_BACKGROUND &&
+          g_assets.storage_job.op != TITAN_ASSET_STORAGE_LOAD_EXTERNAL_ICON &&
+          g_assets.storage_job.op != TITAN_ASSET_STORAGE_LOAD_EXTERNAL_BACKGROUND)))
+        return 0;
     if (g_assets.manual_session_active && g_assets.manual_clear_cache) return 1;
     /* Missing-only manual sessions drive their cache probes through the
      * serialized Storage Scheduler. Do not depend on the visible/idle probe
@@ -2246,9 +2336,11 @@ static int TitanAssetService_ReadStorageChunk(TitanAssetStorageJob *job)
 static int TitanAssetService_ReadExternalStorageChunk(TitanAssetStorageJob *job)
 {
     TitanStorageIoSize file_size = 0;
-    int fd;
+    unsigned char **buffer;
+    unsigned int *capacity;
     unsigned int remaining;
     unsigned int quantum;
+    int fd;
     if (!TitanAssetService_StorageJobIsValid(job))
     {
         TitanAssetService_LogStorageJobReject(job, -25);
@@ -2260,20 +2352,60 @@ static int TitanAssetService_ReadExternalStorageChunk(TitanAssetStorageJob *job)
         return 0;
     if (job->offset == 0u)
     {
-        TitanAssetService_FreeExternalSource();
-        g_assets.external_source_buffer = (unsigned char *)malloc(job->total);
-        if (g_assets.external_source_buffer == 0)
+        unsigned char *allocated = (unsigned char *)malloc(job->total);
+        int defer = 0;
+        if (allocated == 0)
         {
+            int decoder_owns_stage;
+            TitanAssetService_Lock();
+            decoder_owns_stage = g_assets.external_decode_busy ||
+                g_assets.external_decode_ready || g_assets.storage_stage_ready;
+            TitanAssetService_Unlock();
+            /* Memory pressure must degrade to the old serial path, not turn a
+             * valid local image into an asset failure. Retry after publication
+             * releases the current source/TIMG working set. */
+            if (decoder_owns_stage) return 1;
             TitanDiagnostics_Event(TITAN_DIAG_ERROR, TITAN_DIAG_ASSET,
                 TITAN_ASSET_DIAG_SOURCE_ALLOC_FAIL, -2,
-                job->total, job->game_index, (uint32_t)job->kind, 1u);
+                job->total, job->game_index, (uint32_t)job->kind, 0u);
             return 0;
         }
-        g_assets.external_source_capacity = job->total;
-        g_assets.external_source_size = 0u;
+        TitanAssetService_Lock();
+        /* Re-evaluate ownership after allocation: the decoder may have started
+         * while malloc ran. Never attach a read to a slot it now owns. */
+        job->external_prefetch = g_assets.external_decode_busy ? 1u : 0u;
+        if (job->external_prefetch)
+        {
+            if (g_assets.external_prefetch_ready || g_assets.external_prefetch_buffer != 0)
+                defer = 1;
+            else
+            {
+                g_assets.external_prefetch_buffer = allocated;
+                g_assets.external_prefetch_capacity = job->total;
+                g_assets.external_prefetch_size = 0u;
+            }
+        }
+        else if (g_assets.external_decode_ready || g_assets.external_source_buffer != 0)
+            defer = 1;
+        else
+        {
+            g_assets.external_source_buffer = allocated;
+            g_assets.external_source_capacity = job->total;
+            g_assets.external_source_size = 0u;
+        }
+        TitanAssetService_Unlock();
+        if (defer)
+        {
+            free(allocated);
+            return 1; /* another owner has the available slot; retry next turn */
+        }
+        job->external_buffer_allocated = 1u;
     }
-    if (g_assets.external_source_buffer == 0 ||
-        g_assets.external_source_capacity < job->total || job->offset > job->total)
+    buffer = job->external_prefetch
+        ? &g_assets.external_prefetch_buffer : &g_assets.external_source_buffer;
+    capacity = job->external_prefetch
+        ? &g_assets.external_prefetch_capacity : &g_assets.external_source_capacity;
+    if (*buffer == 0 || *capacity < job->total || job->offset > job->total)
         return 0;
     remaining = job->total - job->offset;
     if (remaining == 0u) return 2;
@@ -2285,16 +2417,16 @@ static int TitanAssetService_ReadExternalStorageChunk(TitanAssetStorageJob *job)
         TitanStorageIo_Seek64(fd, job->offset, TITAN_STORAGE_IO_SEEK_SET) !=
             (TitanStorageIoOffset)job->offset)
     { TitanStorageIo_Close(fd); return 0; }
-    if (!TitanStorageIo_ReadExact(fd,
-            &g_assets.external_source_buffer[job->offset], quantum))
+    if (!TitanStorageIo_ReadExact(fd, &(*buffer)[job->offset], quantum))
     { TitanStorageIo_Close(fd); return 0; }
     TitanStorageIo_Close(fd);
     job->offset += quantum;
-    g_assets.external_source_size = job->offset;
+    if (job->external_prefetch) g_assets.external_prefetch_size = job->offset;
+    else g_assets.external_source_size = job->offset;
     g_assets.pipeline_last_progress_frame = g_assets.frame_index;
     g_assets.pipeline_last_storage_offset = job->offset;
     TitanDiagnostics_ReportOperation("ASSET", TITAN_DIAG_INFO,
-        "READ", job->path,
+        job->external_prefetch ? "PREFETCH" : "READ", job->path,
         job->total != 0u ? (int)((job->offset * 100u) / job->total) : -1);
     return job->offset >= job->total ? 2 : 1;
 }
@@ -2380,7 +2512,15 @@ int TitanAssetService_StorageWorkerPump(void)
     TitanStorageIoSize size = 0;
 
     if (!g_assets.initialized) return 0;
-    if (g_assets.external_decode_ready || g_assets.external_decode_busy) return 0;
+    if (g_assets.external_decode_ready || g_assets.external_prefetch_ready) return 0;
+    if (g_assets.external_decode_busy &&
+        (g_assets.manual_clear_cache || g_assets.download_ready_for_storage ||
+         (g_assets.storage_job.op != TITAN_ASSET_STORAGE_NONE &&
+          g_assets.storage_job.op != TITAN_ASSET_STORAGE_PROBE_ICON &&
+          g_assets.storage_job.op != TITAN_ASSET_STORAGE_PROBE_BACKGROUND &&
+          g_assets.storage_job.op != TITAN_ASSET_STORAGE_LOAD_EXTERNAL_ICON &&
+          g_assets.storage_job.op != TITAN_ASSET_STORAGE_LOAD_EXTERNAL_BACKGROUND)))
+        return 0;
     if (g_assets.manual_session_active && g_assets.manual_clear_cache)
     {
         TitanStorageIoEntry entry;
@@ -2467,7 +2607,11 @@ int TitanAssetService_StorageWorkerPump(void)
         TitanAssetService_Unlock();
         return 1;
     }
-    if (g_assets.storage_stage_ready) return 0;
+    if (g_assets.storage_stage_ready &&
+        !(g_assets.storage_job.external_prefetch &&
+          (g_assets.storage_job.op == TITAN_ASSET_STORAGE_LOAD_EXTERNAL_ICON ||
+           g_assets.storage_job.op == TITAN_ASSET_STORAGE_LOAD_EXTERNAL_BACKGROUND)))
+        return 0;
     if (g_assets.storage_job.op == TITAN_ASSET_STORAGE_NONE && !TitanAssetService_StartStorageJob()) return 0;
     job = &g_assets.storage_job;
     if (!TitanAssetService_StorageJobIsValid(job))
@@ -2475,6 +2619,9 @@ int TitanAssetService_StorageWorkerPump(void)
         TitanAssetService_LogStorageJobReject(job, -40);
         if (job->op == TITAN_ASSET_STORAGE_WRITE_DOWNLOAD)
             TitanAssetService_FailStorageWrite(job, g_assets.manual_cancel_requested ? 1 : 0);
+        if (job->op == TITAN_ASSET_STORAGE_LOAD_EXTERNAL_ICON ||
+            job->op == TITAN_ASSET_STORAGE_LOAD_EXTERNAL_BACKGROUND)
+            TitanAssetService_FreeExternalReadBuffer(job);
         memset(job, 0, sizeof(*job));
         return 1;
     }
@@ -2487,7 +2634,7 @@ int TitanAssetService_StorageWorkerPump(void)
         if (job->op == TITAN_ASSET_STORAGE_WRITE_DOWNLOAD) TitanAssetService_FailStorageWrite(job, 1);
         if (job->op == TITAN_ASSET_STORAGE_LOAD_EXTERNAL_ICON ||
             job->op == TITAN_ASSET_STORAGE_LOAD_EXTERNAL_BACKGROUND)
-            TitanAssetService_FreeExternalSource();
+            TitanAssetService_FreeExternalReadBuffer(job);
         memset(job, 0, sizeof(*job));
         return 1;
     }
@@ -2572,35 +2719,54 @@ int TitanAssetService_StorageWorkerPump(void)
         result = TitanAssetService_ReadExternalStorageChunk(job);
         if (result == 2)
         {
+            unsigned char *completed_buffer;
+            unsigned int completed_size;
             TitanAssetService_Lock();
+            completed_buffer = job->external_prefetch
+                ? g_assets.external_prefetch_buffer : g_assets.external_source_buffer;
+            completed_size = job->external_prefetch
+                ? g_assets.external_prefetch_size : g_assets.external_source_size;
             if (TitanAssetService_StorageJobIdentityMatchesLocked(job) &&
-                g_assets.external_source_buffer != 0 &&
-                g_assets.external_source_size == job->total)
+                job->catalog_generation == g_assets.catalog_generation &&
+                completed_buffer != 0 && completed_size == job->total)
             {
-                g_assets.external_decode_kind = job->kind;
-                g_assets.external_decode_game = job->game_index;
-                g_assets.external_decode_candidate = job->external_candidate;
-                g_assets.external_decode_startup_hash = job->startup_hash;
-                g_assets.external_decode_catalog_generation = g_assets.catalog_generation;
-                TitanAssetService_CopyText(g_assets.external_decode_path,
-                    sizeof(g_assets.external_decode_path), job->path);
-                g_assets.external_decode_ready = 1;
-                g_assets.external_decode_busy = 0;
+                if (job->external_prefetch)
+                {
+                    g_assets.external_prefetch_kind = job->kind;
+                    g_assets.external_prefetch_game = job->game_index;
+                    g_assets.external_prefetch_candidate = job->external_candidate;
+                    g_assets.external_prefetch_startup_hash = job->startup_hash;
+                    g_assets.external_prefetch_catalog_generation = job->catalog_generation;
+                    TitanAssetService_CopyText(g_assets.external_prefetch_path,
+                        sizeof(g_assets.external_prefetch_path), job->path);
+                    g_assets.external_prefetch_ready = 1;
+                    TitanAssetService_PromoteExternalPrefetchLocked();
+                }
+                else
+                {
+                    g_assets.external_decode_kind = job->kind;
+                    g_assets.external_decode_game = job->game_index;
+                    g_assets.external_decode_candidate = job->external_candidate;
+                    g_assets.external_decode_startup_hash = job->startup_hash;
+                    g_assets.external_decode_catalog_generation = job->catalog_generation;
+                    TitanAssetService_CopyText(g_assets.external_decode_path,
+                        sizeof(g_assets.external_decode_path), job->path);
+                    g_assets.external_decode_ready = 1;
+                    g_assets.external_decode_busy = 0;
+                }
+                job->external_buffer_allocated = 0u;
                 g_assets.pipeline_last_progress_frame = g_assets.frame_index;
             }
-            else
-            {
-                TitanAssetService_FreeExternalSource();
-            }
+            else TitanAssetService_FreeExternalReadBufferLocked(job);
             TitanAssetService_Unlock();
             TitanDiagnostics_Event(TITAN_DIAG_INFO, TITAN_DIAG_ASSET,
                 TITAN_ASSET_DIAG_EXTERNAL_READ_END, 0, job->game_index,
-                (uint32_t)job->kind, job->total, 0u);
+                (uint32_t)job->kind, job->total, job->external_prefetch);
             memset(job, 0, sizeof(*job));
         }
         else if (result == 0)
         {
-            TitanAssetService_FreeExternalSource();
+            TitanAssetService_FreeExternalReadBuffer(job);
             TitanAssetService_Lock();
             TitanAssetService_MarkStorageFailureLocked(job, 0, 1);
             TitanAssetService_Unlock();
@@ -3160,11 +3326,13 @@ static int TitanAssetService_ProcessExternalDecode(void)
 
     TitanAssetService_Lock();
     if (!g_assets.external_decode_ready || g_assets.external_decode_busy ||
-        g_assets.external_source_buffer == 0 || g_assets.external_source_size == 0u)
+        g_assets.storage_stage_ready || g_assets.external_source_buffer == 0 ||
+        g_assets.external_source_size == 0u)
     {
         TitanAssetService_Unlock();
         return 0;
     }
+    g_assets.external_decode_ready = 0;
     g_assets.external_decode_busy = 1;
     context.game_index = g_assets.external_decode_game;
     context.kind = g_assets.external_decode_kind;
@@ -3274,6 +3442,7 @@ static int TitanAssetService_ProcessExternalDecode(void)
         g_assets.external_decode_path[0] = '\0';
         g_assets.pipeline_last_progress_frame = g_assets.frame_index;
         TitanAssetService_FreeExternalSource();
+        TitanAssetService_PromoteExternalPrefetchLocked();
         TitanAssetService_Unlock();
     }
 
@@ -3306,6 +3475,14 @@ static void TitanAssetService_NetworkWorker(void *argument)
                 g_assets.net_faulted = 1;
                 break;
             }
+            DelayThread(TITAN_ASSET_NET_YIELD_US);
+            continue;
+        }
+        /* A completed TIMG owns the single publish buffer until the main thread
+         * commits it. Do not let a prefetched decode overwrite that stage, or
+         * let an unrelated network fetch start while the handoff is blocked. */
+        if (g_assets.external_decode_ready)
+        {
             DelayThread(TITAN_ASSET_NET_YIELD_US);
             continue;
         }

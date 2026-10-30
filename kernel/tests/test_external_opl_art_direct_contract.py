@@ -6,6 +6,9 @@ service = (ROOT / 'src/services/titan_asset_service.c').read_text()
 scheduler = (ROOT / 'src/services/titan_storage_scheduler.c').read_text()
 image = (ROOT / 'src/services/titan_asset_image.c').read_text()
 probe = service[service.index('static int TitanAssetService_SelectProbeLocked'):service.index('static int TitanAssetService_EnsureCacheDirs')]
+read_external = service[service.index('static int TitanAssetService_ReadExternalStorageChunk'):service.index('static int TitanAssetService_WriteStorageChunk')]
+storage_pump = service[service.index('int TitanAssetService_StorageWorkerPump(void)'):service.index('#if defined(__EE__) || defined(_EE)\ntypedef struct TitanAssetFetchContext')]
+decode = service[service.index('static int TitanAssetService_ProcessExternalDecode(void)\n{'):service.index('static void TitanAssetService_NetworkWorker')]
 
 checks = {
     'opl-art-root': '#define TITAN_ASSET_EXTERNAL_ART_DIR "mass:/ART"' in service,
@@ -18,6 +21,12 @@ checks = {
     'bounded-source-size': 'size > TITAN_ASSET_SOURCE_MAX_SIZE' in service,
     'serialized-filexio': 'TitanAssetService_ReadExternalStorageChunk' in service and 'TitanStorageIo_ReadExact' in service,
     'bounded-io-quantums': ('TITAN_ASSET_IO_QUANTUM (8u * 1024u)' in service and 'TITAN_ASSET_EXTERNAL_IO_QUANTUM (32u * 1024u)' in service and 'quantum = remaining > TITAN_ASSET_EXTERNAL_IO_QUANTUM' in service),
+    'separate-prefetch-buffer': 'external_prefetch_buffer' in service and 'external_source_buffer' in service and 'external_prefetch_capacity' in service,
+    'prefetch-memory-pressure-falls-back-serial': 'decoder_owns_stage' in read_external and 'if (decoder_owns_stage) return 1' in read_external,
+    'io-decode-overlap': 'job->external_prefetch = g_assets.external_decode_busy ? 1u : 0u' in read_external and 'g_assets.external_prefetch_ready = 1' in storage_pump,
+    'prefetch-promoted-after-decode-releases-source': decode.index('TitanAssetService_FreeExternalSource();') < decode.index('TitanAssetService_PromoteExternalPrefetchLocked();'),
+    'decoded-stage-protected-from-overwrite': 'g_assets.storage_stage_ready || g_assets.external_source_buffer == 0' in decode,
+    'cache-load-stays-serialized-with-decode': 'g_assets.storage_job.op != TITAN_ASSET_STORAGE_LOAD_EXTERNAL_ICON' in storage_pump and 'g_assets.storage_job.op != TITAN_ASSET_STORAGE_LOAD_EXTERNAL_BACKGROUND' in storage_pump,
     'storage-scheduler-owner': 'TitanAssetService_StorageWorkerPump' in scheduler,
     'low-priority-decode-worker': 'TitanAssetService_ProcessExternalDecode()' in service and 'TITAN_ASSET_NET_PRIORITY 110' in service,
     'cooperative-decode': 'options.yield = TitanAssetService_ImageYield' in service and 'options.yield_every_rows = 8u' in service,
