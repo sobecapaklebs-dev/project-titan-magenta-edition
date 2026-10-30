@@ -43,6 +43,7 @@ checks = {
     'external-candidate-resume': 'job->external_candidate, external_path' in service and '*candidate_out = candidate;' in service,
     'flight-recorder': 'TITAN_ASSET_DIAG_EXTERNAL_FOUND' in service and 'TITAN_ASSET_DIAG_EXTERNAL_DECODE_END' in service,
     'read-decode-duration-telemetry': 'TITAN_ASSET_DIAG_EXTERNAL_READ_TIMING' in service and 'TITAN_ASSET_DIAG_EXTERNAL_DECODE_TIMING' in service and 'DECODE %ums' in service,
+    'external-file-stat-once-per-job': 'if (!job->external_path_checked)' in service and 'job->external_path_checked = 1u;' in service,
 }
 
 # Direct external decode function must not write/rename/cache the source.

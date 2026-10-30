@@ -139,6 +139,7 @@ typedef struct TitanAssetStorageJob
     unsigned int catalog_generation;
     unsigned char external_prefetch;
     unsigned char external_buffer_allocated;
+    unsigned char external_path_checked;
     unsigned char manual_owner;
     char serial[24];
     char path[256];
@@ -2349,13 +2350,21 @@ static int TitanAssetService_ReadExternalStorageChunk(TitanAssetStorageJob *job)
         TitanAssetService_LogStorageJobReject(job, -25);
         return 0;
     }
-    if (!TitanStorageIo_PathInfo64(job->path, 0, &file_size) ||
-        file_size != (TitanStorageIoSize)job->total ||
-        file_size == 0u || file_size > TITAN_ASSET_SOURCE_MAX_SIZE)
-        return 0;
+    /* The expected size was discovered by FindExternalArt immediately before
+     * the job was queued. Revalidate once, not on every 32 KiB quantum: each
+     * PathInfo call is another serialized FileXio RPC and can dominate a large
+     * ART read on USB media. */
+    if (!job->external_path_checked)
+    {
+        if (!TitanStorageIo_PathInfo64(job->path, 0, &file_size) ||
+            file_size != (TitanStorageIoSize)job->total ||
+            file_size == 0u || file_size > TITAN_ASSET_SOURCE_MAX_SIZE)
+            return 0;
+        job->external_path_checked = 1u;
+        job->stage_started_ms = TitanTime_NowMilliseconds();
+    }
     if (job->offset == 0u)
     {
-        job->stage_started_ms = TitanTime_NowMilliseconds();
         unsigned char *allocated = (unsigned char *)malloc(job->total);
         int defer = 0;
         if (allocated == 0)
