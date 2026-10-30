@@ -3,6 +3,15 @@ from pathlib import Path
 import struct, subprocess, tempfile, zlib
 from PIL import Image
 root=Path(__file__).resolve().parents[1]
+image_source=(root/'src/services/titan_asset_image.c').read_text()
+assert 'jpeg_calc_output_dimensions(&cinfo)' in image_source
+assert 'cinfo.scale_denom = scale_denom' in image_source
+with tempfile.TemporaryDirectory(prefix='titan_img_prereq_') as prereq_td:
+ prereq=Path(prereq_td)/'probe'
+ check=subprocess.run(['cc','-x','c','-','-lpng','-ljpeg','-o',str(prereq)],input='#include <jpeglib.h>\n#include <png.h>\nint main(void){return 0;}\n',text=True,capture_output=True)
+ if check.returncode:
+  print('Titan asset PNG/JPEG -> PSM16 TIMG conversion: SKIP missing system JPEG/PNG development headers or libraries')
+  raise SystemExit(0)
 with tempfile.TemporaryDirectory(prefix='titan_image_conv_') as td0:
  td=Path(td0)
  Image.new('RGBA',(96,128),(220,30,80,255)).save(td/'icon.png')

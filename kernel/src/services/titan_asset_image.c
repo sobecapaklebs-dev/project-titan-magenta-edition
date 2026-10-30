@@ -325,6 +325,10 @@ static int TitanAssetImage_DecodeJpeg(const unsigned char *source, unsigned int 
     JSAMPARRAY row = 0;
     int created = 0;
     int ok = 0;
+    unsigned int target_width;
+    unsigned int target_height;
+    unsigned int scale_denom;
+    uint64_t source_pixels;
     cinfo.err = jpeg_std_error(&error.pub);
     error.pub.error_exit = TitanAssetImage_JpegError;
     if (setjmp(error.jump)) goto done;
@@ -334,14 +338,41 @@ static int TitanAssetImage_DecodeJpeg(const unsigned char *source, unsigned int 
     if (jpeg_read_header(&cinfo, TRUE) != JPEG_HEADER_OK) goto done;
     cinfo.out_color_space = JCS_RGB;
     cinfo.do_fancy_upsampling = FALSE;
+    source_pixels = (uint64_t)cinfo.image_width * (uint64_t)cinfo.image_height;
+    if (cinfo.image_width == 0u || cinfo.image_height == 0u ||
+        cinfo.image_width > TITAN_IMAGE_MAX_WIDTH || cinfo.image_height > TITAN_IMAGE_MAX_HEIGHT ||
+        source_pixels > TITAN_IMAGE_MAX_PIXELS) goto done;
+    if (options != 0 &&
+        ((options->minimum_source_width != 0u && cinfo.image_width < options->minimum_source_width) ||
+         (options->minimum_source_height != 0u && cinfo.image_height < options->minimum_source_height))) goto done;
+
+    if (kind == TITAN_ASSET_KIND_ICON)
+    { target_width = TITAN_ASSET_ICON_SOURCE_WIDTH; target_height = TITAN_ASSET_ICON_SOURCE_HEIGHT; }
+    else if (kind == TITAN_ASSET_KIND_BACKGROUND)
+    { target_width = TITAN_ASSET_BACKGROUND_WIDTH; target_height = TITAN_ASSET_BACKGROUND_HEIGHT; }
+    else if (kind == TITAN_ASSET_KIND_APP_MEDIA)
+    { target_width = TITAN_IMAGE_MEDIA_WIDTH; target_height = TITAN_IMAGE_MEDIA_HEIGHT; }
+    else goto done;
+
+    /* JPEG supports reduced-IDCT output at 1/2, 1/4 and 1/8 resolution.
+     * Decode the smallest raster that still covers the final canvas: this
+     * avoids expanding millions of source pixels only to discard them during
+     * thumbnail/background resampling. PNG stays on its streaming row path. */
+    cinfo.scale_num = 1u;
+    for (scale_denom = 8u; scale_denom >= 2u; scale_denom /= 2u)
+    {
+        cinfo.scale_denom = scale_denom;
+        jpeg_calc_output_dimensions(&cinfo);
+        if (cinfo.output_width >= target_width && cinfo.output_height >= target_height)
+            break;
+    }
+    if (scale_denom < 2u) cinfo.scale_denom = 1u;
+    jpeg_calc_output_dimensions(&cinfo);
     jpeg_start_decompress(&cinfo);
     if (cinfo.output_width == 0u || cinfo.output_height == 0u ||
         cinfo.output_width > TITAN_IMAGE_MAX_WIDTH || cinfo.output_height > TITAN_IMAGE_MAX_HEIGHT ||
         (uint64_t)cinfo.output_width * (uint64_t)cinfo.output_height > TITAN_IMAGE_MAX_PIXELS ||
         cinfo.output_components != 3) goto done;
-    if (options != 0 &&
-        ((options->minimum_source_width != 0u && cinfo.output_width < options->minimum_source_width) ||
-         (options->minimum_source_height != 0u && cinfo.output_height < options->minimum_source_height))) goto done;
     if (!TitanAssetImage_PrepareTarget(&target, (unsigned int)cinfo.output_width,
             (unsigned int)cinfo.output_height, kind, pixels)) goto done;
     row = (*cinfo.mem->alloc_sarray)((j_common_ptr)&cinfo, JPOOL_IMAGE,

@@ -29,7 +29,7 @@ checks = {
     'cache-load-stays-serialized-with-decode': 'g_assets.storage_job.op != TITAN_ASSET_STORAGE_LOAD_EXTERNAL_ICON' in storage_pump and 'g_assets.storage_job.op != TITAN_ASSET_STORAGE_LOAD_EXTERNAL_BACKGROUND' in storage_pump,
     'storage-scheduler-owner': 'TitanAssetService_StorageWorkerPump' in scheduler,
     'low-priority-decode-worker': 'TitanAssetService_ProcessExternalDecode()' in service and 'TITAN_ASSET_NET_PRIORITY 110' in service,
-    'cooperative-decode': 'options.yield = TitanAssetService_ImageYield' in service and 'options.yield_every_rows = 8u' in service,
+    'cooperative-decode': 'options.yield = TitanAssetService_ImageYield' in service and 'options.yield_every_rows = 32u' in decode and 'image_options.yield_every_rows = 8u' in service,
     'same-png-jpeg-decoder': 'TitanAssetImage_ConvertToTimgEx(source, source_size, context.kind' in service and 'png_read_row' in image and 'jpeg_read_scanlines' in image,
     'ram-only-stage': 'g_assets.storage_stage_ready = 1' in service and 'external_decode_path' in service,
     'external-decode-no-persistent-publish': 'TitanAssetService_ProcessExternalDecode' in service,
@@ -42,6 +42,7 @@ checks = {
     'bad-opl-candidate-falls-through': 'context.candidate < 7u' in service and 'state->icon_external_candidate = (unsigned char)(context.candidate + 1u)' in service and 'state->background_external_candidate = (unsigned char)(context.candidate + 1u)' in service,
     'external-candidate-resume': 'job->external_candidate, external_path' in service and '*candidate_out = candidate;' in service,
     'flight-recorder': 'TITAN_ASSET_DIAG_EXTERNAL_FOUND' in service and 'TITAN_ASSET_DIAG_EXTERNAL_DECODE_END' in service,
+    'read-decode-duration-telemetry': 'TITAN_ASSET_DIAG_EXTERNAL_READ_TIMING' in service and 'TITAN_ASSET_DIAG_EXTERNAL_DECODE_TIMING' in service and 'DECODE %ums' in service,
 }
 
 # Direct external decode function must not write/rename/cache the source.

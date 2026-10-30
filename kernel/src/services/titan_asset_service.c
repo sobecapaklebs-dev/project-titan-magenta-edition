@@ -133,6 +133,7 @@ typedef struct TitanAssetStorageJob
     unsigned int offset;
     unsigned int total;
     uint32_t startup_hash;
+    uint64_t stage_started_ms;
     unsigned int session_generation;
     unsigned int external_candidate;
     unsigned int catalog_generation;
@@ -1003,7 +1004,9 @@ enum
     TITAN_ASSET_DIAG_EXTERNAL_FOUND = 0x33d,
     TITAN_ASSET_DIAG_EXTERNAL_READ_END = 0x33e,
     TITAN_ASSET_DIAG_EXTERNAL_DECODE_BEGIN = 0x33f,
-    TITAN_ASSET_DIAG_EXTERNAL_DECODE_END = 0x340
+    TITAN_ASSET_DIAG_EXTERNAL_DECODE_END = 0x340,
+    TITAN_ASSET_DIAG_EXTERNAL_DECODE_TIMING = 0x341,
+    TITAN_ASSET_DIAG_EXTERNAL_READ_TIMING = 0x342
 };
 
 #if defined(__EE__) || defined(_EE)
@@ -2352,6 +2355,7 @@ static int TitanAssetService_ReadExternalStorageChunk(TitanAssetStorageJob *job)
         return 0;
     if (job->offset == 0u)
     {
+        job->stage_started_ms = TitanTime_NowMilliseconds();
         unsigned char *allocated = (unsigned char *)malloc(job->total);
         int defer = 0;
         if (allocated == 0)
@@ -2721,6 +2725,12 @@ int TitanAssetService_StorageWorkerPump(void)
         {
             unsigned char *completed_buffer;
             unsigned int completed_size;
+            char completed_path[TITAN_ASSET_EXTERNAL_PATH_CAPACITY];
+            unsigned int completed_game_index;
+            unsigned int completed_kind;
+            unsigned int completed_total;
+            unsigned int completed_prefetch;
+            uint64_t completed_started_ms;
             TitanAssetService_Lock();
             completed_buffer = job->external_prefetch
                 ? g_assets.external_prefetch_buffer : g_assets.external_source_buffer;
@@ -2758,11 +2768,32 @@ int TitanAssetService_StorageWorkerPump(void)
                 g_assets.pipeline_last_progress_frame = g_assets.frame_index;
             }
             else TitanAssetService_FreeExternalReadBufferLocked(job);
-            TitanAssetService_Unlock();
-            TitanDiagnostics_Event(TITAN_DIAG_INFO, TITAN_DIAG_ASSET,
-                TITAN_ASSET_DIAG_EXTERNAL_READ_END, 0, job->game_index,
-                (uint32_t)job->kind, job->total, job->external_prefetch);
+            completed_game_index = job->game_index;
+            completed_kind = (unsigned int)job->kind;
+            completed_total = job->total;
+            completed_prefetch = job->external_prefetch;
+            completed_started_ms = job->stage_started_ms;
+            TitanAssetService_CopyText(completed_path, sizeof(completed_path), job->path);
             memset(job, 0, sizeof(*job));
+            TitanAssetService_Unlock();
+            {
+                uint64_t now = TitanTime_NowMilliseconds();
+                uint64_t elapsed = now >= completed_started_ms
+                    ? now - completed_started_ms : 0u;
+                char stage[32];
+                if (elapsed > 0xffffffffu) elapsed = 0xffffffffu;
+                (void)snprintf(stage, sizeof(stage), "%s %ums",
+                    completed_prefetch ? "PREFETCH" : "READ",
+                    (unsigned int)elapsed);
+                TitanDiagnostics_ReportOperation("ASSET", TITAN_DIAG_INFO,
+                    stage, completed_path, -1);
+                TitanDiagnostics_Event(TITAN_DIAG_INFO, TITAN_DIAG_ASSET,
+                    TITAN_ASSET_DIAG_EXTERNAL_READ_END, 0, completed_game_index,
+                    completed_kind, completed_total, completed_prefetch);
+                TitanDiagnostics_Event(TITAN_DIAG_INFO, TITAN_DIAG_ASSET,
+                    TITAN_ASSET_DIAG_EXTERNAL_READ_TIMING, 0, completed_game_index,
+                    completed_kind, completed_total, (unsigned int)elapsed);
+            }
         }
         else if (result == 0)
         {
@@ -3321,7 +3352,10 @@ static int TitanAssetService_ProcessExternalDecode(void)
     unsigned char *source;
     unsigned int source_size;
     unsigned int timg_size = 0u;
+    uint64_t decode_started_ms;
+    uint64_t decode_elapsed_ms;
     char path[TITAN_ASSET_EXTERNAL_PATH_CAPACITY];
+    char decode_stage[32];
     int ok;
 
     TitanAssetService_Lock();
@@ -3350,13 +3384,17 @@ static int TitanAssetService_ProcessExternalDecode(void)
     options.should_cancel = TitanAssetService_ShouldAbortExternalDecode;
     options.yield = TitanAssetService_ImageYield;
     options.user_data = &context;
-    options.yield_every_rows = 8u;
+    /* Local artwork is streamed concurrently with the next storage read through
+     * a second buffer. Yield less often here to avoid millisecond sleep tax per
+     * tiny row group, while foreground cancellation still checks every row. */
+    options.yield_every_rows = 32u;
     /* OPL ICO art is commonly 64x64, while OPL covers are portrait images.
      * Accept both local conventions; this lower bound applies only to the
      * local ART reader, not to downloaded provider assets. */
     options.minimum_source_width = context.kind == TITAN_ASSET_KIND_ICON ? 64u : 256u;
     options.minimum_source_height = context.kind == TITAN_ASSET_KIND_ICON ? 64u : 128u;
 
+    decode_started_ms = TitanTime_NowMilliseconds();
     TitanDiagnostics_Event(TITAN_DIAG_INFO, TITAN_DIAG_ASSET,
         TITAN_ASSET_DIAG_EXTERNAL_DECODE_BEGIN, 0, context.game_index,
         (uint32_t)context.kind, source_size, 0u);
@@ -3367,6 +3405,13 @@ static int TitanAssetService_ProcessExternalDecode(void)
     if (ok)
         ok = TitanAssetService_ValidateTimg(g_assets.storage_buffer, timg_size,
             context.kind, 0, 0);
+    {
+        uint64_t now = TitanTime_NowMilliseconds();
+        decode_elapsed_ms = now >= decode_started_ms ? now - decode_started_ms : 0u;
+        if (decode_elapsed_ms > 0xffffffffu) decode_elapsed_ms = 0xffffffffu;
+        (void)snprintf(decode_stage, sizeof(decode_stage), "DECODE %ums",
+            (unsigned int)decode_elapsed_ms);
+    }
 
     {
         int aborted = TitanAssetService_ShouldAbortExternalDecode(&context);
@@ -3449,6 +3494,11 @@ static int TitanAssetService_ProcessExternalDecode(void)
     TitanDiagnostics_Event(ok ? TITAN_DIAG_INFO : TITAN_DIAG_WARN,
         TITAN_DIAG_ASSET, TITAN_ASSET_DIAG_EXTERNAL_DECODE_END, ok ? 0 : -1,
         context.game_index, (uint32_t)context.kind, source_size, timg_size);
+    TitanDiagnostics_Event(TITAN_DIAG_INFO, TITAN_DIAG_ASSET,
+        TITAN_ASSET_DIAG_EXTERNAL_DECODE_TIMING, 0, context.game_index,
+        (uint32_t)context.kind, (unsigned int)decode_elapsed_ms, timg_size);
+    TitanDiagnostics_ReportOperation("ASSET", ok ? TITAN_DIAG_INFO : TITAN_DIAG_WARN,
+        decode_stage, path, -1);
     (void)path;
     return 1;
 }
