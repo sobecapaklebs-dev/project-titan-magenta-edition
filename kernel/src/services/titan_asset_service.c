@@ -134,6 +134,7 @@ typedef struct TitanAssetStorageJob
     unsigned int total;
     uint32_t startup_hash;
     uint64_t stage_started_ms;
+    uint64_t external_io_elapsed_us;
     unsigned int session_generation;
     unsigned int external_candidate;
     unsigned int catalog_generation;
@@ -214,6 +215,8 @@ typedef struct TitanAssetServiceState
     TitanAssetKind storage_stage_kind;
     unsigned int storage_stage_game;
     uint32_t storage_stage_startup_hash;
+    uint64_t storage_stage_ready_ms;
+    uint64_t external_decode_queued_ms;
 
     unsigned char download_buffer[TITAN_ASSET_TIMG_MAX_SIZE] __attribute__((aligned(64)));
     unsigned int download_size;
@@ -729,6 +732,7 @@ static void TitanAssetService_PromoteExternalPrefetchLocked(void)
     g_assets.external_prefetch_capacity = 0u;
     g_assets.external_prefetch_ready = 0;
     g_assets.external_prefetch_path[0] = '\0';
+    g_assets.external_decode_queued_ms = TitanTime_NowMilliseconds();
     g_assets.external_decode_ready = 1;
 }
 
@@ -1007,7 +1011,11 @@ enum
     TITAN_ASSET_DIAG_EXTERNAL_DECODE_BEGIN = 0x33f,
     TITAN_ASSET_DIAG_EXTERNAL_DECODE_END = 0x340,
     TITAN_ASSET_DIAG_EXTERNAL_DECODE_TIMING = 0x341,
-    TITAN_ASSET_DIAG_EXTERNAL_READ_TIMING = 0x342
+    TITAN_ASSET_DIAG_EXTERNAL_READ_TIMING = 0x342,
+    TITAN_ASSET_DIAG_EXTERNAL_READ_IO_TIMING = 0x343,
+    TITAN_ASSET_DIAG_EXTERNAL_PROBE_TIMING = 0x344,
+    TITAN_ASSET_DIAG_EXTERNAL_DISPATCH_TIMING = 0x345,
+    TITAN_ASSET_DIAG_STAGE_READY_TIMING = 0x346
 };
 
 #if defined(__EE__) || defined(_EE)
@@ -1698,6 +1706,9 @@ void TitanAssetService_UpdateMainThread(unsigned int frame_index)
     int stage_ready = 0;
     int identity_matches = 0;
     int valid = 0;
+    uint64_t stage_ready_timestamp_ms = 0u;
+    uint64_t ready_handoff_ms = 0u;
+    char ready_stage[32];
     if (!g_assets.initialized) return;
     g_assets.frame_index = frame_index;
 #if defined(__EE__) || defined(_EE)
@@ -1736,6 +1747,7 @@ void TitanAssetService_UpdateMainThread(unsigned int frame_index)
     {
         kind = g_assets.storage_stage_kind; game = g_assets.storage_stage_game;
         startup_hash = g_assets.storage_stage_startup_hash; stage_size = g_assets.storage_buffer_size;
+        stage_ready_timestamp_ms = g_assets.storage_stage_ready_ms;
         identity_matches = game < TITAN_NEUTRINO_GAME_CAPACITY && startup_hash != 0u &&
             g_assets.games[game].startup_hash == startup_hash;
         stage_ready = 1;
@@ -1743,6 +1755,13 @@ void TitanAssetService_UpdateMainThread(unsigned int frame_index)
     TitanAssetService_Unlock();
     if (stage_ready)
     {
+        uint64_t now = TitanTime_NowMilliseconds();
+        ready_handoff_ms = now >= stage_ready_timestamp_ms
+            ? now - stage_ready_timestamp_ms : 0u;
+        if (ready_handoff_ms > 0xffffffffu) ready_handoff_ms = 0xffffffffu;
+        (void)snprintf(ready_stage, sizeof(ready_stage), "%s WAIT %ums",
+            kind == TITAN_ASSET_KIND_ICON ? "READY" : "READY BG",
+            (unsigned int)ready_handoff_ms);
         valid = identity_matches && TitanAssetService_IsValidKind(kind) &&
             TitanAssetService_ValidateTimg(g_assets.storage_buffer, stage_size, kind, &payload_offset, &payload_size);
         if (valid)
@@ -1753,7 +1772,7 @@ void TitanAssetService_UpdateMainThread(unsigned int frame_index)
                 TitanAssetService_CommitIcon(game,
                     (const unsigned short *)&g_assets.storage_buffer[payload_offset]);
                 TitanDiagnostics_ReportOperation("ASSET", TITAN_DIAG_INFO,
-                    "READY", ready_game != 0 ? ready_game->title : "Icon ready", 100);
+                    ready_stage, ready_game != 0 ? ready_game->title : "Icon ready", 100);
             }
             else if (payload_size == TITAN_ASSET_BACKGROUND_PAYLOAD)
             {
@@ -1763,7 +1782,7 @@ void TitanAssetService_UpdateMainThread(unsigned int frame_index)
                 g_assets.games[game].background_presence = TITAN_ASSET_PRESENCE_PRESENT;
                 g_assets.games[game].background_probe_pending = 0u;
                 TitanDiagnostics_ReportOperation("ASSET", TITAN_DIAG_INFO,
-                    "READY BG", ready_game != 0 ? ready_game->title : "Background ready", 100);
+                    ready_stage, ready_game != 0 ? ready_game->title : "Background ready", 100);
             }
         }
         else
@@ -1781,8 +1800,12 @@ void TitanAssetService_UpdateMainThread(unsigned int frame_index)
             }
             TitanAssetService_Unlock();
         }
+        TitanDiagnostics_Event(TITAN_DIAG_INFO, TITAN_DIAG_ASSET,
+            TITAN_ASSET_DIAG_STAGE_READY_TIMING, 0, game, (uint32_t)kind,
+            (unsigned int)ready_handoff_ms, stage_size);
         TitanAssetService_Lock();
         g_assets.storage_stage_ready = 0;
+        g_assets.storage_stage_ready_ms = 0u;
         g_assets.storage_stage_startup_hash = 0u;
         g_assets.pipeline_last_progress_frame = g_assets.frame_index;
         TitanAssetService_Unlock();
@@ -2356,12 +2379,17 @@ static int TitanAssetService_ReadExternalStorageChunk(TitanAssetStorageJob *job)
      * ART read on USB media. */
     if (!job->external_path_checked)
     {
+        uint64_t io_started_us = TitanTime_NowMicroseconds();
+        job->stage_started_ms = TitanTime_NowMilliseconds();
         if (!TitanStorageIo_PathInfo64(job->path, 0, &file_size) ||
             file_size != (TitanStorageIoSize)job->total ||
             file_size == 0u || file_size > TITAN_ASSET_SOURCE_MAX_SIZE)
+        {
+            job->external_io_elapsed_us += TitanTime_NowMicroseconds() - io_started_us;
             return 0;
+        }
+        job->external_io_elapsed_us += TitanTime_NowMicroseconds() - io_started_us;
         job->external_path_checked = 1u;
-        job->stage_started_ms = TitanTime_NowMilliseconds();
     }
     if (job->offset == 0u)
     {
@@ -2424,15 +2452,35 @@ static int TitanAssetService_ReadExternalStorageChunk(TitanAssetStorageJob *job)
     if (remaining == 0u) return 2;
     quantum = remaining > TITAN_ASSET_EXTERNAL_IO_QUANTUM
         ? TITAN_ASSET_EXTERNAL_IO_QUANTUM : remaining;
-    fd = TitanStorageIo_Open(job->path, TITAN_STORAGE_IO_READ);
+    {
+        uint64_t io_started_us = TitanTime_NowMicroseconds();
+        fd = TitanStorageIo_Open(job->path, TITAN_STORAGE_IO_READ);
+        job->external_io_elapsed_us += TitanTime_NowMicroseconds() - io_started_us;
+    }
     if (fd < 0) return 0;
-    if (job->offset > 0u &&
-        TitanStorageIo_Seek64(fd, job->offset, TITAN_STORAGE_IO_SEEK_SET) !=
-            (TitanStorageIoOffset)job->offset)
-    { TitanStorageIo_Close(fd); return 0; }
-    if (!TitanStorageIo_ReadExact(fd, &(*buffer)[job->offset], quantum))
-    { TitanStorageIo_Close(fd); return 0; }
-    TitanStorageIo_Close(fd);
+    if (job->offset > 0u)
+    {
+        uint64_t io_started_us = TitanTime_NowMicroseconds();
+        TitanStorageIoOffset seek_result = TitanStorageIo_Seek64(
+            fd, job->offset, TITAN_STORAGE_IO_SEEK_SET);
+        job->external_io_elapsed_us += TitanTime_NowMicroseconds() - io_started_us;
+        if (seek_result != (TitanStorageIoOffset)job->offset)
+        {
+            io_started_us = TitanTime_NowMicroseconds();
+            TitanStorageIo_Close(fd);
+            job->external_io_elapsed_us += TitanTime_NowMicroseconds() - io_started_us;
+            return 0;
+        }
+    }
+    {
+        uint64_t io_started_us = TitanTime_NowMicroseconds();
+        int read_ok = TitanStorageIo_ReadExact(fd, &(*buffer)[job->offset], quantum);
+        job->external_io_elapsed_us += TitanTime_NowMicroseconds() - io_started_us;
+        io_started_us = TitanTime_NowMicroseconds();
+        TitanStorageIo_Close(fd);
+        job->external_io_elapsed_us += TitanTime_NowMicroseconds() - io_started_us;
+        if (!read_ok) return 0;
+    }
     job->offset += quantum;
     if (job->external_prefetch) g_assets.external_prefetch_size = job->offset;
     else g_assets.external_source_size = job->offset;
@@ -2494,6 +2542,7 @@ publish:
         g_assets.storage_stage_game = job->game_index;
         g_assets.storage_stage_startup_hash = job->startup_hash;
         g_assets.storage_stage_ready = 1;
+        g_assets.storage_stage_ready_ms = TitanTime_NowMilliseconds();
     }
     else
         TitanDiagnostics_Event(TITAN_DIAG_WARN, TITAN_DIAG_ASSET, TITAN_ASSET_DIAG_CATALOG_RACE_DROP,
@@ -2666,10 +2715,24 @@ int TitanAssetService_StorageWorkerPump(void)
         {
             unsigned int external_size = 0u;
             unsigned int external_candidate = 0u;
+            uint64_t probe_started_us = TitanTime_NowMicroseconds();
+            uint64_t probe_elapsed_us;
             char external_path[TITAN_ASSET_EXTERNAL_PATH_CAPACITY];
-            if (TitanAssetService_FindExternalArt(job->serial, job->kind,
-                    job->external_candidate, external_path, sizeof(external_path),
-                    &external_size, &external_candidate))
+            char probe_stage[32];
+            int external_found = TitanAssetService_FindExternalArt(job->serial, job->kind,
+                job->external_candidate, external_path, sizeof(external_path),
+                &external_size, &external_candidate);
+            probe_elapsed_us = TitanTime_NowMicroseconds() - probe_started_us;
+            (void)snprintf(probe_stage, sizeof(probe_stage), "%s %ums",
+                external_found ? "ART FOUND" : "ART MISS",
+                (unsigned int)(probe_elapsed_us / 1000u));
+            TitanDiagnostics_ReportOperation("ASSET", TITAN_DIAG_INFO,
+                probe_stage, external_found ? external_path : job->serial, -1);
+            TitanDiagnostics_Event(TITAN_DIAG_INFO, TITAN_DIAG_ASSET,
+                TITAN_ASSET_DIAG_EXTERNAL_PROBE_TIMING, 0, job->game_index,
+                (uint32_t)job->kind, external_found ? external_size : 0u,
+                (unsigned int)(probe_elapsed_us / 1000u));
+            if (external_found)
             {
                 job->external_candidate = external_candidate;
                 TitanAssetService_CopyText(job->path, sizeof(job->path), external_path);
@@ -2710,6 +2773,7 @@ int TitanAssetService_StorageWorkerPump(void)
                     g_assets.storage_stage_game = job->game_index;
                     g_assets.storage_stage_startup_hash = job->startup_hash;
                     g_assets.storage_stage_ready = 1;
+                    g_assets.storage_stage_ready_ms = TitanTime_NowMilliseconds();
                     if (TitanAssetService_StorageJobBelongsToManualSessionLocked(job) &&
                         !g_assets.manual_refresh_existing)
                         g_assets.session_completed_assets++;
@@ -2740,6 +2804,7 @@ int TitanAssetService_StorageWorkerPump(void)
             unsigned int completed_total;
             unsigned int completed_prefetch;
             uint64_t completed_started_ms;
+            uint64_t completed_io_elapsed_us;
             TitanAssetService_Lock();
             completed_buffer = job->external_prefetch
                 ? g_assets.external_prefetch_buffer : g_assets.external_source_buffer;
@@ -2770,6 +2835,7 @@ int TitanAssetService_StorageWorkerPump(void)
                     g_assets.external_decode_catalog_generation = job->catalog_generation;
                     TitanAssetService_CopyText(g_assets.external_decode_path,
                         sizeof(g_assets.external_decode_path), job->path);
+                    g_assets.external_decode_queued_ms = TitanTime_NowMilliseconds();
                     g_assets.external_decode_ready = 1;
                     g_assets.external_decode_busy = 0;
                 }
@@ -2782,6 +2848,7 @@ int TitanAssetService_StorageWorkerPump(void)
             completed_total = job->total;
             completed_prefetch = job->external_prefetch;
             completed_started_ms = job->stage_started_ms;
+            completed_io_elapsed_us = job->external_io_elapsed_us;
             TitanAssetService_CopyText(completed_path, sizeof(completed_path), job->path);
             memset(job, 0, sizeof(*job));
             TitanAssetService_Unlock();
@@ -2789,11 +2856,16 @@ int TitanAssetService_StorageWorkerPump(void)
                 uint64_t now = TitanTime_NowMilliseconds();
                 uint64_t elapsed = now >= completed_started_ms
                     ? now - completed_started_ms : 0u;
-                char stage[32];
+                uint64_t io_ms = completed_io_elapsed_us / 1000u;
+                uint64_t wait_ms;
+                char stage[40];
                 if (elapsed > 0xffffffffu) elapsed = 0xffffffffu;
-                (void)snprintf(stage, sizeof(stage), "%s %ums",
+                if (io_ms > elapsed) io_ms = elapsed;
+                wait_ms = elapsed - io_ms;
+                (void)snprintf(stage, sizeof(stage), "%s %ums I%u W%u",
                     completed_prefetch ? "PREFETCH" : "READ",
-                    (unsigned int)elapsed);
+                    (unsigned int)elapsed, (unsigned int)io_ms,
+                    (unsigned int)wait_ms);
                 TitanDiagnostics_ReportOperation("ASSET", TITAN_DIAG_INFO,
                     stage, completed_path, -1);
                 TitanDiagnostics_Event(TITAN_DIAG_INFO, TITAN_DIAG_ASSET,
@@ -2802,6 +2874,10 @@ int TitanAssetService_StorageWorkerPump(void)
                 TitanDiagnostics_Event(TITAN_DIAG_INFO, TITAN_DIAG_ASSET,
                     TITAN_ASSET_DIAG_EXTERNAL_READ_TIMING, 0, completed_game_index,
                     completed_kind, completed_total, (unsigned int)elapsed);
+                TitanDiagnostics_Event(TITAN_DIAG_INFO, TITAN_DIAG_ASSET,
+                    TITAN_ASSET_DIAG_EXTERNAL_READ_IO_TIMING, 0, completed_game_index,
+                    completed_kind, completed_total,
+                    (unsigned int)(completed_io_elapsed_us / 1000u));
             }
         }
         else if (result == 0)
@@ -3363,8 +3439,11 @@ static int TitanAssetService_ProcessExternalDecode(void)
     unsigned int timg_size = 0u;
     uint64_t decode_started_ms;
     uint64_t decode_elapsed_ms;
+    uint64_t decode_queued_ms;
+    uint64_t decode_dispatch_ms;
     char path[TITAN_ASSET_EXTERNAL_PATH_CAPACITY];
     char decode_stage[32];
+    char dispatch_stage[32];
     int ok;
 
     TitanAssetService_Lock();
@@ -3384,6 +3463,7 @@ static int TitanAssetService_ProcessExternalDecode(void)
     context.startup_hash = g_assets.external_decode_startup_hash;
     source = g_assets.external_source_buffer;
     source_size = g_assets.external_source_size;
+    decode_queued_ms = g_assets.external_decode_queued_ms;
     TitanAssetService_CopyText(path, sizeof(path), g_assets.external_decode_path);
     TitanAssetService_CopyText(g_assets.last_provider, sizeof(g_assets.last_provider),
         "External OPL/PS2 Launcher ART");
@@ -3404,6 +3484,16 @@ static int TitanAssetService_ProcessExternalDecode(void)
     options.minimum_source_height = context.kind == TITAN_ASSET_KIND_ICON ? 64u : 128u;
 
     decode_started_ms = TitanTime_NowMilliseconds();
+    decode_dispatch_ms = decode_started_ms >= decode_queued_ms
+        ? decode_started_ms - decode_queued_ms : 0u;
+    if (decode_dispatch_ms > 0xffffffffu) decode_dispatch_ms = 0xffffffffu;
+    (void)snprintf(dispatch_stage, sizeof(dispatch_stage), "DECODE WAIT %ums",
+        (unsigned int)decode_dispatch_ms);
+    TitanDiagnostics_ReportOperation("ASSET", TITAN_DIAG_INFO,
+        dispatch_stage, path, -1);
+    TitanDiagnostics_Event(TITAN_DIAG_INFO, TITAN_DIAG_ASSET,
+        TITAN_ASSET_DIAG_EXTERNAL_DISPATCH_TIMING, 0, context.game_index,
+        (uint32_t)context.kind, (unsigned int)decode_dispatch_ms, source_size);
     TitanDiagnostics_Event(TITAN_DIAG_INFO, TITAN_DIAG_ASSET,
         TITAN_ASSET_DIAG_EXTERNAL_DECODE_BEGIN, 0, context.game_index,
         (uint32_t)context.kind, source_size, 0u);
@@ -3432,6 +3522,7 @@ static int TitanAssetService_ProcessExternalDecode(void)
         g_assets.storage_stage_game = context.game_index;
         g_assets.storage_stage_startup_hash = context.startup_hash;
         g_assets.storage_stage_ready = 1;
+        g_assets.storage_stage_ready_ms = TitanTime_NowMilliseconds();
         if (context.kind == TITAN_ASSET_KIND_ICON)
             g_assets.games[context.game_index].icon_external_candidate = 0u;
         else
