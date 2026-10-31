@@ -49,6 +49,7 @@ typedef struct TitanAssetServiceStatus
     int artwork_wizard_active;
     int artwork_wizard_decoding;
     unsigned int current_asset_progress_percent;
+    char current_asset_stage[32];
     int manual_start_queued;
     int recovering_previous_state;
     unsigned int recovery_count;

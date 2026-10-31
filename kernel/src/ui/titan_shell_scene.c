@@ -12412,7 +12412,9 @@ static void TitanShellScene_DrawNetworkPage(float offset_x, unsigned char alpha)
         if (wizard && assets != 0)
             snprintf(detail, sizeof(detail), TitanLocalization_Compat("Asset %u of %u  |  %s  |  %u%%"),
                 done < total ? done + 1u : total, total,
-                TitanAssetService_GetManualPhaseName(assets->manual_phase), percent);
+                assets->current_asset_stage[0] != '\0'
+                    ? assets->current_asset_stage
+                    : TitanAssetService_GetManualPhaseName(assets->manual_phase), percent);
         else
             snprintf(detail, sizeof(detail), TitanLocalization_Compat("%s  |  %u / %u complete  |  %u%%"),
                 TitanAssetService_GetManualPhaseName(assets != 0 ? assets->manual_phase : TITAN_ASSET_MANUAL_IDLE),

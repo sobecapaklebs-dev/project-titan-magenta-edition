@@ -55,6 +55,7 @@ extern int DeleteThread(int thread_id);
 #define TITAN_ASSET_CACHE_DIR TITAN_ASSET_CACHE_ROOT "/assets"
 #define TITAN_ASSET_EXTERNAL_ART_DIR "mass:/ART"
 #define TITAN_ASSET_EXTERNAL_PATH_CAPACITY 256u
+#define TITAN_ASSET_EXTERNAL_ROOT_CAPACITY 32u
 #define TITAN_ASSET_TIMG_MAX_PAYLOAD \
     (TITAN_ASSET_BACKGROUND_WIDTH * TITAN_ASSET_BACKGROUND_HEIGHT * 2u)
 #define TITAN_ASSET_TIMG_MAX_SIZE \
@@ -239,6 +240,8 @@ typedef struct TitanAssetServiceState
      * It is converted to TIMG and published through the normal atomic cache
      * writer; ordinary navigation never decodes PNG/JPEG from mass:/ART. */
     unsigned char *external_source_buffer;
+    int external_art_root_checked;
+    char external_art_root[TITAN_ASSET_EXTERNAL_ROOT_CAPACITY];
     unsigned int external_source_size;
     unsigned int external_source_capacity;
     volatile int external_decode_ready;
@@ -597,10 +600,93 @@ static int TitanAssetService_BuildOplSerial(
     return n >= 0 && (unsigned int)n < capacity;
 }
 
+static int TitanAssetService_ResolveExternalArtRoot(
+    char *root,
+    unsigned int capacity
+)
+{
+    TitanStorageIoSize ignored_size;
+    int is_directory = 0;
+    int checked;
+    char cached_root[TITAN_ASSET_EXTERNAL_ROOT_CAPACITY];
+
+    if (root == 0 || capacity == 0u) return 0;
+    TitanAssetService_Lock();
+    checked = g_assets.external_art_root_checked;
+    TitanAssetService_CopyText(cached_root, sizeof(cached_root),
+        g_assets.external_art_root);
+    TitanAssetService_Unlock();
+    if (checked)
+    {
+        if (cached_root[0] == '\0') return 0;
+        TitanAssetService_CopyText(root, capacity, cached_root);
+        return 1;
+    }
+
+    /* Resolve ART once per Wizard session, not once per candidate and asset.
+     * PathInfo64 on a mass:/ path can probe mass0: through mass9:; repeating
+     * eight candidate lookups for every one of 100+ games multiplies those
+     * FileXio RPCs by thousands when ART is absent. */
+    TitanAssetService_Lock();
+    if (g_assets.artwork_wizard_active)
+    {
+        g_assets.status.current_asset_progress_percent = 1u;
+        TitanAssetService_CopyText(g_assets.status.current_asset_stage,
+            sizeof(g_assets.status.current_asset_stage), "Checking ART mount");
+    }
+    TitanAssetService_Unlock();
+    is_directory = 0;
+    if (!TitanStorageIo_PathInfo64(TITAN_ASSET_EXTERNAL_ART_DIR,
+            &is_directory, &ignored_size) || !is_directory)
+    {
+        cached_root[0] = '\0';
+    }
+    else
+    {
+        unsigned int alias;
+        cached_root[0] = '\0';
+        /* Convert the successful mass:/ lookup to its concrete massN: mount,
+         * so subsequent candidate stats do not repeat alias fallback. */
+        for (alias = 0u; alias < 10u; alias++)
+        {
+            char candidate_root[TITAN_ASSET_EXTERNAL_ROOT_CAPACITY];
+            int written = snprintf(candidate_root, sizeof(candidate_root),
+                "mass%u:/ART", alias);
+            is_directory = 0;
+            if (written > 0 && (unsigned int)written < sizeof(candidate_root) &&
+                TitanStorageIo_PathInfo64(candidate_root, &is_directory, 0) &&
+                is_directory)
+            {
+                TitanAssetService_CopyText(cached_root, sizeof(cached_root),
+                    candidate_root);
+                break;
+            }
+        }
+        if (cached_root[0] == '\0')
+            TitanAssetService_CopyText(cached_root, sizeof(cached_root),
+                TITAN_ASSET_EXTERNAL_ART_DIR);
+    }
+
+    TitanAssetService_Lock();
+    if (!g_assets.external_art_root_checked)
+    {
+        g_assets.external_art_root_checked = 1;
+        TitanAssetService_CopyText(g_assets.external_art_root,
+            sizeof(g_assets.external_art_root), cached_root);
+    }
+    TitanAssetService_CopyText(cached_root, sizeof(cached_root),
+        g_assets.external_art_root);
+    TitanAssetService_Unlock();
+    if (cached_root[0] == '\0') return 0;
+    TitanAssetService_CopyText(root, capacity, cached_root);
+    return 1;
+}
+
 static int TitanAssetService_BuildExternalArtPath(
     const char *serial,
     TitanAssetKind kind,
     unsigned int candidate,
+    const char *art_root,
     char *path,
     unsigned int capacity
 )
@@ -608,7 +694,8 @@ static int TitanAssetService_BuildExternalArtPath(
     char opl_serial[24];
     const char *suffix = 0;
     int n;
-    if (serial == 0 || path == 0 || capacity == 0u ||
+    if (serial == 0 || art_root == 0 || art_root[0] == '\0' ||
+        path == 0 || capacity == 0u ||
         !TitanAssetService_IsValidKind(kind) ||
         !TitanAssetService_BuildOplSerial(serial, opl_serial, sizeof(opl_serial)))
         return 0;
@@ -647,7 +734,7 @@ static int TitanAssetService_BuildExternalArtPath(
             default: return 0;
         }
     }
-    n = snprintf(path, capacity, "%s/%s%s", TITAN_ASSET_EXTERNAL_ART_DIR,
+    n = snprintf(path, capacity, "%s/%s%s", art_root,
         opl_serial, suffix);
     return n >= 0 && (unsigned int)n < capacity;
 }
@@ -664,19 +751,39 @@ static int TitanAssetService_FindExternalArt(
 {
     unsigned int candidate;
     unsigned int candidate_count = 8u;
+    char art_root[TITAN_ASSET_EXTERNAL_ROOT_CAPACITY];
     TitanStorageIoSize size = 0;
     int is_directory = 0;
     if (path == 0 || capacity == 0u || size_out == 0 || candidate_out == 0) return 0;
     *size_out = 0u;
     path[0] = '\0';
-    if (first_candidate >= candidate_count) return 0;
+    if (first_candidate >= candidate_count ||
+        !TitanAssetService_ResolveExternalArtRoot(art_root, sizeof(art_root)))
+        return 0;
     for (candidate = first_candidate; candidate < candidate_count; candidate++)
     {
         if (!TitanAssetService_BuildExternalArtPath(serial, kind, candidate,
-                path, capacity))
+                art_root, path, capacity))
             continue;
         is_directory = 0;
         size = 0;
+        if (g_assets.artwork_wizard_active)
+        {
+            unsigned int searched = candidate - first_candidate;
+            unsigned int remaining_candidates = candidate_count - first_candidate;
+            unsigned int progress = 1u + (remaining_candidates > 1u
+                ? (searched * 4u) / (remaining_candidates - 1u) : 0u);
+            if (progress > 5u) progress = 5u;
+            TitanAssetService_Lock();
+            if (g_assets.artwork_wizard_active)
+            {
+                g_assets.status.current_asset_progress_percent = progress;
+                (void)snprintf(g_assets.status.current_asset_stage,
+                    sizeof(g_assets.status.current_asset_stage), "Checking ART %u/8",
+                    candidate + 1u);
+            }
+            TitanAssetService_Unlock();
+        }
         if (!TitanStorageIo_PathInfo64(path, &is_directory, &size) ||
             is_directory || size == 0u || size > TITAN_ASSET_SOURCE_MAX_SIZE)
             continue;
@@ -1521,6 +1628,8 @@ int TitanAssetService_StartArtworkWizard(int all_games, unsigned int selected_ga
     g_assets.manual_cancel_requested = 0;
     g_assets.watchdog_abort_requested = 0;
     g_assets.artwork_wizard_active = 1;
+    g_assets.external_art_root_checked = 0;
+    g_assets.external_art_root[0] = '\0';
     g_assets.artwork_wizard_kind = kind;
     g_assets.artwork_wizard_cursor = 0u;
     g_assets.pipeline_last_progress_frame = g_assets.frame_index;
@@ -2056,6 +2165,8 @@ static int TitanAssetService_SelectProbeLocked(
             g_assets.current_game_ordinal = ordinal + 1u;
             g_assets.current_kind = selected_kind;
             g_assets.status.current_asset_progress_percent = 0u;
+            TitanAssetService_CopyText(g_assets.status.current_asset_stage,
+                sizeof(g_assets.status.current_asset_stage), "Searching local ART");
             *game_index = game;
             *kind = selected_kind;
             return 1;
@@ -2684,8 +2795,12 @@ static int TitanAssetService_ReadExternalStorageChunk(TitanAssetStorageJob *job)
         TitanAssetService_Lock();
         if (g_assets.artwork_wizard_active &&
             TitanAssetService_StorageJobBelongsToManualSessionLocked(job))
+        {
             g_assets.status.current_asset_progress_percent = 5u +
                 (job->total == 0u ? 0u : (job->offset * 10u) / job->total);
+            TitanAssetService_CopyText(g_assets.status.current_asset_stage,
+                sizeof(g_assets.status.current_asset_stage), "Reading artwork");
+        }
         TitanAssetService_Unlock();
     }
     TitanDiagnostics_ReportOperation("ASSET", TITAN_DIAG_INFO,
@@ -3750,7 +3865,12 @@ static int TitanAssetService_ProcessExternalDecode(void)
     }
     g_assets.external_decode_ready = 0;
     g_assets.external_decode_busy = 1;
-    if (g_assets.external_decode_wizard_import) g_assets.status.current_asset_progress_percent = 15u;
+    if (g_assets.external_decode_wizard_import)
+    {
+        g_assets.status.current_asset_progress_percent = 15u;
+        TitanAssetService_CopyText(g_assets.status.current_asset_stage,
+            sizeof(g_assets.status.current_asset_stage), "Decoding artwork");
+    }
     context.game_index = g_assets.external_decode_game;
     context.kind = g_assets.external_decode_kind;
     context.catalog_generation = g_assets.external_decode_catalog_generation;
@@ -3831,6 +3951,8 @@ static int TitanAssetService_ProcessExternalDecode(void)
                 sizeof(g_assets.download_serial), serial);
             g_assets.download_ready_for_storage = 1;
             g_assets.status.current_asset_progress_percent = 90u;
+            TitanAssetService_CopyText(g_assets.status.current_asset_stage,
+                sizeof(g_assets.status.current_asset_stage), "Saving TIMG cache");
         }
         else if (ok && !aborted)
         {
