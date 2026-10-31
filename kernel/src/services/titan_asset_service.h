@@ -146,6 +146,7 @@ void TitanAssetService_NotifyUserActivity(void);
 const char *TitanAssetService_GetManualPhaseName(TitanAssetManualPhase phase);
 
 const TitanAssetServiceStatus *TitanAssetService_GetStatus(void);
+int TitanAssetService_IsArtworkWizardActive(void);
 int TitanAssetService_IsArtworkWizardDecoding(void);
 
 #endif

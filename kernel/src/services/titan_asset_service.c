@@ -4382,6 +4382,16 @@ const TitanAssetServiceStatus *TitanAssetService_GetStatus(void)
     return &g_assets.status;
 }
 
+int TitanAssetService_IsArtworkWizardActive(void)
+{
+    int active;
+    TitanAssetService_Lock();
+    active = g_assets.artwork_wizard_active && g_assets.manual_session_active &&
+        !g_assets.manual_cancel_requested;
+    TitanAssetService_Unlock();
+    return active;
+}
+
 int TitanAssetService_IsArtworkWizardDecoding(void)
 {
     int active;

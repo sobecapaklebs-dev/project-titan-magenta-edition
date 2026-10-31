@@ -650,6 +650,22 @@ static void TitanStorageScheduler_Worker(void *argument)
             continue;
         }
 
+        /* An explicit Asset Wizard session is user-requested foreground work.
+         * Do not let ongoing library scans or background storage lanes keep it
+         * from reaching its first FileXio probe/read/write. Audio, HID,
+         * foreground jobs and VMC refresh above retain their priority. */
+        if (TitanAssetService_IsArtworkWizardActive() &&
+            TitanAssetService_HasStorageWork())
+        {
+            (void)TitanAssetService_StorageWorkerPump();
+            g_storage_scheduler.asset_scan_turn = 0;
+            g_storage_scheduler.inventory_bulk_turn = 0;
+            if (TitanAudio_StorageWorkerNeedsRealtime())
+                (void)TitanStorageScheduler_PumpAudioRealtime();
+            DelayThread(TITAN_STORAGE_WORKER_ACTIVE_DELAY_US);
+            continue;
+        }
+
         /* During the CPU-heavy Wizard decode, keep real-time audio, HID,
          * foreground requests and VMC refresh above, but do not start new
          * background FileXio/storage quanta. The Wizard's own source read and

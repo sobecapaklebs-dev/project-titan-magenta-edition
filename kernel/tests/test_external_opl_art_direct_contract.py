@@ -10,6 +10,8 @@ image = (ROOT / 'src/services/titan_asset_image.c').read_text()
 probe = service[service.index('static int TitanAssetService_SelectProbeLocked'):service.index('static int TitanAssetService_EnsureCacheDirs')]
 read_external = service[service.index('static int TitanAssetService_ReadExternalStorageChunk'):service.index('static int TitanAssetService_WriteStorageChunk')]
 storage_pump = service[service.index('int TitanAssetService_StorageWorkerPump(void)'):service.index('#if defined(__EE__) || defined(_EE)\ntypedef struct TitanAssetFetchContext')]
+worker_start = scheduler.index('static void TitanStorageScheduler_Worker(void *argument)')
+storage_worker = scheduler[worker_start:scheduler.index('int TitanStorageScheduler_Initialize(void)', worker_start)]
 decode = service[service.index('static int TitanAssetService_ProcessExternalDecode(void)\n{'):service.index('static void TitanAssetService_NetworkWorker')]
 
 checks = {
@@ -57,6 +59,7 @@ checks = {
     'per-asset-decode-progress-api': 'void (*progress)(void *user_data, unsigned int completed, unsigned int total);' in (ROOT / 'src/services/titan_asset_image.h').read_text() and 'options->progress(options->user_data, row, total)' in image,
     'wizard-progress-tracks-persist-stage': 'current_asset_progress_percent' in header and '90u +' in service and '(job->offset * 9u) / job->total' in service and 'current_asset_progress_percent = 100u' in service,
     'conversion-priority-defers-background-storage-only': 'if (TitanAssetService_IsArtworkWizardDecoding())' in scheduler and scheduler.index('TitanAudio_StorageWorkerNeedsRealtime()') < scheduler.index('if (TitanAssetService_IsArtworkWizardDecoding())') and 'foreground requests and VMC refresh above' in scheduler,
+    'wizard-storage-preempts-bulk-lanes': 'if (TitanAssetService_IsArtworkWizardActive() &&' in storage_worker and storage_worker.index('TitanStorageScheduler_RunVmcRefresh()') < storage_worker.index('TitanAssetService_IsArtworkWizardActive()') < storage_worker.index('TitanStorageScheduler_StartOrStepScan()') and 'ongoing library scans or background storage lanes keep it' in storage_worker,
     'progress-screen-has-no-control-rows': 'Current item progress' in scene and 'Return to Content' not in scene[scene.index('static void TitanShellScene_DrawNetworkPage'):scene.index('static void TitanShellScene_DrawSystemUpdatePage')],
     'progress-footer-contextual-actions': 'X Return    O Cancel & Return' in scene and 'X Return    O Back' in scene,
 }
