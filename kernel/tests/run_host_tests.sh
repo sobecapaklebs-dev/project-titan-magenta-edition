@@ -60,6 +60,19 @@ gcc \
     -Wall \
     -Wextra \
     -Werror \
+    -D__EE__ \
+    -I"$kernel_root/tests/host_stubs" \
+    -I"$kernel_root/src/services" \
+    "$kernel_root/src/services/titan_storage_io.c" \
+    "$kernel_root/tests/test_storage_io_async.c" \
+    -o /tmp/project_titan_0_3_90_storage_async_test
+/tmp/project_titan_0_3_90_storage_async_test
+
+gcc \
+    -std=gnu99 \
+    -Wall \
+    -Wextra \
+    -Werror \
     -fsanitize=address,undefined \
     -fno-omit-frame-pointer \
     -I"$kernel_root/src/services" \

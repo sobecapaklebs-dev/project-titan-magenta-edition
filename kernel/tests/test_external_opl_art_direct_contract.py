@@ -6,6 +6,7 @@ service = (ROOT / 'src/services/titan_asset_service.c').read_text()
 header = (ROOT / 'src/services/titan_asset_service.h').read_text()
 scene = (ROOT / 'src/ui/titan_shell_scene.c').read_text()
 scheduler = (ROOT / 'src/services/titan_storage_scheduler.c').read_text()
+storage_io = (ROOT / 'src/services/titan_storage_io.c').read_text()
 image = (ROOT / 'src/services/titan_asset_image.c').read_text()
 probe = service[service.index('static int TitanAssetService_SelectProbeLocked'):service.index('static int TitanAssetService_EnsureCacheDirs')]
 read_external = service[service.index('static int TitanAssetService_ReadExternalStorageChunk'):service.index('static int TitanAssetService_WriteStorageChunk')]
@@ -22,7 +23,7 @@ checks = {
     'opl-background-naming': '"_BG_00.png"' in service and '"_BG.png"' in service,
     'opl-screenshot-fallback': '"_SCR_00.png"' in service and '"_SCR.png"' in service,
     'bounded-source-size': 'size > TITAN_ASSET_SOURCE_MAX_SIZE' in service,
-    'serialized-filexio': 'TitanAssetService_ReadExternalStorageChunk' in service and 'TitanStorageIo_ReadExact' in service,
+    'serialized-filexio': 'TitanStorageIo_AsyncRead' in read_external and 'fileXioSetBlockMode(FXIO_NOWAIT)' in storage_io and 'fileXioWaitAsync(FXIO_NOWAIT' in storage_io,
     'bounded-io-quantums': ('TITAN_ASSET_IO_QUANTUM (8u * 1024u)' in service and 'TITAN_ASSET_EXTERNAL_IO_QUANTUM (32u * 1024u)' in service and 'quantum = remaining > TITAN_ASSET_EXTERNAL_IO_QUANTUM' in service),
     'separate-prefetch-buffer': 'external_prefetch_buffer' in service and 'external_source_buffer' in service and 'external_prefetch_capacity' in service,
     'prefetch-memory-pressure-falls-back-serial': 'decoder_owns_stage' in read_external and 'if (decoder_owns_stage) return 1' in read_external,
@@ -58,7 +59,7 @@ checks = {
     'wizard-api-contract': 'TitanAssetService_StartArtworkWizard' in header and 'artwork_wizard_active' in header,
     'per-asset-decode-progress-api': 'void (*progress)(void *user_data, unsigned int completed, unsigned int total);' in (ROOT / 'src/services/titan_asset_image.h').read_text() and 'options->progress(options->user_data, row, total)' in image,
     'wizard-progress-tracks-persist-stage': 'current_asset_progress_percent' in header and '90u +' in service and '(job->offset * 9u) / job->total' in service and 'current_asset_progress_percent = 100u' in service,
-    'wizard-filexio-runs-on-main-thread-after-worker-park': 'TitanAssetService_IsArtworkWizardSessionActive()' in scheduler and 'TitanStorageScheduler_IsAssetWizardWorkerParked()' in scheduler and 'TitanAssetService_StorageWorkerPump()' in scheduler and 'proven main-thread owner too' in scheduler,
+    'wizard-filexio-runs-on-main-thread-after-worker-park': 'TitanAssetService_IsArtworkWizardSessionActive()' in scheduler and 'TitanStorageScheduler_IsAssetWizardWorkerParked()' in scheduler and 'TitanAssetService_StorageWorkerPump()' in scheduler and 'TitanAssetService_StorageIoPending()' in scheduler and 'FXIO_NOWAIT' in storage_io,
     'wizard-worker-exclusive-handoff-ack': 'TitanStorageScheduler_IsAssetWizardExclusiveMode()' in storage_worker and 'TitanStorageScheduler_SetAssetWizardWorkerParked(wizard_mode)' in storage_worker,
     'wizard-park-ack-persists-until-transition': 'changed = g_storage_scheduler.asset_wizard_exclusive_mode != value;' in scheduler and 'if (changed)\n    {\n        g_storage_scheduler.asset_wizard_exclusive_mode = value;' in scheduler,
     'progress-screen-has-no-control-rows': 'Current item progress' in scene and 'Return to Content' not in scene[scene.index('static void TitanShellScene_DrawNetworkPage'):scene.index('static void TitanShellScene_DrawSystemUpdatePage')],

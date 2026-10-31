@@ -124,6 +124,7 @@ int TitanAssetService_DrawBackground(
  * one bounded cache quantum is consumed per call. */
 int TitanAssetService_HasStorageWork(void);
 int TitanAssetService_StorageWorkerPump(void);
+int TitanAssetService_StorageIoPending(void);
 
 /* Network becoming ONLINE never starts Internet asset traffic by itself.
  * Downloads are manual by default and can be explicitly enabled as an

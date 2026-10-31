@@ -14,8 +14,9 @@
 
 /*
  * The PS2SDK newlib port requires file access through the POSIX API. The
- * FileXio client still has to be initialized after the kernel reloads the
- * IOMANX/FileXio IRX pair, but no legacy fileXio* I/O call is used below.
+ * FileXio client must be initialized after the kernel reloads the
+ * IOMANX/FileXio IRX pair. Ordinary callers use POSIX; the explicit async
+ * storage context below uses only FileXio NOWAIT calls and polls completions.
  */
 #ifndef NEWLIB_PORT_AWARE
 #define NEWLIB_PORT_AWARE
@@ -125,6 +126,295 @@ static int TitanStorageIo_TranslateFlags(int flags)
     }
 
     return translated;
+}
+
+enum
+{
+    TITAN_STORAGE_IO_ASYNC_CLOSED = 0,
+    TITAN_STORAGE_IO_ASYNC_OPEN_PENDING,
+    TITAN_STORAGE_IO_ASYNC_OPEN,
+    TITAN_STORAGE_IO_ASYNC_TRANSFER_PENDING,
+    TITAN_STORAGE_IO_ASYNC_CLOSE_PENDING
+};
+
+#if defined(__EE__) || defined(_EE)
+static int TitanStorageIo_IopFlags(int flags)
+{
+    int result = 0;
+    if ((flags & O_ACCMODE) == O_WRONLY) result |= FIO_O_WRONLY;
+    else if ((flags & O_ACCMODE) == O_RDWR) result |= FIO_O_RDWR;
+    else result |= FIO_O_RDONLY;
+#ifdef O_CREAT
+    if ((flags & O_CREAT) != 0) result |= FIO_O_CREAT;
+#endif
+#ifdef O_TRUNC
+    if ((flags & O_TRUNC) != 0) result |= FIO_O_TRUNC;
+#endif
+#ifdef O_EXCL
+    if ((flags & O_EXCL) != 0) result |= FIO_O_EXCL;
+#endif
+#ifdef O_APPEND
+    if ((flags & O_APPEND) != 0) result |= FIO_O_APPEND;
+#endif
+    return result;
+}
+#endif
+
+void TitanStorageIo_AsyncReset(TitanStorageIoAsyncFile *file)
+{
+    if (file == 0) return;
+    memset(file, 0, sizeof(*file));
+    file->descriptor = -1;
+}
+
+int TitanStorageIo_AsyncPending(const TitanStorageIoAsyncFile *file)
+{
+    if (file == 0) return 0;
+    return file->state == TITAN_STORAGE_IO_ASYNC_OPEN_PENDING ||
+        file->state == TITAN_STORAGE_IO_ASYNC_TRANSFER_PENDING ||
+        file->state == TITAN_STORAGE_IO_ASYNC_CLOSE_PENDING;
+}
+
+#if defined(__EE__) || defined(_EE)
+static int TitanStorageIo_AsyncStartOpen(TitanStorageIoAsyncFile *file, int flags)
+{
+    char candidate[TITAN_STORAGE_IO_PATH_CAPACITY];
+    const char *path = file->path;
+    int result;
+    if (file->alias_index != 0u) {
+        if (!TitanStorageIo_BuildAliasPath(file->path, file->alias_index - 1u,
+                                           candidate, sizeof(candidate))) return -1;
+        path = candidate;
+    }
+    fileXioSetBlockMode(FXIO_NOWAIT);
+    result = fileXioOpen(path, TitanStorageIo_IopFlags(flags), 0666);
+    if (result < 0) {
+        fileXioSetBlockMode(FXIO_WAIT);
+        return -1;
+    }
+    file->state = TITAN_STORAGE_IO_ASYNC_OPEN_PENDING;
+    return 0;
+}
+
+static int TitanStorageIo_AsyncPollOpen(TitanStorageIoAsyncFile *file, int flags)
+{
+    int result = 0;
+    int state = fileXioWaitAsync(FXIO_NOWAIT, &result);
+    if (state == FXIO_INCOMPLETE) return TITAN_STORAGE_IO_ASYNC_PENDING;
+    fileXioSetBlockMode(FXIO_WAIT);
+    if (state == FXIO_COMPLETE && result >= 0) {
+        file->descriptor = result;
+        file->state = TITAN_STORAGE_IO_ASYNC_OPEN;
+        return TITAN_STORAGE_IO_ASYNC_DONE;
+    }
+    file->state = TITAN_STORAGE_IO_ASYNC_CLOSED;
+    while (file->alias_index < TITAN_STORAGE_IO_ALIAS_COUNT) {
+        ++file->alias_index;
+        if (TitanStorageIo_AsyncStartOpen(file, flags) == 0)
+            return TITAN_STORAGE_IO_ASYNC_PENDING;
+    }
+    return TITAN_STORAGE_IO_ASYNC_ERROR;
+}
+#endif
+
+int TitanStorageIo_AsyncRead(TitanStorageIoAsyncFile *file, const char *path,
+                             void *buffer, size_t size)
+{
+    if (file == 0 || path == 0 || buffer == 0 || size == 0u) return TITAN_STORAGE_IO_ASYNC_ERROR;
+#if defined(__EE__) || defined(_EE)
+    if (file->state == TITAN_STORAGE_IO_ASYNC_CLOSED) {
+        size_t n = strlen(path);
+        if (n >= sizeof(file->path)) return TITAN_STORAGE_IO_ASYNC_ERROR;
+        memcpy(file->path, path, n + 1u);
+        file->operation = TITAN_STORAGE_IO_READ;
+        file->open_flags = O_RDONLY;
+        file->read_buffer = (unsigned char *)buffer;
+        file->requested = size;
+        file->transferred = 0u;
+        file->alias_index = 0u;
+        if (TitanStorageIo_AsyncStartOpen(file, O_RDONLY) < 0) {
+            while (file->alias_index < TITAN_STORAGE_IO_ALIAS_COUNT) {
+                ++file->alias_index;
+                if (TitanStorageIo_AsyncStartOpen(file, O_RDONLY) == 0)
+                    return TITAN_STORAGE_IO_ASYNC_PENDING;
+            }
+            return TITAN_STORAGE_IO_ASYNC_ERROR;
+        }
+        return TITAN_STORAGE_IO_ASYNC_PENDING;
+    }
+    if (file->state == TITAN_STORAGE_IO_ASYNC_OPEN && file->transferred == file->requested &&
+        file->operation == TITAN_STORAGE_IO_READ) {
+        file->read_buffer = (unsigned char *)buffer; file->requested = size; file->transferred = 0u;
+    }
+    if (file->operation != TITAN_STORAGE_IO_READ || file->read_buffer != buffer || file->requested != size)
+        return TITAN_STORAGE_IO_ASYNC_ERROR;
+    if (file->state == TITAN_STORAGE_IO_ASYNC_OPEN_PENDING)
+        return TitanStorageIo_AsyncPollOpen(file, O_RDONLY) == TITAN_STORAGE_IO_ASYNC_DONE
+            ? TITAN_STORAGE_IO_ASYNC_PENDING :
+              (file->state == TITAN_STORAGE_IO_ASYNC_OPEN_PENDING ? TITAN_STORAGE_IO_ASYNC_PENDING :
+               TITAN_STORAGE_IO_ASYNC_ERROR);
+    if (file->state == TITAN_STORAGE_IO_ASYNC_TRANSFER_PENDING) {
+        int result = 0;
+        int state = fileXioWaitAsync(FXIO_NOWAIT, &result);
+        if (state == FXIO_INCOMPLETE) return TITAN_STORAGE_IO_ASYNC_PENDING;
+        fileXioSetBlockMode(FXIO_WAIT);
+        file->state = TITAN_STORAGE_IO_ASYNC_OPEN;
+        if (state != FXIO_COMPLETE || result <= 0 || (size_t)result > size - file->transferred)
+            return TITAN_STORAGE_IO_ASYNC_ERROR;
+        file->transferred += (size_t)result;
+        file->state = TITAN_STORAGE_IO_ASYNC_OPEN;
+        if (file->transferred == size) return TITAN_STORAGE_IO_ASYNC_DONE;
+    }
+    if (file->state != TITAN_STORAGE_IO_ASYNC_OPEN) return TITAN_STORAGE_IO_ASYNC_ERROR;
+    fileXioSetBlockMode(FXIO_NOWAIT);
+    {
+        size_t remaining = size - file->transferred;
+        int result = fileXioRead(file->descriptor, file->read_buffer + file->transferred,
+                                 remaining > (size_t)INT_MAX ? INT_MAX : (int)remaining);
+        if (result < 0) { fileXioSetBlockMode(FXIO_WAIT); return TITAN_STORAGE_IO_ASYNC_ERROR; }
+        file->state = TITAN_STORAGE_IO_ASYNC_TRANSFER_PENDING;
+    }
+    return TITAN_STORAGE_IO_ASYNC_PENDING;
+#else
+    if (file->state == TITAN_STORAGE_IO_ASYNC_CLOSED) {
+        size_t n = strlen(path);
+        int fd;
+        if (n >= sizeof(file->path)) return TITAN_STORAGE_IO_ASYNC_ERROR;
+        memcpy(file->path, path, n + 1u);
+        fd = TitanStorageIo_Open(path, TITAN_STORAGE_IO_READ);
+        if (fd < 0) return TITAN_STORAGE_IO_ASYNC_ERROR;
+        file->descriptor = fd; file->state = TITAN_STORAGE_IO_ASYNC_OPEN;
+        file->operation = TITAN_STORAGE_IO_READ; file->read_buffer = buffer;
+        file->requested = size; file->transferred = 0u;
+    }
+    if (file->state == TITAN_STORAGE_IO_ASYNC_OPEN && file->transferred == file->requested &&
+        file->operation == TITAN_STORAGE_IO_READ) {
+        file->read_buffer = (unsigned char *)buffer; file->requested = size; file->transferred = 0u;
+    }
+    if (file->state != TITAN_STORAGE_IO_ASYNC_OPEN || file->operation != TITAN_STORAGE_IO_READ ||
+        file->read_buffer != buffer || file->requested != size) return TITAN_STORAGE_IO_ASYNC_ERROR;
+    if (!TitanStorageIo_ReadExact(file->descriptor, buffer, size)) return TITAN_STORAGE_IO_ASYNC_ERROR;
+    file->transferred = size;
+    return TITAN_STORAGE_IO_ASYNC_DONE;
+#endif
+}
+
+int TitanStorageIo_AsyncWrite(TitanStorageIoAsyncFile *file, const char *path,
+                              int flags, const void *buffer, size_t size)
+{
+    if (file == 0 || path == 0 || buffer == 0 || size == 0u) return TITAN_STORAGE_IO_ASYNC_ERROR;
+#if defined(__EE__) || defined(_EE)
+    if (file->state == TITAN_STORAGE_IO_ASYNC_CLOSED) {
+        size_t n = strlen(path);
+        if (n >= sizeof(file->path)) return TITAN_STORAGE_IO_ASYNC_ERROR;
+        memcpy(file->path, path, n + 1u); file->operation = TITAN_STORAGE_IO_WRITE;
+        file->open_flags = TitanStorageIo_TranslateFlags(flags);
+        file->write_buffer = (const unsigned char *)buffer; file->requested = size;
+        file->transferred = 0u; file->alias_index = 0u;
+        if (TitanStorageIo_AsyncStartOpen(file, TitanStorageIo_TranslateFlags(flags)) < 0) {
+            while (file->alias_index < TITAN_STORAGE_IO_ALIAS_COUNT) {
+                ++file->alias_index;
+                if (TitanStorageIo_AsyncStartOpen(file, TitanStorageIo_TranslateFlags(flags)) == 0)
+                    return TITAN_STORAGE_IO_ASYNC_PENDING;
+            }
+            return TITAN_STORAGE_IO_ASYNC_ERROR;
+        }
+        return TITAN_STORAGE_IO_ASYNC_PENDING;
+    }
+    if (file->state == TITAN_STORAGE_IO_ASYNC_OPEN && file->transferred == file->requested &&
+        file->operation == TITAN_STORAGE_IO_WRITE) {
+        file->write_buffer = (const unsigned char *)buffer; file->requested = size; file->transferred = 0u;
+    }
+    if (file->operation != TITAN_STORAGE_IO_WRITE || file->write_buffer != buffer || file->requested != size)
+        return TITAN_STORAGE_IO_ASYNC_ERROR;
+    if (file->state == TITAN_STORAGE_IO_ASYNC_OPEN_PENDING)
+        return TitanStorageIo_AsyncPollOpen(file, TitanStorageIo_TranslateFlags(flags)) == TITAN_STORAGE_IO_ASYNC_DONE
+            ? TITAN_STORAGE_IO_ASYNC_PENDING :
+              (file->state == TITAN_STORAGE_IO_ASYNC_OPEN_PENDING ? TITAN_STORAGE_IO_ASYNC_PENDING :
+               TITAN_STORAGE_IO_ASYNC_ERROR);
+    if (file->state == TITAN_STORAGE_IO_ASYNC_TRANSFER_PENDING) {
+        int result = 0;
+        int state = fileXioWaitAsync(FXIO_NOWAIT, &result);
+        if (state == FXIO_INCOMPLETE) return TITAN_STORAGE_IO_ASYNC_PENDING;
+        fileXioSetBlockMode(FXIO_WAIT);
+        file->state = TITAN_STORAGE_IO_ASYNC_OPEN;
+        if (state != FXIO_COMPLETE || result <= 0 || (size_t)result > size - file->transferred)
+            return TITAN_STORAGE_IO_ASYNC_ERROR;
+        file->transferred += (size_t)result;
+        if (file->transferred == size) return TITAN_STORAGE_IO_ASYNC_DONE;
+    }
+    if (file->state != TITAN_STORAGE_IO_ASYNC_OPEN) return TITAN_STORAGE_IO_ASYNC_ERROR;
+    fileXioSetBlockMode(FXIO_NOWAIT);
+    {
+        size_t remaining = size - file->transferred;
+        int result = fileXioWrite(file->descriptor, file->write_buffer + file->transferred,
+                                  remaining > (size_t)INT_MAX ? INT_MAX : (int)remaining);
+        if (result < 0) { fileXioSetBlockMode(FXIO_WAIT); return TITAN_STORAGE_IO_ASYNC_ERROR; }
+        file->state = TITAN_STORAGE_IO_ASYNC_TRANSFER_PENDING;
+    }
+    return TITAN_STORAGE_IO_ASYNC_PENDING;
+#else
+    if (file->state == TITAN_STORAGE_IO_ASYNC_CLOSED) {
+        size_t n = strlen(path);
+        if (n >= sizeof(file->path)) return TITAN_STORAGE_IO_ASYNC_ERROR;
+        memcpy(file->path, path, n + 1u);
+        file->descriptor = TitanStorageIo_Open(path, flags);
+        if (file->descriptor < 0) return TITAN_STORAGE_IO_ASYNC_ERROR;
+        file->state = TITAN_STORAGE_IO_ASYNC_OPEN; file->operation = TITAN_STORAGE_IO_WRITE;
+        file->write_buffer = buffer; file->requested = size; file->transferred = 0u;
+    }
+    if (file->state == TITAN_STORAGE_IO_ASYNC_OPEN && file->transferred == file->requested &&
+        file->operation == TITAN_STORAGE_IO_WRITE) {
+        file->write_buffer = (const unsigned char *)buffer; file->requested = size; file->transferred = 0u;
+    }
+    if (file->state != TITAN_STORAGE_IO_ASYNC_OPEN || file->operation != TITAN_STORAGE_IO_WRITE ||
+        file->write_buffer != buffer || file->requested != size) return TITAN_STORAGE_IO_ASYNC_ERROR;
+    if (!TitanStorageIo_WriteExact(file->descriptor, buffer, size)) return TITAN_STORAGE_IO_ASYNC_ERROR;
+    file->transferred = size;
+    return TITAN_STORAGE_IO_ASYNC_DONE;
+#endif
+}
+
+int TitanStorageIo_AsyncClose(TitanStorageIoAsyncFile *file)
+{
+    if (file == 0) return TITAN_STORAGE_IO_ASYNC_ERROR;
+#if defined(__EE__) || defined(_EE)
+    if (file->state == TITAN_STORAGE_IO_ASYNC_CLOSED) return TITAN_STORAGE_IO_ASYNC_DONE;
+    if (file->state == TITAN_STORAGE_IO_ASYNC_CLOSE_PENDING) {
+        int result = 0;
+        int state = fileXioWaitAsync(FXIO_NOWAIT, &result);
+        if (state == FXIO_INCOMPLETE) return TITAN_STORAGE_IO_ASYNC_PENDING;
+        fileXioSetBlockMode(FXIO_WAIT);
+        TitanStorageIo_AsyncReset(file);
+        return state == FXIO_COMPLETE && result >= 0
+            ? TITAN_STORAGE_IO_ASYNC_DONE : TITAN_STORAGE_IO_ASYNC_ERROR;
+    }
+    if (file->state == TITAN_STORAGE_IO_ASYNC_OPEN_PENDING) {
+        int open_state = TitanStorageIo_AsyncPollOpen(file, file->open_flags);
+        if (open_state == TITAN_STORAGE_IO_ASYNC_PENDING) return open_state;
+        if (open_state != TITAN_STORAGE_IO_ASYNC_DONE) return open_state;
+    }
+    if (file->state == TITAN_STORAGE_IO_ASYNC_TRANSFER_PENDING) {
+        int ignored_result = 0;
+        int transfer_state = fileXioWaitAsync(FXIO_NOWAIT, &ignored_result);
+        if (transfer_state == FXIO_INCOMPLETE) return TITAN_STORAGE_IO_ASYNC_PENDING;
+        fileXioSetBlockMode(FXIO_WAIT);
+        file->state = TITAN_STORAGE_IO_ASYNC_OPEN;
+    }
+    if (file->state != TITAN_STORAGE_IO_ASYNC_OPEN) return TITAN_STORAGE_IO_ASYNC_ERROR;
+    fileXioSetBlockMode(FXIO_NOWAIT);
+    if (fileXioClose(file->descriptor) < 0) {
+        fileXioSetBlockMode(FXIO_WAIT); TitanStorageIo_AsyncReset(file);
+        return TITAN_STORAGE_IO_ASYNC_ERROR;
+    }
+    file->state = TITAN_STORAGE_IO_ASYNC_CLOSE_PENDING;
+    return TITAN_STORAGE_IO_ASYNC_PENDING;
+#else
+    if (file->state == TITAN_STORAGE_IO_ASYNC_CLOSED) return TITAN_STORAGE_IO_ASYNC_DONE;
+    if (TitanStorageIo_Close(file->descriptor) < 0) return TITAN_STORAGE_IO_ASYNC_ERROR;
+    TitanStorageIo_AsyncReset(file);
+    return TITAN_STORAGE_IO_ASYNC_DONE;
+#endif
 }
 
 int TitanStorageIo_InitializeClient(void)

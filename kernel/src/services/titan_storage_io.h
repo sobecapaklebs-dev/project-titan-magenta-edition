@@ -23,6 +23,36 @@ typedef int64_t TitanStorageIoResult;
 
 int TitanStorageIo_InitializeClient(void);
 
+/* Single-operation asynchronous file context. On EE, FileXio calls are submitted
+ * with FXIO_NOWAIT and completion is polled by calling the same Read/Write/Open
+ * routine again on a later frame. A context owns one descriptor and must be
+ * closed before reuse. Return values are -1 (error), 0 (still pending), 1 (done). */
+typedef struct TitanStorageIoAsyncFile
+{
+    int descriptor;
+    unsigned int state;
+    unsigned int alias_index;
+    unsigned int operation;
+    int open_flags;
+    size_t requested;
+    size_t transferred;
+    unsigned char *read_buffer;
+    const unsigned char *write_buffer;
+    char path[512];
+} TitanStorageIoAsyncFile;
+
+#define TITAN_STORAGE_IO_ASYNC_PENDING 0
+#define TITAN_STORAGE_IO_ASYNC_DONE 1
+#define TITAN_STORAGE_IO_ASYNC_ERROR (-1)
+
+void TitanStorageIo_AsyncReset(TitanStorageIoAsyncFile *file);
+int TitanStorageIo_AsyncPending(const TitanStorageIoAsyncFile *file);
+int TitanStorageIo_AsyncRead(TitanStorageIoAsyncFile *file, const char *path,
+                             void *buffer, size_t size);
+int TitanStorageIo_AsyncWrite(TitanStorageIoAsyncFile *file, const char *path,
+                              int flags, const void *buffer, size_t size);
+int TitanStorageIo_AsyncClose(TitanStorageIoAsyncFile *file);
+
 int TitanStorageIo_Open(
     const char *path,
     int flags

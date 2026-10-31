@@ -1118,12 +1118,26 @@ void TitanStorageScheduler_UpdateMainThread(void)
         TitanAssetService_IsArtworkWizardSessionActive() &&
         TitanStorageScheduler_IsAssetWizardWorkerParked())
     {
-        /* The Package Installer established that synchronous Newlib/FileXio
-         * calls can fail from a second EE thread on real hardware. Keep Wizard
-         * source reads and cache writes on the proven main-thread owner too. */
-        (void)TitanStorageScheduler_PumpAudioRealtime();
-        (void)TitanAssetService_StorageWorkerPump();
-        (void)TitanStorageScheduler_PumpAudioRealtime();
+        /* FileXio RPC ownership remains on the main thread, but bulk Wizard
+         * reads/writes are submitted with FXIO_NOWAIT and polled across frames.
+         * This preserves the proven single-owner lane without waiting for USB
+         * media in a frame-critical synchronous call. */
+        if (TitanAssetService_StorageIoPending()) {
+            /* A FileXio NOWAIT RPC owns the single IOP command slot until its
+             * poll completes. Poll it before any audio storage access; when it
+             * remains in flight, keep this frame free of competing FileXio RPCs. */
+            (void)TitanAssetService_StorageWorkerPump();
+            if (!TitanAssetService_StorageIoPending())
+                (void)TitanStorageScheduler_PumpAudioRealtime();
+        } else {
+            (void)TitanStorageScheduler_PumpAudioRealtime();
+            /* Do not start a new USB RPC while the realtime audio worker is
+             * already requesting storage service; audio owns this turn. */
+            if (!TitanAudio_StorageWorkerNeedsRealtime())
+                (void)TitanAssetService_StorageWorkerPump();
+            if (!TitanAssetService_StorageIoPending())
+                (void)TitanStorageScheduler_PumpAudioRealtime();
+        }
     }
 
     TitanStorageScheduler_RunFallbackWork();

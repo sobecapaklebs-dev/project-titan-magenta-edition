@@ -145,6 +145,9 @@ typedef struct TitanAssetStorageJob
     unsigned char external_path_checked;
     unsigned char manual_owner;
     unsigned char retry_count;
+    unsigned char io_failed;
+    unsigned char io_dirs_checked;
+    TitanStorageIoAsyncFile io_file;
     char serial[24];
     char path[256];
     char temporary_path[256];
@@ -2644,34 +2647,61 @@ int TitanAssetService_HasStorageWork(void)
 static int TitanAssetService_ReadStorageChunk(TitanAssetStorageJob *job)
 {
     TitanStorageIoSize file_size = 0;
-    unsigned int expected;
-    int fd;
-    unsigned int remaining;
-    unsigned int quantum;
+    unsigned int expected, remaining, quantum;
+    int io_result;
     if (!TitanAssetService_StorageJobIsValid(job))
-    {
-        TitanAssetService_LogStorageJobReject(job, -20);
+    { TitanAssetService_LogStorageJobReject(job, -20); return 0; }
+    if (job->io_failed) {
+        io_result = TitanStorageIo_AsyncClose(&job->io_file);
+        if (io_result == TITAN_STORAGE_IO_ASYNC_PENDING) return 1;
         return 0;
     }
     expected = TitanAssetService_ExpectedTimgSize(job->kind);
-    if (!TitanStorageIo_PathInfo64(job->path, 0, &file_size) ||
-        file_size != (TitanStorageIoSize)expected) return 0;
+    if (!job->external_path_checked) {
+        if (!TitanStorageIo_PathInfo64(job->path, 0, &file_size) ||
+            file_size != (TitanStorageIoSize)expected) return 0;
+        job->external_path_checked = 1u;
+    }
     if (job->offset == 0u) { job->total = expected; g_assets.storage_buffer_size = 0u; }
     if (job->total != expected || job->offset > job->total) return 0;
     remaining = job->total - job->offset;
-    if (remaining == 0u) return 2;
+    if (!g_assets.artwork_wizard_active) {
+        int fd;
+        if (remaining == 0u) return 2;
+        quantum = remaining > TITAN_ASSET_IO_QUANTUM ? TITAN_ASSET_IO_QUANTUM : remaining;
+        fd = TitanStorageIo_Open(job->path, TITAN_STORAGE_IO_READ);
+        if (fd < 0) return 0;
+        if ((job->offset > 0u && TitanStorageIo_Seek64(fd, job->offset,
+            TITAN_STORAGE_IO_SEEK_SET) != (TitanStorageIoOffset)job->offset) ||
+            !TitanStorageIo_ReadExact(fd, &g_assets.storage_buffer[job->offset], quantum)) {
+            TitanStorageIo_Close(fd); return 0;
+        }
+        TitanStorageIo_Close(fd);
+        job->offset += quantum; g_assets.storage_buffer_size = job->offset;
+        return job->offset >= job->total ? 2 : 1;
+    }
+    if (remaining == 0u) {
+        io_result = TitanStorageIo_AsyncClose(&job->io_file);
+        return io_result == TITAN_STORAGE_IO_ASYNC_DONE ? 2 :
+            (io_result == TITAN_STORAGE_IO_ASYNC_PENDING ? 1 : 0);
+    }
     quantum = remaining > TITAN_ASSET_IO_QUANTUM ? TITAN_ASSET_IO_QUANTUM : remaining;
-    fd = TitanStorageIo_Open(job->path, TITAN_STORAGE_IO_READ);
-    if (fd < 0) return 0;
-    if (job->offset > 0u &&
-        TitanStorageIo_Seek64(fd, job->offset, TITAN_STORAGE_IO_SEEK_SET) != (TitanStorageIoOffset)job->offset)
-    { TitanStorageIo_Close(fd); return 0; }
-    if (!TitanStorageIo_ReadExact(fd, &g_assets.storage_buffer[job->offset], quantum))
-    { TitanStorageIo_Close(fd); return 0; }
-    TitanStorageIo_Close(fd);
+    io_result = TitanStorageIo_AsyncRead(&job->io_file, job->path,
+        &g_assets.storage_buffer[job->offset], quantum);
+    if (io_result == TITAN_STORAGE_IO_ASYNC_PENDING) return 1;
+    if (io_result != TITAN_STORAGE_IO_ASYNC_DONE) {
+        job->io_failed = 1u;
+        io_result = TitanStorageIo_AsyncClose(&job->io_file);
+        return io_result == TITAN_STORAGE_IO_ASYNC_PENDING ? 1 : 0;
+    }
     job->offset += quantum;
     g_assets.storage_buffer_size = job->offset;
-    return job->offset >= job->total ? 2 : 1;
+    if (job->offset >= job->total) {
+        io_result = TitanStorageIo_AsyncClose(&job->io_file);
+        return io_result == TITAN_STORAGE_IO_ASYNC_DONE ? 2 :
+            (io_result == TITAN_STORAGE_IO_ASYNC_PENDING ? 1 : 0);
+    }
+    return 1;
 }
 
 static int TitanAssetService_ReadExternalStorageChunk(TitanAssetStorageJob *job)
@@ -2681,10 +2711,14 @@ static int TitanAssetService_ReadExternalStorageChunk(TitanAssetStorageJob *job)
     unsigned int *capacity;
     unsigned int remaining;
     unsigned int quantum;
-    int fd;
     if (!TitanAssetService_StorageJobIsValid(job))
     {
         TitanAssetService_LogStorageJobReject(job, -25);
+        return 0;
+    }
+    if (job->io_failed) {
+        int close_state = TitanStorageIo_AsyncClose(&job->io_file);
+        if (close_state == TITAN_STORAGE_IO_ASYNC_PENDING) return 1;
         return 0;
     }
     /* The expected size was discovered by FindExternalArt immediately before
@@ -2762,38 +2796,56 @@ static int TitanAssetService_ReadExternalStorageChunk(TitanAssetStorageJob *job)
         ? &g_assets.external_prefetch_capacity : &g_assets.external_source_capacity;
     if (*buffer == 0 || *capacity < job->total || job->offset > job->total)
         return 0;
-    remaining = job->total - job->offset;
-    if (remaining == 0u) return 2;
-    quantum = remaining > TITAN_ASSET_EXTERNAL_IO_QUANTUM
-        ? TITAN_ASSET_EXTERNAL_IO_QUANTUM : remaining;
-    {
-        uint64_t io_started_us = TitanTime_NowMicroseconds();
-        fd = TitanStorageIo_Open(job->path, TITAN_STORAGE_IO_READ);
-        job->external_io_elapsed_us += TitanTime_NowMicroseconds() - io_started_us;
-    }
-    if (fd < 0) return 0;
-    if (job->offset > 0u)
-    {
-        uint64_t io_started_us = TitanTime_NowMicroseconds();
-        TitanStorageIoOffset seek_result = TitanStorageIo_Seek64(
-            fd, job->offset, TITAN_STORAGE_IO_SEEK_SET);
-        job->external_io_elapsed_us += TitanTime_NowMicroseconds() - io_started_us;
-        if (seek_result != (TitanStorageIoOffset)job->offset)
+    if (!g_assets.artwork_wizard_active) {
+        int fd;
+        int read_ok;
+        remaining = job->total - job->offset;
+        if (remaining == 0u) return 2;
+        quantum = remaining > TITAN_ASSET_EXTERNAL_IO_QUANTUM
+            ? TITAN_ASSET_EXTERNAL_IO_QUANTUM : remaining;
         {
-            io_started_us = TitanTime_NowMicroseconds();
-            TitanStorageIo_Close(fd);
-            job->external_io_elapsed_us += TitanTime_NowMicroseconds() - io_started_us;
-            return 0;
+            uint64_t started = TitanTime_NowMicroseconds();
+            fd = TitanStorageIo_Open(job->path, TITAN_STORAGE_IO_READ);
+            job->external_io_elapsed_us += TitanTime_NowMicroseconds() - started;
         }
-    }
-    {
-        uint64_t io_started_us = TitanTime_NowMicroseconds();
-        int read_ok = TitanStorageIo_ReadExact(fd, &(*buffer)[job->offset], quantum);
-        job->external_io_elapsed_us += TitanTime_NowMicroseconds() - io_started_us;
-        io_started_us = TitanTime_NowMicroseconds();
-        TitanStorageIo_Close(fd);
-        job->external_io_elapsed_us += TitanTime_NowMicroseconds() - io_started_us;
+        if (fd < 0) return 0;
+        if (job->offset > 0u) {
+            uint64_t started = TitanTime_NowMicroseconds();
+            TitanStorageIoOffset seek_result = TitanStorageIo_Seek64(fd, job->offset,
+                TITAN_STORAGE_IO_SEEK_SET);
+            job->external_io_elapsed_us += TitanTime_NowMicroseconds() - started;
+            if (seek_result != (TitanStorageIoOffset)job->offset) {
+                TitanStorageIo_Close(fd); return 0;
+            }
+        }
+        {
+            uint64_t started = TitanTime_NowMicroseconds();
+            read_ok = TitanStorageIo_ReadExact(fd, &(*buffer)[job->offset], quantum);
+            job->external_io_elapsed_us += TitanTime_NowMicroseconds() - started;
+            TitanStorageIo_Close(fd);
+        }
         if (!read_ok) return 0;
+    }
+    remaining = job->total - job->offset;
+    if (g_assets.artwork_wizard_active) {
+        if (remaining == 0u) {
+            int close_state = TitanStorageIo_AsyncClose(&job->io_file);
+            return close_state == TITAN_STORAGE_IO_ASYNC_DONE ? 2 :
+                (close_state == TITAN_STORAGE_IO_ASYNC_PENDING ? 1 : 0);
+        }
+        quantum = remaining > TITAN_ASSET_EXTERNAL_IO_QUANTUM
+            ? TITAN_ASSET_EXTERNAL_IO_QUANTUM : remaining;
+        {
+            uint64_t io_started_us = TitanTime_NowMicroseconds();
+            int read_state = TitanStorageIo_AsyncRead(&job->io_file, job->path,
+                &(*buffer)[job->offset], quantum);
+            job->external_io_elapsed_us += TitanTime_NowMicroseconds() - io_started_us;
+            if (read_state == TITAN_STORAGE_IO_ASYNC_PENDING) return 1;
+            if (read_state != TITAN_STORAGE_IO_ASYNC_DONE) {
+                job->io_failed = 1u;
+                return TitanStorageIo_AsyncClose(&job->io_file) == TITAN_STORAGE_IO_ASYNC_PENDING ? 1 : 0;
+            }
+        }
     }
     job->offset += quantum;
     if (job->external_prefetch) g_assets.external_prefetch_size = job->offset;
@@ -2816,44 +2868,75 @@ static int TitanAssetService_ReadExternalStorageChunk(TitanAssetStorageJob *job)
     TitanDiagnostics_ReportOperation("ASSET", TITAN_DIAG_INFO,
         job->external_prefetch ? "PREFETCH" : "READ", job->path,
         job->total != 0u ? (int)((job->offset * 100u) / job->total) : -1);
-    return job->offset >= job->total ? 2 : 1;
+    if (job->offset >= job->total) {
+        uint64_t io_started_us = TitanTime_NowMicroseconds();
+        int close_state = TitanStorageIo_AsyncClose(&job->io_file);
+        job->external_io_elapsed_us += TitanTime_NowMicroseconds() - io_started_us;
+        return close_state == TITAN_STORAGE_IO_ASYNC_DONE ? 2 :
+            (close_state == TITAN_STORAGE_IO_ASYNC_PENDING ? 1 : 0);
+    }
+    return 1;
 }
 
 static int TitanAssetService_WriteStorageChunk(TitanAssetStorageJob *job)
 {
-    int fd;
     unsigned int remaining;
     unsigned int quantum;
     int flags;
     int retry_wizard;
     if (!TitanAssetService_StorageJobIsValid(job))
     { TitanAssetService_LogStorageJobReject(job, -30); TitanAssetService_FailStorageWrite(job, 0); return 0; }
-    if (g_assets.manual_cancel_requested)
-    { TitanAssetService_FailStorageWrite(job, 1); return 0; }
-    if (g_assets.storage_abort_requested)
+    if (g_assets.manual_cancel_requested || g_assets.storage_abort_requested)
     {
+        int cancelled = g_assets.manual_cancel_requested != 0;
+        int close_state;
         g_assets.storage_abort_requested = 0;
-        TitanAssetService_FailStorageWrite(job, 0);
+        job->io_failed = 1u;
+        close_state = TitanStorageIo_AsyncClose(&job->io_file);
+        if (close_state == TITAN_STORAGE_IO_ASYNC_PENDING) return 1;
+        TitanAssetService_FailStorageWrite(job, cancelled);
         return 0;
     }
     if (job->offset == 0u)
         TitanDiagnostics_Event(TITAN_DIAG_INFO, TITAN_DIAG_ASSET, TITAN_ASSET_DIAG_CACHE_BEGIN, 0,
             job->game_index, (uint32_t)job->kind, job->total, TITAN_ASSET_IO_QUANTUM);
-    if (!TitanAssetService_EnsureCacheDirs() || job->offset > job->total) goto fail;
+    if (job->io_failed) {
+        int close_state = TitanStorageIo_AsyncClose(&job->io_file);
+        if (close_state == TITAN_STORAGE_IO_ASYNC_PENDING) return 1;
+        goto fail;
+    }
+    if ((!job->io_dirs_checked && !TitanAssetService_EnsureCacheDirs()) || job->offset > job->total) goto fail;
+    job->io_dirs_checked = 1u;
     remaining = job->total - job->offset;
-    if (remaining == 0u) goto publish;
+    if (remaining == 0u) {
+        int close_state = TitanStorageIo_AsyncClose(&job->io_file);
+        if (close_state == TITAN_STORAGE_IO_ASYNC_PENDING) return 1;
+        if (close_state != TITAN_STORAGE_IO_ASYNC_DONE) goto fail;
+        goto publish;
+    }
     quantum = remaining > TITAN_ASSET_IO_QUANTUM ? TITAN_ASSET_IO_QUANTUM : remaining;
     flags = TITAN_STORAGE_IO_WRITE | TITAN_STORAGE_IO_CREATE;
     if (job->offset == 0u) flags |= TITAN_STORAGE_IO_TRUNCATE;
-    fd = TitanStorageIo_Open(job->temporary_path, flags);
-    if (fd < 0) goto fail;
-    if (job->offset > 0u &&
-        TitanStorageIo_Seek64(fd, job->offset, TITAN_STORAGE_IO_SEEK_SET) != (TitanStorageIoOffset)job->offset)
-    { TitanStorageIo_Close(fd); goto fail; }
-    if (!TitanStorageIo_WriteExact(fd, &g_assets.download_buffer[job->offset], quantum))
-    { TitanStorageIo_Close(fd); goto fail; }
-    (void)TitanStorageIo_Flush(fd);
-    TitanStorageIo_Close(fd);
+    if (g_assets.artwork_wizard_active) {
+        int write_state = TitanStorageIo_AsyncWrite(&job->io_file, job->temporary_path,
+            flags, &g_assets.download_buffer[job->offset], quantum);
+        if (write_state == TITAN_STORAGE_IO_ASYNC_PENDING) return 1;
+        if (write_state != TITAN_STORAGE_IO_ASYNC_DONE) {
+            job->io_failed = 1u;
+            if (TitanStorageIo_AsyncClose(&job->io_file) == TITAN_STORAGE_IO_ASYNC_PENDING) return 1;
+            goto fail;
+        }
+    } else {
+        int fd = TitanStorageIo_Open(job->temporary_path, flags);
+        if (fd < 0) goto fail;
+        if ((job->offset > 0u && TitanStorageIo_Seek64(fd, job->offset,
+            TITAN_STORAGE_IO_SEEK_SET) != (TitanStorageIoOffset)job->offset) ||
+            !TitanStorageIo_WriteExact(fd, &g_assets.download_buffer[job->offset], quantum) ||
+            !TitanStorageIo_Flush(fd)) {
+            TitanStorageIo_Close(fd); goto fail;
+        }
+        if (TitanStorageIo_Close(fd) < 0) goto fail;
+    }
     job->offset += quantum;
     g_assets.pipeline_last_progress_frame = g_assets.frame_index;
     g_assets.pipeline_last_storage_offset = job->offset;
@@ -2864,6 +2947,11 @@ static int TitanAssetService_WriteStorageChunk(TitanAssetStorageJob *job)
             (job->total == 0u ? 0u : (job->offset * 9u) / job->total);
     TitanAssetService_Unlock();
     if (job->offset < job->total) return 1;
+    {
+        int close_state = TitanStorageIo_AsyncClose(&job->io_file);
+        if (close_state == TITAN_STORAGE_IO_ASYNC_PENDING) return 1;
+        if (close_state != TITAN_STORAGE_IO_ASYNC_DONE) goto fail;
+    }
 publish:
     if (!TitanAssetService_ValidateTimg(g_assets.download_buffer, job->total, job->kind, 0, 0) ||
         !TitanStorageIo_AtomicReplace(job->temporary_path, job->path, 0)) goto fail;
@@ -2897,6 +2985,13 @@ publish:
         job->game_index, (uint32_t)job->kind, job->total, 1u);
     return 2;
 fail:
+    {
+        int close_state = TitanStorageIo_AsyncClose(&job->io_file);
+        if (close_state == TITAN_STORAGE_IO_ASYNC_PENDING) {
+            job->io_failed = 1u;
+            return 1;
+        }
+    }
     TitanAssetService_Lock();
     retry_wizard = TitanAssetService_StorageJobBelongsToManualSessionLocked(job) &&
         g_assets.artwork_wizard_active && !g_assets.manual_cancel_requested &&
@@ -2922,6 +3017,12 @@ fail:
     TitanDiagnostics_Event(TITAN_DIAG_WARN, TITAN_DIAG_ASSET, TITAN_ASSET_DIAG_CACHE_END, -1,
         job->game_index, (uint32_t)job->kind, job->offset, job->total);
     return 0;
+}
+
+int TitanAssetService_StorageIoPending(void)
+{
+    return g_assets.initialized &&
+        TitanStorageIo_AsyncPending(&g_assets.storage_job.io_file);
 }
 
 int TitanAssetService_StorageWorkerPump(void)
@@ -3036,6 +3137,8 @@ int TitanAssetService_StorageWorkerPump(void)
     job = &g_assets.storage_job;
     if (!TitanAssetService_StorageJobIsValid(job))
     {
+        int close_state = TitanStorageIo_AsyncClose(&job->io_file);
+        if (close_state == TITAN_STORAGE_IO_ASYNC_PENDING) return 1;
         TitanAssetService_LogStorageJobReject(job, -40);
         if (job->op == TITAN_ASSET_STORAGE_WRITE_DOWNLOAD)
             TitanAssetService_FailStorageWrite(job, g_assets.manual_cancel_requested ? 1 : 0);
@@ -3048,7 +3151,10 @@ int TitanAssetService_StorageWorkerPump(void)
     TitanAssetService_Lock();
     if (!TitanAssetService_StorageJobIdentityMatchesLocked(job))
     {
+        int close_state;
         TitanAssetService_Unlock();
+        close_state = TitanStorageIo_AsyncClose(&job->io_file);
+        if (close_state == TITAN_STORAGE_IO_ASYNC_PENDING) return 1;
         TitanDiagnostics_Event(TITAN_DIAG_WARN, TITAN_DIAG_ASSET, TITAN_ASSET_DIAG_CATALOG_RACE_DROP,
             -3, job->game_index, (uint32_t)job->kind, job->startup_hash, 0u);
         if (job->op == TITAN_ASSET_STORAGE_WRITE_DOWNLOAD) TitanAssetService_FailStorageWrite(job, 1);

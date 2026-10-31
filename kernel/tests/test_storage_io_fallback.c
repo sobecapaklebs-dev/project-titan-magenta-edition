@@ -67,6 +67,37 @@ int main(void)
     assert(!is_directory);
     assert(size == 1u);
     assert(access("mass0:/TITAN/value.cfg", F_OK) == 0);
+
+    /* The async facade falls back synchronously on host and preserves one
+     * sequential descriptor across separately submitted transfer quanta. */
+    {
+        TitanStorageIoAsyncFile async_file = {0};
+        const char first[] = "abc";
+        const char second[] = "defg";
+        char read_first[sizeof(first)] = {0};
+        char read_second[sizeof(second)] = {0};
+        int state;
+        state = TitanStorageIo_AsyncWrite(&async_file, "mass:/TITAN/async.tmp",
+            TITAN_STORAGE_IO_WRITE | TITAN_STORAGE_IO_CREATE | TITAN_STORAGE_IO_TRUNCATE,
+            first, sizeof(first) - 1u);
+        assert(state == TITAN_STORAGE_IO_ASYNC_DONE);
+        state = TitanStorageIo_AsyncWrite(&async_file, "mass:/TITAN/async.tmp",
+            TITAN_STORAGE_IO_WRITE | TITAN_STORAGE_IO_CREATE,
+            second, sizeof(second) - 1u);
+        assert(state == TITAN_STORAGE_IO_ASYNC_DONE);
+        assert(TitanStorageIo_AsyncClose(&async_file) == TITAN_STORAGE_IO_ASYNC_DONE);
+        state = TitanStorageIo_AsyncRead(&async_file, "mass:/TITAN/async.tmp",
+            read_first, sizeof(first) - 1u);
+        assert(state == TITAN_STORAGE_IO_ASYNC_DONE);
+        state = TitanStorageIo_AsyncRead(&async_file, "mass:/TITAN/async.tmp",
+            read_second, sizeof(second) - 1u);
+        assert(state == TITAN_STORAGE_IO_ASYNC_DONE);
+        assert(TitanStorageIo_AsyncClose(&async_file) == TITAN_STORAGE_IO_ASYNC_DONE);
+        assert(memcmp(first, read_first, sizeof(first) - 1u) == 0);
+        assert(memcmp(second, read_second, sizeof(second) - 1u) == 0);
+        assert(TitanStorageIo_Remove("mass:/TITAN/async.tmp") == 0);
+    }
+
     assert(TitanStorageIo_Remove("mass:/TITAN/value.cfg") == 0);
 
     puts("storage mass:/mass0:/ fallback tests passed");
