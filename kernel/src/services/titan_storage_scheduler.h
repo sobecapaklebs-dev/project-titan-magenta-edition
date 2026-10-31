@@ -45,6 +45,11 @@ int TitanStorageScheduler_IsPackageWorkerParked(void);
 void TitanStorageScheduler_SetTitanAppExclusiveMode(int enabled);
 int TitanStorageScheduler_IsTitanAppWorkerParked(void);
 
+/* Asset Wizard uses the main EE thread for POSIX/FileXio storage calls on
+ * hardware where the Newlib client is not reliable from a second EE thread. */
+void TitanStorageScheduler_SetAssetWizardExclusiveMode(int enabled);
+int TitanStorageScheduler_IsAssetWizardWorkerParked(void);
+
 /* Native 3D games run synchronously on the main EE thread. Game-exclusive
  * mode is separate from Titan App so a game session cannot accidentally reuse
  * a stale app parked acknowledgement. */

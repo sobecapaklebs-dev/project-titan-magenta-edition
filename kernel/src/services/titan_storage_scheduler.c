@@ -69,6 +69,8 @@ typedef struct TitanStorageSchedulerState
     int app_worker_parked;
     int game_exclusive_mode;
     int game_worker_parked;
+    int asset_wizard_exclusive_mode;
+    int asset_wizard_worker_parked;
     int vmc_refresh_requested;
     TitanUserProfile vmc_refresh_profile;
     unsigned int scan_last_progress;
@@ -183,6 +185,33 @@ int TitanStorageScheduler_IsTitanAppWorkerParked(void)
     }
     TitanStorageScheduler_Lock();
     parked = g_storage_scheduler.app_worker_parked;
+    TitanStorageScheduler_Unlock();
+    return parked;
+}
+
+static int TitanStorageScheduler_IsAssetWizardExclusiveMode(void)
+{
+    int enabled;
+    TitanStorageScheduler_Lock();
+    enabled = g_storage_scheduler.asset_wizard_exclusive_mode;
+    TitanStorageScheduler_Unlock();
+    return enabled;
+}
+
+static void TitanStorageScheduler_SetAssetWizardWorkerParked(int parked)
+{
+    TitanStorageScheduler_Lock();
+    g_storage_scheduler.asset_wizard_worker_parked = parked != 0;
+    TitanStorageScheduler_Unlock();
+}
+
+int TitanStorageScheduler_IsAssetWizardWorkerParked(void)
+{
+    int parked;
+    if (!g_storage_scheduler.initialized || !g_storage_scheduler.threaded)
+        return 1;
+    TitanStorageScheduler_Lock();
+    parked = g_storage_scheduler.asset_wizard_worker_parked;
     TitanStorageScheduler_Unlock();
     return parked;
 }
@@ -590,12 +619,14 @@ static void TitanStorageScheduler_Worker(void *argument)
          * therefore parked completely and the main thread becomes the sole
          * owner of filesystem RPCs, one bounded package step per frame. */
         if (TitanPackageInstaller_IsActive() || TitanSystemUpdate_IsActive() ||
-            TitanStorageScheduler_IsAnyExclusiveMode())
+            TitanStorageScheduler_IsAnyExclusiveMode() ||
+            TitanStorageScheduler_IsAssetWizardExclusiveMode())
         {
             int package_mode = TitanPackageInstaller_IsActive() || TitanSystemUpdate_IsActive() ||
                 TitanStorageScheduler_IsPackageExclusiveMode();
             int app_mode = TitanStorageScheduler_IsTitanAppExclusiveMode();
             int game_mode = TitanStorageScheduler_IsTitanGameExclusiveMode();
+            int wizard_mode = TitanStorageScheduler_IsAssetWizardExclusiveMode();
 
             /* Acknowledge that this worker is no longer inside, or about to
              * enter, any filesystem client.  Package Installer and Titan App
@@ -604,12 +635,14 @@ static void TitanStorageScheduler_Worker(void *argument)
             TitanStorageScheduler_SetPackageWorkerParked(package_mode);
             TitanStorageScheduler_SetTitanAppWorkerParked(app_mode);
             TitanStorageScheduler_SetTitanGameWorkerParked(game_mode);
+            TitanStorageScheduler_SetAssetWizardWorkerParked(wizard_mode);
             DelayThread(TITAN_STORAGE_WORKER_IDLE_DELAY_US);
             continue;
         }
         TitanStorageScheduler_SetPackageWorkerParked(0);
         TitanStorageScheduler_SetTitanAppWorkerParked(0);
         TitanStorageScheduler_SetTitanGameWorkerParked(0);
+        TitanStorageScheduler_SetAssetWizardWorkerParked(0);
 
         /* Keyboard's PS2SDK driver is exposed through FileXio. fileXioRead()
          * waits on the library-wide completion semaphore even when the device
@@ -646,32 +679,6 @@ static void TitanStorageScheduler_Worker(void *argument)
             {
                 (void)TitanStorageScheduler_PumpAudioRealtime();
             }
-            DelayThread(TITAN_STORAGE_WORKER_ACTIVE_DELAY_US);
-            continue;
-        }
-
-        /* An explicit Asset Wizard session is user-requested foreground work.
-         * Do not let ongoing library scans or background storage lanes keep it
-         * from reaching its first FileXio probe/read/write. Audio, HID,
-         * foreground jobs and VMC refresh above retain their priority. */
-        if (TitanAssetService_IsArtworkWizardActive() &&
-            TitanAssetService_HasStorageWork())
-        {
-            (void)TitanAssetService_StorageWorkerPump();
-            g_storage_scheduler.asset_scan_turn = 0;
-            g_storage_scheduler.inventory_bulk_turn = 0;
-            if (TitanAudio_StorageWorkerNeedsRealtime())
-                (void)TitanStorageScheduler_PumpAudioRealtime();
-            DelayThread(TITAN_STORAGE_WORKER_ACTIVE_DELAY_US);
-            continue;
-        }
-
-        /* During the CPU-heavy Wizard decode, keep real-time audio, HID,
-         * foreground requests and VMC refresh above, but do not start new
-         * background FileXio/storage quanta. The Wizard's own source read and
-         * cache write are separate phases and are never gated here. */
-        if (TitanAssetService_IsArtworkWizardDecoding())
-        {
             DelayThread(TITAN_STORAGE_WORKER_ACTIVE_DELAY_US);
             continue;
         }
@@ -960,12 +967,6 @@ static void TitanStorageScheduler_RunFallbackWork(void)
 
     (void)TitanStorageScheduler_PumpAudioRealtime();
 
-    if (TitanHealthTrace_HasStorageWork())
-    {
-        (void)TitanHealthTrace_StorageWorkerPump();
-        return;
-    }
-
     if (TitanStorageScheduler_HasForegroundWork())
     {
         TitanStorageScheduler_RunForegroundJob();
@@ -974,6 +975,19 @@ static void TitanStorageScheduler_RunFallbackWork(void)
 
     if (TitanStorageScheduler_RunVmcRefresh())
     {
+        return;
+    }
+
+    if (TitanAssetService_IsArtworkWizardSessionActive())
+    {
+        if (TitanAssetService_HasStorageWork())
+            (void)TitanAssetService_StorageWorkerPump();
+        return;
+    }
+
+    if (TitanHealthTrace_HasStorageWork())
+    {
+        (void)TitanHealthTrace_StorageWorkerPump();
         return;
     }
 
@@ -1100,8 +1114,21 @@ void TitanStorageScheduler_UpdateMainThread(void)
         TitanSystemUpdate_Update(package_budget);
     }
 
+    if (g_storage_scheduler.threaded &&
+        TitanAssetService_IsArtworkWizardSessionActive() &&
+        TitanStorageScheduler_IsAssetWizardWorkerParked())
+    {
+        /* The Package Installer established that synchronous Newlib/FileXio
+         * calls can fail from a second EE thread on real hardware. Keep Wizard
+         * source reads and cache writes on the proven main-thread owner too. */
+        (void)TitanStorageScheduler_PumpAudioRealtime();
+        (void)TitanAssetService_StorageWorkerPump();
+        (void)TitanStorageScheduler_PumpAudioRealtime();
+    }
+
     TitanStorageScheduler_RunFallbackWork();
-    if (!TitanStorageScheduler_IsAnyExclusiveMode())
+    if (!TitanStorageScheduler_IsAnyExclusiveMode() &&
+        !TitanStorageScheduler_IsAssetWizardExclusiveMode())
     {
         (void)TitanAppAssets_CommitPendingAtlas();
     }
@@ -1242,6 +1269,22 @@ void TitanStorageScheduler_SetTitanAppExclusiveMode(int enabled)
     g_storage_scheduler.app_worker_parked = 0;
     TitanStorageScheduler_Unlock();
     TitanStorageScheduler_WakeWorker();
+}
+
+void TitanStorageScheduler_SetAssetWizardExclusiveMode(int enabled)
+{
+    int value = enabled != 0;
+    int changed;
+    if (!g_storage_scheduler.initialized) return;
+    TitanStorageScheduler_Lock();
+    changed = g_storage_scheduler.asset_wizard_exclusive_mode != value;
+    if (changed)
+    {
+        g_storage_scheduler.asset_wizard_exclusive_mode = value;
+        g_storage_scheduler.asset_wizard_worker_parked = 0;
+    }
+    TitanStorageScheduler_Unlock();
+    if (changed) TitanStorageScheduler_WakeWorker();
 }
 
 void TitanStorageScheduler_SetTitanGameExclusiveMode(int enabled)

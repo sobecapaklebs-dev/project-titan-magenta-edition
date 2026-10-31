@@ -1610,6 +1610,9 @@ int TitanAssetService_StartArtworkWizard(int all_games, unsigned int selected_ga
      * is local and does not require an online network connection. */
     if (!TitanAssetService_EnsureNetworkWorker()) return 0;
 #endif
+    /* Reserve the FileXio owner before publishing Wizard-active state, so the
+     * background worker cannot race one final POSIX filesystem call. */
+    TitanStorageScheduler_SetAssetWizardExclusiveMode(1);
     TitanAssetService_Lock();
     if (g_assets.manual_session_active || g_assets.manual_start_queued ||
         g_assets.net_busy || g_assets.download_ready_for_storage ||
@@ -1617,6 +1620,7 @@ int TitanAssetService_StartArtworkWizard(int all_games, unsigned int selected_ga
         g_assets.external_decode_ready || g_assets.external_decode_busy)
     {
         TitanAssetService_Unlock();
+        TitanStorageScheduler_SetAssetWizardExclusiveMode(0);
         return 0;
     }
     g_assets.manual_session_generation++;
@@ -1660,6 +1664,7 @@ int TitanAssetService_StartArtworkWizard(int all_games, unsigned int selected_ga
         g_assets.manual_session_active = 0;
         g_assets.artwork_wizard_active = 0;
         TitanAssetService_Unlock();
+        TitanStorageScheduler_SetAssetWizardExclusiveMode(0);
         return 0;
     }
     g_assets.session_games = valid_count;
@@ -2037,7 +2042,12 @@ void TitanAssetService_UpdateMainThread(unsigned int frame_index)
     }
     TitanAssetService_Lock();
     TitanAssetService_UpdateManualPhaseLocked();
-    TitanAssetService_Unlock();
+    {
+        int wizard_session_active =
+            g_assets.artwork_wizard_active && g_assets.manual_session_active;
+        TitanAssetService_Unlock();
+        TitanStorageScheduler_SetAssetWizardExclusiveMode(wizard_session_active);
+    }
     TitanAssetService_RebuildStrip();
     TitanAssetService_RefreshStatus();
     if (g_assets.manual_recovering_previous_state && !g_assets.manual_start_queued)
@@ -4382,12 +4392,11 @@ const TitanAssetServiceStatus *TitanAssetService_GetStatus(void)
     return &g_assets.status;
 }
 
-int TitanAssetService_IsArtworkWizardActive(void)
+int TitanAssetService_IsArtworkWizardSessionActive(void)
 {
     int active;
     TitanAssetService_Lock();
-    active = g_assets.artwork_wizard_active && g_assets.manual_session_active &&
-        !g_assets.manual_cancel_requested;
+    active = g_assets.artwork_wizard_active && g_assets.manual_session_active;
     TitanAssetService_Unlock();
     return active;
 }
