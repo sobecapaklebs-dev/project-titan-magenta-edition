@@ -47,6 +47,8 @@ typedef struct TitanAssetServiceStatus
     int manual_refresh_existing;
     int manual_clear_cache;
     int artwork_wizard_active;
+    int artwork_wizard_decoding;
+    unsigned int current_asset_progress_percent;
     int manual_start_queued;
     int recovering_previous_state;
     unsigned int recovery_count;
@@ -143,5 +145,6 @@ void TitanAssetService_NotifyUserActivity(void);
 const char *TitanAssetService_GetManualPhaseName(TitanAssetManualPhase phase);
 
 const TitanAssetServiceStatus *TitanAssetService_GetStatus(void);
+int TitanAssetService_IsArtworkWizardDecoding(void);
 
 #endif

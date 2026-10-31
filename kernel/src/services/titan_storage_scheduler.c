@@ -650,6 +650,16 @@ static void TitanStorageScheduler_Worker(void *argument)
             continue;
         }
 
+        /* During the CPU-heavy Wizard decode, keep real-time audio, HID,
+         * foreground requests and VMC refresh above, but do not start new
+         * background FileXio/storage quanta. The Wizard's own source read and
+         * cache write are separate phases and are never gated here. */
+        if (TitanAssetService_IsArtworkWizardDecoding())
+        {
+            DelayThread(TITAN_STORAGE_WORKER_ACTIVE_DELAY_US);
+            continue;
+        }
+
         /* When both the library scan and visible artwork are pending, alternate
          * one bounded quantum of each. The old unconditional scan branch kept
          * returning here while scan_running and starved every artwork job below. */

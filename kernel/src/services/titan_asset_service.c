@@ -1723,6 +1723,7 @@ static void TitanAssetService_RefreshStatus(void)
     g_assets.status.manual_refresh_existing = g_assets.manual_refresh_existing;
     g_assets.status.manual_clear_cache = g_assets.manual_clear_cache;
     g_assets.status.artwork_wizard_active = g_assets.artwork_wizard_active;
+    g_assets.status.artwork_wizard_decoding = g_assets.external_decode_busy && g_assets.external_decode_wizard_import;
     g_assets.status.manual_phase = g_assets.manual_phase;
     g_assets.status.current_game_index = g_assets.current_game_index;
     g_assets.status.current_game_ordinal = g_assets.current_game_ordinal;
@@ -2054,6 +2055,7 @@ static int TitanAssetService_SelectProbeLocked(
             g_assets.current_game_index = game;
             g_assets.current_game_ordinal = ordinal + 1u;
             g_assets.current_kind = selected_kind;
+            g_assets.status.current_asset_progress_percent = 0u;
             *game_index = game;
             *kind = selected_kind;
             return 1;
@@ -2677,6 +2679,15 @@ static int TitanAssetService_ReadExternalStorageChunk(TitanAssetStorageJob *job)
     else g_assets.external_source_size = job->offset;
     g_assets.pipeline_last_progress_frame = g_assets.frame_index;
     g_assets.pipeline_last_storage_offset = job->offset;
+    if (!job->external_prefetch)
+    {
+        TitanAssetService_Lock();
+        if (g_assets.artwork_wizard_active &&
+            TitanAssetService_StorageJobBelongsToManualSessionLocked(job))
+            g_assets.status.current_asset_progress_percent = 5u +
+                (job->total == 0u ? 0u : (job->offset * 10u) / job->total);
+        TitanAssetService_Unlock();
+    }
     TitanDiagnostics_ReportOperation("ASSET", TITAN_DIAG_INFO,
         job->external_prefetch ? "PREFETCH" : "READ", job->path,
         job->total != 0u ? (int)((job->offset * 100u) / job->total) : -1);
@@ -2721,6 +2732,12 @@ static int TitanAssetService_WriteStorageChunk(TitanAssetStorageJob *job)
     job->offset += quantum;
     g_assets.pipeline_last_progress_frame = g_assets.frame_index;
     g_assets.pipeline_last_storage_offset = job->offset;
+    TitanAssetService_Lock();
+    if (g_assets.artwork_wizard_active &&
+        TitanAssetService_StorageJobBelongsToManualSessionLocked(job))
+        g_assets.status.current_asset_progress_percent = 90u +
+            (job->total == 0u ? 0u : (job->offset * 9u) / job->total);
+    TitanAssetService_Unlock();
     if (job->offset < job->total) return 1;
 publish:
     if (!TitanAssetService_ValidateTimg(g_assets.download_buffer, job->total, job->kind, 0, 0) ||
@@ -2743,6 +2760,8 @@ publish:
     if (TitanAssetService_StorageJobBelongsToManualSessionLocked(job))
     {
         g_assets.session_completed_assets++;
+        if (g_assets.artwork_wizard_active)
+            g_assets.status.current_asset_progress_percent = 100u;
         TitanAssetService_RecordManualCompletionLocked(job->kind, job->startup_hash);
     }
     if (g_assets.download_ready_for_storage && g_assets.download_game == job->game_index &&
@@ -2761,6 +2780,7 @@ fail:
     {
         job->retry_count++;
         job->offset = 0u;
+        g_assets.status.current_asset_progress_percent = 90u;
         g_assets.pipeline_last_progress_frame = g_assets.frame_index;
     }
     TitanAssetService_Unlock();
@@ -3117,6 +3137,7 @@ int TitanAssetService_StorageWorkerPump(void)
                 TitanAssetService_FreeExternalReadBufferLocked(job);
                 job->retry_count++;
                 job->offset = 0u;
+                g_assets.status.current_asset_progress_percent = 5u;
                 job->external_path_checked = 0u;
                 job->external_prefetch = 0u;
                 g_assets.pipeline_last_progress_frame = g_assets.frame_index;
@@ -3256,6 +3277,7 @@ static void TitanAssetService_ImageYield(void *user_data)
     (void)user_data;
     DelayThread(TITAN_ASSET_NET_YIELD_US);
 }
+
 
 static unsigned int TitanAssetService_BuildProviders(
     const char *serial,
@@ -3662,6 +3684,20 @@ typedef struct TitanAssetExternalDecodeContext
     int wizard_import;
 } TitanAssetExternalDecodeContext;
 
+static void TitanAssetService_ImageProgress(void *user_data, unsigned int completed, unsigned int total)
+{
+    const TitanAssetExternalDecodeContext *context =
+        (const TitanAssetExternalDecodeContext *)user_data;
+    unsigned int percent = total == 0u ? 15u : 15u + (completed >= total ? 75u : (completed * 75u) / total);
+    if (context == 0 || !context->wizard_import) return;
+    if (percent > 100u) percent = 100u;
+    TitanAssetService_Lock();
+    if (g_assets.external_decode_busy && g_assets.external_decode_wizard_import &&
+        g_assets.external_decode_game == context->game_index)
+        g_assets.status.current_asset_progress_percent = percent;
+    TitanAssetService_Unlock();
+}
+
 static int TitanAssetService_ShouldAbortExternalDecode(void *user_data)
 {
     const TitanAssetExternalDecodeContext *context =
@@ -3714,6 +3750,7 @@ static int TitanAssetService_ProcessExternalDecode(void)
     }
     g_assets.external_decode_ready = 0;
     g_assets.external_decode_busy = 1;
+    if (g_assets.external_decode_wizard_import) g_assets.status.current_asset_progress_percent = 15u;
     context.game_index = g_assets.external_decode_game;
     context.kind = g_assets.external_decode_kind;
     context.catalog_generation = g_assets.external_decode_catalog_generation;
@@ -3735,6 +3772,7 @@ static int TitanAssetService_ProcessExternalDecode(void)
     memset(&options, 0, sizeof(options));
     options.should_cancel = TitanAssetService_ShouldAbortExternalDecode;
     options.yield = TitanAssetService_ImageYield;
+    options.progress = TitanAssetService_ImageProgress;
     options.user_data = &context;
     /* Local artwork is streamed concurrently with the next storage read through
      * a second buffer. Yield less often here to avoid millisecond sleep tax per
@@ -3792,6 +3830,7 @@ static int TitanAssetService_ProcessExternalDecode(void)
             TitanAssetService_CopyText(g_assets.download_serial,
                 sizeof(g_assets.download_serial), serial);
             g_assets.download_ready_for_storage = 1;
+            g_assets.status.current_asset_progress_percent = 90u;
         }
         else if (ok && !aborted)
         {
@@ -3809,6 +3848,8 @@ static int TitanAssetService_ProcessExternalDecode(void)
             if (context.wizard_import && g_assets.artwork_wizard_active &&
                 context.session_generation == g_assets.manual_session_generation)
             {
+                if (!aborted) g_assets.status.current_asset_progress_percent = 100u;
+                else g_assets.status.current_asset_progress_percent = 0u;
                 if (aborted && !g_assets.manual_cancel_requested &&
                     context.catalog_generation == g_assets.catalog_generation &&
                     g_assets.artwork_wizard_cursor > 0u)
@@ -4217,4 +4258,14 @@ void TitanAssetService_NotifyCatalogChanged(void)
 const TitanAssetServiceStatus *TitanAssetService_GetStatus(void)
 {
     return &g_assets.status;
+}
+
+int TitanAssetService_IsArtworkWizardDecoding(void)
+{
+    int active;
+    TitanAssetService_Lock();
+    active = g_assets.artwork_wizard_active && g_assets.external_decode_busy &&
+        g_assets.external_decode_wizard_import;
+    TitanAssetService_Unlock();
+    return active;
 }

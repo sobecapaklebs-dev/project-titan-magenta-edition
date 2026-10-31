@@ -12378,64 +12378,62 @@ static void TitanShellScene_DrawNetworkPage(float offset_x, unsigned char alpha)
     if (g_scene.network_page_mode == TITAN_NETWORK_PAGE_ASSET_PROGRESS)
     {
         const TitanAssetServiceStatus *assets = TitanAssetService_GetStatus();
-        char line0[96];
-        char line1[96];
-        char line2[96];
         const TitanNeutrinoGame *current_game = 0;
+        char headline[96];
+        char detail[128];
+        char percent_text[16];
+        unsigned int done = assets != 0 ? assets->session_completed_assets +
+            assets->session_failed_assets + assets->session_unavailable_assets : 0u;
+        unsigned int total = assets != 0 ? assets->session_total_assets : 0u;
+        unsigned int percent = 0u;
         int clear_cache = g_scene.asset_wizard_progress_is_clear_cache ||
             (assets != 0 && assets->manual_clear_cache);
-        int content_operation = g_scene.asset_wizard_return_mode == TITAN_NETWORK_PAGE_ASSET_WIZARD;
-        int wizard = content_operation && !clear_cache;
-        unsigned int done = assets != 0 ? assets->session_completed_assets + assets->session_failed_assets + assets->session_unavailable_assets : 0u;
-        unsigned int total = assets != 0 ? assets->session_total_assets : 0u;
+        int wizard = g_scene.asset_wizard_return_mode == TITAN_NETWORK_PAGE_ASSET_WIZARD && !clear_cache;
+        if (wizard && assets != 0 && done < total)
+            percent = assets->current_asset_progress_percent;
+        else if (total != 0u)
+            percent = done >= total ? 100u : (done * 100u) / total;
+        if (percent > 100u) percent = 100u;
         if (assets != 0 && assets->current_game_index < TitanNeutrino_GetGameCount())
             current_game = TitanNeutrino_GetGame(assets->current_game_index);
-        snprintf(line0,sizeof(line0),"%s",assets != 0 ? TitanAssetService_GetManualPhaseName(assets->manual_phase) : TitanLocalization_Compat("Waiting"));
-        if (assets != 0 && assets->current_game_ordinal > 0u && assets->session_games > 0u)
+
+        TitanShellScene_DrawPanelBase(wizard ? "Asset Wizard" :
+            (clear_cache ? "Clear asset cache" : "Asset download"),
+            "Current item progress", offset_x, alpha);
+        if (current_game != 0)
         {
-            if (clear_cache)
-                snprintf(line1,sizeof(line1),TitanLocalization_Compat(
-                    "Game: %u / %u   Removed: %u/%u   Errors: %u"),
-                    assets->current_game_ordinal, assets->session_games,
-                    assets->session_completed_assets, assets->session_total_assets,
-                    assets->session_failed_assets);
-            else
-                snprintf(line1,sizeof(line1),TitanLocalization_Compat(wizard
-                    ? "Game: %u / %u   Converted: %u/%u   No art: %u   Errors: %u"
-                    : "Game: %u / %u   Downloaded: %u/%u   No art: %u   Errors: %u"),
-                    assets->current_game_ordinal, assets->session_games,
-                    assets->session_completed_assets, assets->session_total_assets,
-                    assets->session_unavailable_assets, assets->session_failed_assets);
+            snprintf(headline, sizeof(headline), "%s  |  %s", current_game->title,
+                assets->current_kind == TITAN_ASSET_KIND_BACKGROUND ?
+                    TitanLocalization_Compat("Background") : TitanLocalization_Compat("Icon"));
         }
         else
-            snprintf(line1,sizeof(line1),TitanLocalization_Compat("Library: %u games   Resolved: %u/%u   No art: %u   Errors: %u"),
-                assets != 0 ? assets->session_games : 0u, done, total,
-                assets != 0 ? assets->session_unavailable_assets : 0u,
-                assets != 0 ? assets->session_failed_assets : 0u);
-        if (current_game != 0)
-            snprintf(line2,sizeof(line2),"%s  |  %s  |  %s",current_game->title,
-                assets->current_kind == TITAN_ASSET_KIND_BACKGROUND ? TitanLocalization_Compat("Background") : TitanLocalization_Compat("Icon"),
-                assets->provider[0] ? assets->provider : TitanLocalization_Compat("Preparing"));
+            snprintf(headline, sizeof(headline), "%s", TitanAssetService_GetManualPhaseName(
+                assets != 0 ? assets->manual_phase : TITAN_ASSET_MANUAL_IDLE));
+        if (wizard && assets != 0)
+            snprintf(detail, sizeof(detail), TitanLocalization_Compat("Asset %u of %u  |  %s  |  %u%%"),
+                done < total ? done + 1u : total, total,
+                TitanAssetService_GetManualPhaseName(assets->manual_phase), percent);
         else
-            snprintf(line2,sizeof(line2),"%s",TitanLocalization_Compat(wizard
-                ? "One local conversion at a time; storage and UI remain responsive."
-                : (clear_cache
-                    ? "Removing cached TIMG assets in bounded storage steps."
-                    : "One transfer at a time; UI/input/audio have absolute priority.")));
-        TitanShellScene_DrawPanelBase(wizard ? "Asset Wizard"
-            : (clear_cache ? "Clear asset cache" : "Asset download"),
-            line0,offset_x,alpha);
-        TitanShellScene_DrawSettingsListRow(TITAN_ICON_SYSTEM,"Status",line1,line2,
-            TITAN_SETTINGS_ROW_TOP,offset_x,alpha,1.0f);
-        TitanShellScene_DrawSettingsListRow(TITAN_ICON_SYSTEM,
-            content_operation ? "Return to Content" : "Run in background",
-            content_operation ? "Returns to Content while the operation continues on its worker."
-                              : "Returns to Network while keeping the operation on the worker.","X",
-            TITAN_SETTINGS_ROW_TOP+TITAN_SETTINGS_ROW_STEP,offset_x,alpha,0.0f);
-        TitanShellScene_DrawSettingsListRow(TITAN_ICON_SYSTEM,
-            wizard ? "Cancel conversion" : (clear_cache ? "Cancel cleanup" : "Cancel"),
-            "Stops the asset session; already published cache remains valid.","O",
-            TITAN_SETTINGS_ROW_TOP+2.0f*TITAN_SETTINGS_ROW_STEP,offset_x,alpha,0.0f);
+            snprintf(detail, sizeof(detail), TitanLocalization_Compat("%s  |  %u / %u complete  |  %u%%"),
+                TitanAssetService_GetManualPhaseName(assets != 0 ? assets->manual_phase : TITAN_ASSET_MANUAL_IDLE),
+                done, total, percent);
+        snprintf(percent_text, sizeof(percent_text), "%u%%", percent);
+        TitanFont_DrawTextShadow(108.0f + offset_x, 103.0f, 0.72f, headline,
+            246, 248, 252, alpha);
+        TitanFont_DrawTextAlpha(108.0f + offset_x, 141.0f, 0.50f, detail,
+            174, 184, 201, alpha);
+        TitanVideo_DrawRectAlpha(108.0f + offset_x, 180.0f, 560.0f, 8.0f,
+            54, 58, 69, TitanShellScene_ModulateAlpha(205u, alpha));
+        if (percent != 0u)
+            TitanVideo_DrawRectAlpha(108.0f + offset_x, 180.0f,
+                560.0f * ((float)percent / 100.0f), 8.0f,
+                233, 43, 82, alpha);
+        TitanFont_DrawTextAlpha(681.0f + offset_x, 172.0f, 0.56f,
+            percent_text, 233, 75, 109, alpha);
+        TitanFont_DrawTextAlpha(108.0f + offset_x, 218.0f, 0.48f,
+            wizard ? TitanLocalization_Compat("Source artwork is read, converted, then saved before the next item.") :
+            TitanLocalization_Compat("The operation continues in bounded storage steps."),
+            151, 159, 179, alpha);
         return;
     }
 
@@ -16507,6 +16505,15 @@ static void TitanShellScene_DrawFooter(void)
         }
 
         TitanShellScene_DrawFooterText(footer_text, 0.46f, footer_alpha);
+    }
+    else if (g_scene.network_page_mode == TITAN_NETWORK_PAGE_ASSET_PROGRESS)
+    {
+        const TitanAssetServiceStatus *assets = TitanAssetService_GetStatus();
+        int active = assets != 0 && assets->manual_session_active;
+        const char *hint = active
+            ? "X Return    O Cancel & Return"
+            : "X Return    O Back";
+        TitanShellScene_DrawFooterText(hint, 0.50f, footer_alpha);
     }
     else if (
         g_scene.page == TITAN_SHELL_PAGE_NOTIFICATIONS

@@ -54,6 +54,11 @@ checks = {
     'single-and-library-modes': '"Convert selected icon"' in scene and '"Convert selected background"' in scene and '"Convert all artwork"' in scene,
     'clear-asset-cache-remains-separate': '"Clear asset cache"' in scene and 'TITAN_ASSET_MANUAL_CLEAR_CACHE' in service,
     'wizard-api-contract': 'TitanAssetService_StartArtworkWizard' in header and 'artwork_wizard_active' in header,
+    'per-asset-decode-progress-api': 'void (*progress)(void *user_data, unsigned int completed, unsigned int total);' in (ROOT / 'src/services/titan_asset_image.h').read_text() and 'options->progress(options->user_data, row, total)' in image,
+    'wizard-progress-tracks-persist-stage': 'current_asset_progress_percent' in header and '90u +' in service and '(job->offset * 9u) / job->total' in service and 'current_asset_progress_percent = 100u' in service,
+    'conversion-priority-defers-background-storage-only': 'if (TitanAssetService_IsArtworkWizardDecoding())' in scheduler and scheduler.index('TitanAudio_StorageWorkerNeedsRealtime()') < scheduler.index('if (TitanAssetService_IsArtworkWizardDecoding())') and 'foreground requests and VMC refresh above' in scheduler,
+    'progress-screen-has-no-control-rows': 'Current item progress' in scene and 'Return to Content' not in scene[scene.index('static void TitanShellScene_DrawNetworkPage'):scene.index('static void TitanShellScene_DrawSystemUpdatePage')],
+    'progress-footer-contextual-actions': 'X Return    O Cancel & Return' in scene and 'X Return    O Back' in scene,
 }
 
 # External image decoding is now an explicit Asset Wizard step. The conversion

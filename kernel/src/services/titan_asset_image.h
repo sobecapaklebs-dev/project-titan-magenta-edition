@@ -7,6 +7,7 @@ typedef struct TitanAssetImageOptions
 {
     int (*should_cancel)(void *user_data);
     void (*yield)(void *user_data);
+    void (*progress)(void *user_data, unsigned int completed, unsigned int total);
     void *user_data;
     unsigned int yield_every_rows;
     /* Remote artwork smaller than these bounds is rejected before resize.

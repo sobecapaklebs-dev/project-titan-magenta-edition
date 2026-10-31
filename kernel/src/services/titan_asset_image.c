@@ -193,12 +193,14 @@ static void TitanAssetImage_PngRead(png_structp png_ptr, png_bytep out, png_size
     memory->offset += length;
 }
 
-static int TitanAssetImage_Cooperate(const TitanAssetImageOptions *options, unsigned int row)
+static int TitanAssetImage_Cooperate(const TitanAssetImageOptions *options, unsigned int row, unsigned int total)
 {
     unsigned int interval;
     if (options == 0) return 1;
     if (options->should_cancel != 0 && options->should_cancel(options->user_data)) return 0;
     interval = options->yield_every_rows != 0u ? options->yield_every_rows : 8u;
+    if (options->progress != 0 && ((row % interval) == 0u || row >= total))
+        options->progress(options->user_data, row, total);
     if (options->yield != 0 && (row % interval) == 0u) options->yield(options->user_data);
     return options->should_cancel == 0 || !options->should_cancel(options->user_data);
 }
@@ -271,7 +273,7 @@ static int TitanAssetImage_DecodePng(const unsigned char *source, unsigned int s
             unsigned int cooperate_row = (unsigned int)pass * (unsigned int)height + y;
             unsigned int out_y;
             unsigned char *display = 0;
-            if (!TitanAssetImage_Cooperate(options, cooperate_row)) goto done;
+            if (!TitanAssetImage_Cooperate(options, cooperate_row, (unsigned int)interlace_passes * (unsigned int)height)) goto done;
             memset(row, 0, (size_t)rowbytes);
             if (interlace_passes > 1)
             {
@@ -294,7 +296,7 @@ static int TitanAssetImage_DecodePng(const unsigned char *source, unsigned int s
             }
         }
     }
-    if (!TitanAssetImage_Cooperate(options, (unsigned int)interlace_passes * (unsigned int)height)) goto done;
+    if (!TitanAssetImage_Cooperate(options, (unsigned int)interlace_passes * (unsigned int)height, (unsigned int)interlace_passes * (unsigned int)height)) goto done;
     png_read_end(png_ptr, info_ptr);
     ok = 1;
 done:
@@ -380,11 +382,11 @@ static int TitanAssetImage_DecodeJpeg(const unsigned char *source, unsigned int 
     while (cinfo.output_scanline < cinfo.output_height)
     {
         unsigned int y = (unsigned int)cinfo.output_scanline;
-        if (!TitanAssetImage_Cooperate(options, y)) goto done;
+        if (!TitanAssetImage_Cooperate(options, y, (unsigned int)cinfo.output_height)) goto done;
         if (jpeg_read_scanlines(&cinfo, row, 1u) != 1u) goto done;
         TitanAssetImage_ConsumeRgbaRow(&target, row[0], y, 3u);
     }
-    if (!TitanAssetImage_Cooperate(options, (unsigned int)cinfo.output_height)) goto done;
+    if (!TitanAssetImage_Cooperate(options, (unsigned int)cinfo.output_height, (unsigned int)cinfo.output_height)) goto done;
     jpeg_finish_decompress(&cinfo);
     ok = 1;
 done:
