@@ -49,6 +49,7 @@ extern int DeleteThread(int thread_id);
 #define TITAN_ASSET_RETRY_FRAMES 1800u
 #define TITAN_ASSET_MANUAL_RETRY_DELAY_FRAMES 120u
 #define TITAN_ASSET_MANUAL_MAX_ATTEMPTS 4u
+#define TITAN_ASSET_WIZARD_IO_RETRIES 2u
 #define TITAN_ASSET_STORAGE_STALL_FRAMES 900u /* 15 s without storage progress; network owns its own deadline */
 #define TITAN_ASSET_CACHE_ROOT TITAN_STORAGE_DEVICE_ROOT "/cache"
 #define TITAN_ASSET_CACHE_DIR TITAN_ASSET_CACHE_ROOT "/assets"
@@ -142,6 +143,7 @@ typedef struct TitanAssetStorageJob
     unsigned char external_buffer_allocated;
     unsigned char external_path_checked;
     unsigned char manual_owner;
+    unsigned char retry_count;
     char serial[24];
     char path[256];
     char temporary_path[256];
@@ -2279,7 +2281,8 @@ static void TitanAssetService_MarkStorageFailureLocked(
                 state->background_presence = TITAN_ASSET_PRESENCE_MISSING;
                 state->background_download_pending = 0u;
             }
-            g_assets.session_unavailable_assets++;
+            if (count_manual_failure) g_assets.session_failed_assets++;
+            else g_assets.session_unavailable_assets++;
             return;
         }
         unsigned int retry_frame = allow_retry
@@ -2466,6 +2469,10 @@ int TitanAssetService_HasStorageWork(void)
 {
     unsigned int i;
     if (!g_assets.initialized) return 0;
+    /* The wizard is deliberately strict in-order: do not advance its cursor or
+     * start the next ART read while the current source is decoding. Runtime
+     * navigation may retain the one-slot prefetch optimization below. */
+    if (g_assets.artwork_wizard_active && g_assets.external_decode_busy) return 0;
     /* Ready slots are immutable until consumed. While decoding, storage may
      * read ahead only when the active job is an external ART read (or no job
      * exists yet); cached TIMG reads share the decoder output buffer and wait. */
@@ -2682,6 +2689,7 @@ static int TitanAssetService_WriteStorageChunk(TitanAssetStorageJob *job)
     unsigned int remaining;
     unsigned int quantum;
     int flags;
+    int retry_wizard;
     if (!TitanAssetService_StorageJobIsValid(job))
     { TitanAssetService_LogStorageJobReject(job, -30); TitanAssetService_FailStorageWrite(job, 0); return 0; }
     if (g_assets.manual_cancel_requested)
@@ -2745,6 +2753,26 @@ publish:
         job->game_index, (uint32_t)job->kind, job->total, 1u);
     return 2;
 fail:
+    TitanAssetService_Lock();
+    retry_wizard = TitanAssetService_StorageJobBelongsToManualSessionLocked(job) &&
+        g_assets.artwork_wizard_active && !g_assets.manual_cancel_requested &&
+        job->retry_count < TITAN_ASSET_WIZARD_IO_RETRIES;
+    if (retry_wizard)
+    {
+        job->retry_count++;
+        job->offset = 0u;
+        g_assets.pipeline_last_progress_frame = g_assets.frame_index;
+    }
+    TitanAssetService_Unlock();
+    if (retry_wizard)
+    {
+        if (job->temporary_path[0] != '\0')
+            (void)TitanStorageIo_Remove(job->temporary_path);
+        TitanDiagnostics_Event(TITAN_DIAG_WARN, TITAN_DIAG_ASSET,
+            TITAN_ASSET_DIAG_CACHE_WRITE_FAIL, -2, job->game_index,
+            (uint32_t)job->kind, job->retry_count, job->total);
+        return 1;
+    }
     TitanAssetService_FailStorageWrite(job, 0);
     TitanDiagnostics_Event(TITAN_DIAG_WARN, TITAN_DIAG_ASSET, TITAN_ASSET_DIAG_CACHE_END, -1,
         job->game_index, (uint32_t)job->kind, job->offset, job->total);
@@ -2758,6 +2786,7 @@ int TitanAssetService_StorageWorkerPump(void)
     TitanStorageIoSize size = 0;
 
     if (!g_assets.initialized) return 0;
+    if (g_assets.artwork_wizard_active && g_assets.external_decode_busy) return 0;
     if (g_assets.external_decode_ready || g_assets.external_prefetch_ready) return 0;
     if (g_assets.external_decode_busy &&
         (g_assets.manual_clear_cache || g_assets.download_ready_for_storage ||
@@ -3078,14 +3107,34 @@ int TitanAssetService_StorageWorkerPump(void)
         }
         else if (result == 0)
         {
-            TitanAssetService_FreeExternalReadBuffer(job);
+            int retry_wizard = 0;
+            unsigned int failed_offset = job->offset;
             TitanAssetService_Lock();
-            TitanAssetService_MarkStorageFailureLocked(job, 0, 1);
+            if (TitanAssetService_StorageJobBelongsToManualSessionLocked(job) &&
+                g_assets.artwork_wizard_active && !g_assets.manual_cancel_requested &&
+                job->retry_count < TITAN_ASSET_WIZARD_IO_RETRIES)
+            {
+                TitanAssetService_FreeExternalReadBufferLocked(job);
+                job->retry_count++;
+                job->offset = 0u;
+                job->external_path_checked = 0u;
+                job->external_prefetch = 0u;
+                g_assets.pipeline_last_progress_frame = g_assets.frame_index;
+                retry_wizard = 1;
+            }
+            else
+            {
+                TitanAssetService_FreeExternalReadBufferLocked(job);
+                TitanAssetService_MarkStorageFailureLocked(job,
+                    TitanAssetService_StorageJobBelongsToManualSessionLocked(job) &&
+                        g_assets.artwork_wizard_active,
+                    1);
+            }
             TitanAssetService_Unlock();
             TitanDiagnostics_Event(TITAN_DIAG_WARN, TITAN_DIAG_ASSET,
-                TITAN_ASSET_DIAG_EXTERNAL_READ_END, -1, job->game_index,
-                (uint32_t)job->kind, job->offset, job->total);
-            memset(job, 0, sizeof(*job));
+                TITAN_ASSET_DIAG_EXTERNAL_READ_END, retry_wizard ? -2 : -1,
+                job->game_index, (uint32_t)job->kind, failed_offset, job->total);
+            if (!retry_wizard) memset(job, 0, sizeof(*job));
         }
         return 1;
     }
