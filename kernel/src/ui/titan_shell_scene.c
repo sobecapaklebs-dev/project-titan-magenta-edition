@@ -140,7 +140,7 @@
 #define TITAN_SHELL_TOP_MENU_GRID_SHIFT 244.0f
 #define TITAN_SHELL_HEADER_USER_X 252.0f
 #define TITAN_SHELL_HEADER_USER_Y 26.0f
-#define TITAN_SETTINGS_CATEGORY_COUNT 10
+#define TITAN_SETTINGS_CATEGORY_COUNT 11
 #define TITAN_SETTINGS_MAX_ROW_COUNT 17
 #define TITAN_SETTINGS_VISIBLE_ROW_COUNT 5
 #define TITAN_THEME_GRID_COLUMNS 3
@@ -238,6 +238,7 @@ typedef enum TitanSettingsCategory
 {
     TITAN_SETTINGS_USERS = 0,
     TITAN_SETTINGS_SAVED_DATA,
+    TITAN_SETTINGS_CONTENT,
     TITAN_SETTINGS_NETWORK,
     TITAN_SETTINGS_ACCESSORIES,
     TITAN_SETTINGS_STORAGE,
@@ -287,6 +288,7 @@ typedef enum TitanNetworkPageMode
     TITAN_NETWORK_PAGE_STATUS,
     TITAN_NETWORK_PAGE_SERVICES,
     TITAN_NETWORK_PAGE_GAME_DATA,
+    TITAN_NETWORK_PAGE_ASSET_WIZARD,
     TITAN_NETWORK_PAGE_ASSET_PROGRESS
 } TitanNetworkPageMode;
 
@@ -441,6 +443,8 @@ typedef struct TitanShellSceneState
     int system_update_selected_row;
     int system_update_tracking;
     TitanNetworkPageMode network_page_mode;
+    TitanNetworkPageMode asset_wizard_return_mode;
+    int asset_wizard_progress_is_clear_cache;
     int network_page_selected_row;
     int network_setup_custom;
     TitanSettingsLeafMode settings_leaf_mode;
@@ -9781,7 +9785,7 @@ static const char *TitanShellScene_GetSettingsCategoryName(
     int category
 )
 {
-    static const TitanStringId names[TITAN_SETTINGS_CATEGORY_COUNT] =
+    static const TitanStringId names[TITAN_SETTINGS_CATEGORY_COUNT - 1] =
     {
         TITAN_STR_USERS_PROFILES,
         TITAN_STR_SAVED_DATA,
@@ -9795,8 +9799,11 @@ static const char *TitanShellScene_GetSettingsCategoryName(
         TITAN_STR_DEBUG_SETTINGS
     };
 
+    if (category == TITAN_SETTINGS_CONTENT)
+        return TitanLocalization_Compat("Content");
     if (category < 0 || category >= TITAN_SETTINGS_CATEGORY_COUNT)
         return TitanLocalization_Get(TITAN_STR_SETTINGS);
+    if (category > TITAN_SETTINGS_CONTENT) category--;
     return TitanLocalization_Get(names[category]);
 }
 
@@ -9810,6 +9817,8 @@ static TitanIconId TitanShellScene_GetSettingsCategoryIcon(
             return TITAN_ICON_PROFILE_SETTINGS;
         case TITAN_SETTINGS_SAVED_DATA:
             return TITAN_ICON_VMC_UTILITY;
+        case TITAN_SETTINGS_CONTENT:
+            return TITAN_ICON_SYSTEM;
         case TITAN_SETTINGS_NETWORK:
             return TITAN_ICON_SYSTEM;
         case TITAN_SETTINGS_ACCESSORIES:
@@ -9841,6 +9850,8 @@ static int TitanShellScene_GetSettingsRowCount(
             return 5;
         case TITAN_SETTINGS_SAVED_DATA:
             return 5;
+        case TITAN_SETTINGS_CONTENT:
+            return 1;
         case TITAN_SETTINGS_NETWORK:
             return 6;
         case TITAN_SETTINGS_ACCESSORIES:
@@ -10121,6 +10132,7 @@ static void TitanShellScene_DrawSettingsRoot(
     {
         "Manage users, exclusive VMC assignments and active identity.",
         "Transfer save data between VMC storage and Memory Card.",
+        "Convert local PNG/JPEG game artwork to Titan TIMG assets.",
         "Configure Wi-Fi AR9271 and RJ45 Ethernet connectivity.",
         "Gerencie acessórios sem fio e veja dispositivos com fio conectados.",
         "Veja o espaço do Titan e gerencie aplicativos, jogos nativos e temas.",
@@ -10134,6 +10146,7 @@ static void TitanShellScene_DrawSettingsRoot(
     {
         "Create, remove and switch profiles.",
         "The VMC utility workflow foundation is ready.",
+        "Prepare the currently selected game or the full library, offline.",
         "Choose interface, credentials and connection state.",
         "Bluetooth em uma área própria; acessórios USB/SIO2 aparecem somente aqui.",
         "Inventário em background, informações e exclusão segura de conteúdo instalado.",
@@ -11431,6 +11444,17 @@ static void TitanShellScene_DrawSettingsSubpage(
             );
             break;
 
+        case TITAN_SETTINGS_CONTENT:
+        {
+            const TitanAssetServiceStatus *assets = TitanAssetService_GetStatus();
+            labels[0] = "Asset Wizard";
+            descriptions[0] = "Convert local PNG/JPEG artwork for the selected game or the entire library.";
+            values[0] = assets != 0 && assets->artwork_wizard_active
+                ? "Conversion in progress"
+                : "Offline conversion";
+            break;
+        }
+
         case TITAN_SETTINGS_NETWORK:
         {
             const TitanNetworkStatus *network = TitanNetwork_GetStatus();
@@ -12257,6 +12281,8 @@ static int TitanShellScene_GetNetworkPageRowCount(void)
             return 5;
         case TITAN_NETWORK_PAGE_GAME_DATA:
             return 4;
+        case TITAN_NETWORK_PAGE_ASSET_WIZARD:
+            return 4;
         case TITAN_NETWORK_PAGE_ASSET_PROGRESS:
             return 0;
         default:
@@ -12313,6 +12339,42 @@ static void TitanShellScene_DrawNetworkPage(float offset_x, unsigned char alpha)
         return;
     }
 
+    if (g_scene.network_page_mode == TITAN_NETWORK_PAGE_ASSET_WIZARD)
+    {
+        const TitanAssetServiceStatus *assets = TitanAssetService_GetStatus();
+        const TitanNeutrinoGame *selected_game = assets != 0
+            ? TitanNeutrino_GetGame(assets->selected_game_index) : 0;
+        const char *title = selected_game != 0 && selected_game->title[0] != '\0'
+            ? selected_game->title : "No game selected";
+        TitanShellScene_DrawPanelBase(
+            "Asset Wizard",
+            "Convert local PNG/JPEG from ART to persistent Titan TIMG assets. No Internet required.",
+            offset_x, alpha);
+        TitanShellScene_DrawSettingsListRow(TITAN_ICON_SYSTEM,
+            "Convert selected icon",
+            "Converts the selected game's OPL icon; _COV is a last-resort square crop.",
+            title, TITAN_SETTINGS_ROW_TOP, offset_x, alpha,
+            TitanShellScene_Clamp(1.0f-TitanAnimation_Absolute(g_scene.network_page_row_position),0.0f,1.0f));
+        TitanShellScene_DrawSettingsListRow(TITAN_ICON_SYSTEM,
+            "Convert selected background",
+            "Converts the selected game's OPL background or screenshot.",
+            title, TITAN_SETTINGS_ROW_TOP+TITAN_SETTINGS_ROW_STEP, offset_x, alpha,
+            TitanShellScene_Clamp(1.0f-TitanAnimation_Absolute(1.0f-g_scene.network_page_row_position),0.0f,1.0f));
+        TitanShellScene_DrawSettingsListRow(TITAN_ICON_SYSTEM,
+            "Convert all artwork",
+            "Processes available icons and backgrounds for every game in the library.",
+            assets != 0 && assets->artwork_wizard_active ? "Converting" : "Offline batch",
+            TITAN_SETTINGS_ROW_TOP+2.0f*TITAN_SETTINGS_ROW_STEP, offset_x, alpha,
+            TitanShellScene_Clamp(1.0f-TitanAnimation_Absolute(2.0f-g_scene.network_page_row_position),0.0f,1.0f));
+        TitanShellScene_DrawSettingsListRow(TITAN_ICON_SYSTEM,
+            "Clear asset cache",
+            "Removes TIMG files only; this is separate from the library cache.",
+            assets != 0 && assets->manual_clear_cache ? "Working" : "Local cache",
+            TITAN_SETTINGS_ROW_TOP+3.0f*TITAN_SETTINGS_ROW_STEP, offset_x, alpha,
+            TitanShellScene_Clamp(1.0f-TitanAnimation_Absolute(3.0f-g_scene.network_page_row_position),0.0f,1.0f));
+        return;
+    }
+
     if (g_scene.network_page_mode == TITAN_NETWORK_PAGE_ASSET_PROGRESS)
     {
         const TitanAssetServiceStatus *assets = TitanAssetService_GetStatus();
@@ -12320,16 +12382,31 @@ static void TitanShellScene_DrawNetworkPage(float offset_x, unsigned char alpha)
         char line1[96];
         char line2[96];
         const TitanNeutrinoGame *current_game = 0;
+        int clear_cache = g_scene.asset_wizard_progress_is_clear_cache ||
+            (assets != 0 && assets->manual_clear_cache);
+        int content_operation = g_scene.asset_wizard_return_mode == TITAN_NETWORK_PAGE_ASSET_WIZARD;
+        int wizard = content_operation && !clear_cache;
         unsigned int done = assets != 0 ? assets->session_completed_assets + assets->session_failed_assets + assets->session_unavailable_assets : 0u;
         unsigned int total = assets != 0 ? assets->session_total_assets : 0u;
         if (assets != 0 && assets->current_game_index < TitanNeutrino_GetGameCount())
             current_game = TitanNeutrino_GetGame(assets->current_game_index);
         snprintf(line0,sizeof(line0),"%s",assets != 0 ? TitanAssetService_GetManualPhaseName(assets->manual_phase) : TitanLocalization_Compat("Waiting"));
         if (assets != 0 && assets->current_game_ordinal > 0u && assets->session_games > 0u)
-            snprintf(line1,sizeof(line1),TitanLocalization_Compat("Game: %u / %u   Downloaded: %u/%u   No art: %u   Errors: %u"),
-                assets->current_game_ordinal, assets->session_games,
-                assets->session_completed_assets, assets->session_total_assets,
-                assets->session_unavailable_assets, assets->session_failed_assets);
+        {
+            if (clear_cache)
+                snprintf(line1,sizeof(line1),TitanLocalization_Compat(
+                    "Game: %u / %u   Removed: %u/%u   Errors: %u"),
+                    assets->current_game_ordinal, assets->session_games,
+                    assets->session_completed_assets, assets->session_total_assets,
+                    assets->session_failed_assets);
+            else
+                snprintf(line1,sizeof(line1),TitanLocalization_Compat(wizard
+                    ? "Game: %u / %u   Converted: %u/%u   No art: %u   Errors: %u"
+                    : "Game: %u / %u   Downloaded: %u/%u   No art: %u   Errors: %u"),
+                    assets->current_game_ordinal, assets->session_games,
+                    assets->session_completed_assets, assets->session_total_assets,
+                    assets->session_unavailable_assets, assets->session_failed_assets);
+        }
         else
             snprintf(line1,sizeof(line1),TitanLocalization_Compat("Library: %u games   Resolved: %u/%u   No art: %u   Errors: %u"),
                 assets != 0 ? assets->session_games : 0u, done, total,
@@ -12340,14 +12417,23 @@ static void TitanShellScene_DrawNetworkPage(float offset_x, unsigned char alpha)
                 assets->current_kind == TITAN_ASSET_KIND_BACKGROUND ? TitanLocalization_Compat("Background") : TitanLocalization_Compat("Icon"),
                 assets->provider[0] ? assets->provider : TitanLocalization_Compat("Preparing"));
         else
-            snprintf(line2,sizeof(line2),"%s",TitanLocalization_Compat("One transfer at a time; UI/input/audio have absolute priority."));
-        TitanShellScene_DrawPanelBase("Asset download",line0,offset_x,alpha);
+            snprintf(line2,sizeof(line2),"%s",TitanLocalization_Compat(wizard
+                ? "One local conversion at a time; storage and UI remain responsive."
+                : (clear_cache
+                    ? "Removing cached TIMG assets in bounded storage steps."
+                    : "One transfer at a time; UI/input/audio have absolute priority.")));
+        TitanShellScene_DrawPanelBase(wizard ? "Asset Wizard"
+            : (clear_cache ? "Clear asset cache" : "Asset download"),
+            line0,offset_x,alpha);
         TitanShellScene_DrawSettingsListRow(TITAN_ICON_SYSTEM,"Status",line1,line2,
             TITAN_SETTINGS_ROW_TOP,offset_x,alpha,1.0f);
-        TitanShellScene_DrawSettingsListRow(TITAN_ICON_SYSTEM,"Run in background",
-            "Returns to Network while keeping the operation on the low-priority worker.","X",
+        TitanShellScene_DrawSettingsListRow(TITAN_ICON_SYSTEM,
+            content_operation ? "Return to Content" : "Run in background",
+            content_operation ? "Returns to Content while the operation continues on its worker."
+                              : "Returns to Network while keeping the operation on the worker.","X",
             TITAN_SETTINGS_ROW_TOP+TITAN_SETTINGS_ROW_STEP,offset_x,alpha,0.0f);
-        TitanShellScene_DrawSettingsListRow(TITAN_ICON_SYSTEM,"Cancel",
+        TitanShellScene_DrawSettingsListRow(TITAN_ICON_SYSTEM,
+            wizard ? "Cancel conversion" : (clear_cache ? "Cancel cleanup" : "Cancel"),
             "Stops the asset session; already published cache remains valid.","O",
             TITAN_SETTINGS_ROW_TOP+2.0f*TITAN_SETTINGS_ROW_STEP,offset_x,alpha,0.0f);
         return;
@@ -13480,6 +13566,11 @@ static void TitanShellScene_OpenNetworkPage(TitanNetworkPageMode mode)
 {
     if (g_scene.network_page_mode == TITAN_NETWORK_PAGE_CLOSED)
         g_scene.network_page_transition = 0.0f;
+    if (mode == TITAN_NETWORK_PAGE_GAME_DATA ||
+        mode == TITAN_NETWORK_PAGE_ASSET_WIZARD)
+        g_scene.asset_wizard_return_mode = mode;
+    if (mode != TITAN_NETWORK_PAGE_ASSET_PROGRESS)
+        g_scene.asset_wizard_progress_is_clear_cache = 0;
     g_scene.network_page_mode = mode;
     g_scene.network_page_selected_row = 0;
     g_scene.network_page_row_position = 0.0f;
@@ -13535,7 +13626,10 @@ static int TitanShellScene_UpdateNetworkPage(const TitanInputState *input)
                 TitanAssetService_CancelManualOperation();
                 TitanNotifications_Push(TITAN_NOTIFICATION_INFO,"Assets","Operação de assets cancelada");
             }
-            TitanShellScene_OpenNetworkPage(TITAN_NETWORK_PAGE_GAME_DATA);
+            TitanShellScene_OpenNetworkPage(
+                g_scene.asset_wizard_return_mode == TITAN_NETWORK_PAGE_ASSET_WIZARD
+                    ? TITAN_NETWORK_PAGE_ASSET_WIZARD
+                    : TITAN_NETWORK_PAGE_GAME_DATA);
             return 1;
         }
         if (g_scene.network_page_mode == TITAN_NETWORK_PAGE_WIFI_LIST)
@@ -13571,7 +13665,10 @@ static int TitanShellScene_UpdateNetworkPage(const TitanInputState *input)
                     ? "Operação de assets continua em segundo plano"
                     : "Operação de assets concluída"
             );
-            TitanShellScene_OpenNetworkPage(TITAN_NETWORK_PAGE_GAME_DATA);
+            TitanShellScene_OpenNetworkPage(
+                g_scene.asset_wizard_return_mode == TITAN_NETWORK_PAGE_ASSET_WIZARD
+                    ? TITAN_NETWORK_PAGE_ASSET_WIZARD
+                    : TITAN_NETWORK_PAGE_GAME_DATA);
         }
         return 1;
     }
@@ -13591,6 +13688,54 @@ static int TitanShellScene_UpdateNetworkPage(const TitanInputState *input)
     }
 
     if (!(input->pressed & TITAN_INPUT_BUTTON_CROSS)) return 1;
+
+    if (g_scene.network_page_mode == TITAN_NETWORK_PAGE_ASSET_WIZARD)
+    {
+        const TitanAssetServiceStatus *assets = TitanAssetService_GetStatus();
+        unsigned int selected_game = assets != 0 ? assets->selected_game_index : 0xffffffffu;
+        int started = 0;
+        if (g_scene.network_page_selected_row == 3)
+        {
+            if (TitanAssetService_IsManualOperationActive())
+            {
+                started = 1;
+                g_scene.asset_wizard_progress_is_clear_cache =
+                    assets != 0 && assets->manual_clear_cache;
+            }
+            else
+            {
+                started = TitanAssetService_StartClearCache();
+                g_scene.asset_wizard_progress_is_clear_cache = started;
+            }
+        }
+        else if (assets != 0 && assets->artwork_wizard_active)
+        {
+            g_scene.asset_wizard_progress_is_clear_cache = 0;
+            TitanShellScene_OpenNetworkPage(TITAN_NETWORK_PAGE_ASSET_PROGRESS);
+            return 1;
+        }
+        else
+        {
+            g_scene.asset_wizard_progress_is_clear_cache = 0;
+            int all_games = g_scene.network_page_selected_row == 2;
+            TitanAssetKind kind = g_scene.network_page_selected_row == 0
+                ? TITAN_ASSET_KIND_ICON
+                : (g_scene.network_page_selected_row == 1
+                    ? TITAN_ASSET_KIND_BACKGROUND : 0);
+            started = TitanAssetService_StartArtworkWizard(
+                all_games, selected_game, kind);
+        }
+        if (!started)
+        {
+            TitanNotifications_Push(TITAN_NOTIFICATION_WARNING,"Asset Wizard",
+                selected_game < TitanNeutrino_GetGameCount()
+                    ? "Could not start conversion; another asset operation may be active"
+                    : "Select a game in the library before converting its artwork");
+            return 1;
+        }
+        TitanShellScene_OpenNetworkPage(TITAN_NETWORK_PAGE_ASSET_PROGRESS);
+        return 1;
+    }
 
     if (g_scene.network_page_mode == TITAN_NETWORK_PAGE_GAME_DATA)
     {
@@ -13629,10 +13774,20 @@ static int TitanShellScene_UpdateNetworkPage(const TitanInputState *input)
         }
         else if (g_scene.network_page_selected_row == 2)
         {
-            if (!TitanAssetService_IsManualOperationActive() && !TitanAssetService_StartClearCache())
+            if (!TitanAssetService_IsManualOperationActive())
             {
-                TitanNotifications_Push(TITAN_NOTIFICATION_WARNING,"Assets","Could not start cache cleanup");
-                return 1;
+                if (!TitanAssetService_StartClearCache())
+                {
+                    TitanNotifications_Push(TITAN_NOTIFICATION_WARNING,"Assets","Could not start cache cleanup");
+                    return 1;
+                }
+                g_scene.asset_wizard_progress_is_clear_cache = 1;
+            }
+            else
+            {
+                const TitanAssetServiceStatus *assets = TitanAssetService_GetStatus();
+                g_scene.asset_wizard_progress_is_clear_cache =
+                    assets != 0 && assets->manual_clear_cache;
             }
             TitanShellScene_OpenNetworkPage(TITAN_NETWORK_PAGE_ASSET_PROGRESS);
         }
@@ -18960,6 +19115,13 @@ static void TitanShellScene_UpdateFixedStep(
                         TitanShellScene_RunDebugSettingsAction(
                             g_scene.settings_selected_row
                         );
+                    }
+                    else if (
+                        g_scene.settings_selected_category == TITAN_SETTINGS_CONTENT &&
+                        g_scene.settings_selected_row == 0
+                    )
+                    {
+                        TitanShellScene_OpenNetworkPage(TITAN_NETWORK_PAGE_ASSET_WIZARD);
                     }
                     else if (
                         g_scene.settings_selected_category == TITAN_SETTINGS_NETWORK

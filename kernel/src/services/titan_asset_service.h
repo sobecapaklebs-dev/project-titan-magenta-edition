@@ -32,7 +32,8 @@ typedef enum TitanAssetManualPhase
     TITAN_ASSET_MANUAL_CLEAR_CACHE,
     TITAN_ASSET_MANUAL_RECOVERING,
     TITAN_ASSET_MANUAL_COMPLETE,
-    TITAN_ASSET_MANUAL_CANCELLED
+    TITAN_ASSET_MANUAL_CANCELLED,
+    TITAN_ASSET_MANUAL_IMPORT_ARTWORK
 } TitanAssetManualPhase;
 
 typedef struct TitanAssetServiceStatus
@@ -45,6 +46,7 @@ typedef struct TitanAssetServiceStatus
     int manual_session_active;
     int manual_refresh_existing;
     int manual_clear_cache;
+    int artwork_wizard_active;
     int manual_start_queued;
     int recovering_previous_state;
     unsigned int recovery_count;
@@ -125,6 +127,10 @@ int TitanAssetService_StorageWorkerPump(void);
  * optional automatic mode from Settings > Network > Dados de jogos. */
 int TitanAssetService_StartManualDownload(int refresh_existing);
 int TitanAssetService_StartClearCache(void);
+/* Converts local mass:/ART sources for one game or the whole catalog to the
+ * existing persistent TIMG cache. kind is ICON, BACKGROUND, or 0 for both. */
+int TitanAssetService_StartArtworkWizard(int all_games, unsigned int selected_game,
+    TitanAssetKind kind);
 void TitanAssetService_CancelManualOperation(void);
 int TitanAssetService_IsManualOperationActive(void);
 int TitanAssetService_IsAutomaticDownloadEnabled(void);

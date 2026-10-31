@@ -63,7 +63,8 @@ for token in ('"Ribbon Scarlet"','"Ribbon Vinho"','"Ribbon Ciano"','"Ribbon Crep
 assert 'TitanTheme_CanDelete' in theme and 'TitanTheme_Delete' in theme
 assert 'TitanPackageInstaller_RefreshThemes' in pi
 # Settings/UI requirements.
-assert '#define TITAN_SETTINGS_CATEGORY_COUNT 10' in ui
+assert '#define TITAN_SETTINGS_CATEGORY_COUNT 11' in ui
+assert 'TITAN_SETTINGS_CONTENT' in ui and '"Asset Wizard"' in ui
 assert '"Network"' in ui and 'TitanShellScene_RunNetworkAction' in ui
 assert '"Add theme"' in ui and 'TitanShellScene_OpenThemeInstaller' in ui
 assert 'TITAN_INPUT_BUTTON_TRIANGLE' in ui and 'TitanTheme_Delete' in ui

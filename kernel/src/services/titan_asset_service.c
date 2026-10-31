@@ -174,6 +174,10 @@ typedef struct TitanAssetServiceState
     unsigned int manual_recovery_count;
     int manual_refresh_existing;
     volatile int manual_clear_cache;
+    volatile int artwork_wizard_active;
+    TitanAssetKind artwork_wizard_kind;
+    unsigned int artwork_wizard_cursor;
+    unsigned int artwork_wizard_asset_count;
     volatile int manual_cancel_requested;
     volatile int watchdog_abort_requested;
     volatile int storage_abort_requested;
@@ -229,10 +233,9 @@ typedef struct TitanAssetServiceState
     volatile int download_ready_for_storage;
     unsigned char *source_buffer;
 
-    /* OPL/PS2 Launcher ART is consumed in-place from mass:/ART. The storage
-     * worker reads one compressed PNG/JPEG at a time into this transient
-     * buffer; the existing low-priority asset worker decodes it directly to
-     * the normal in-RAM TIMG staging buffer. Nothing is written back to disk. */
+    /* Raw OPL/PS2 Launcher artwork is read only by the explicit Asset Wizard.
+     * It is converted to TIMG and published through the normal atomic cache
+     * writer; ordinary navigation never decodes PNG/JPEG from mass:/ART. */
     unsigned char *external_source_buffer;
     unsigned int external_source_size;
     unsigned int external_source_capacity;
@@ -243,6 +246,8 @@ typedef struct TitanAssetServiceState
     unsigned int external_decode_candidate;
     uint32_t external_decode_startup_hash;
     unsigned int external_decode_catalog_generation;
+    unsigned int external_decode_session_generation;
+    int external_decode_wizard_import;
     char external_decode_path[TITAN_ASSET_EXTERNAL_PATH_CAPACITY];
 
     /* One-slot look-ahead: while the decode worker reads external_source_buffer,
@@ -613,16 +618,15 @@ static int TitanAssetService_BuildExternalArtPath(
     {
         switch (candidate)
         {
-            /* OPL cover art is the expected tile artwork; retain ICO and
-             * PS2 Launcher bare-ID fallbacks for existing ART directories. */
-            case 0u: suffix = "_COV.png"; break;
-            case 1u: suffix = "_COV.jpg"; break;
-            case 2u: suffix = "_COV2.png"; break;
-            case 3u: suffix = "_COV2.jpg"; break;
-            case 4u: suffix = "_ICO.png"; break;
-            case 5u: suffix = "_ICO.jpg"; break;
-            case 6u: suffix = ".png"; break;
-            case 7u: suffix = ".jpg"; break;
+            case 0u: suffix = "_ICO.png"; break;
+            case 1u: suffix = "_ICO.jpg"; break;
+            case 2u: suffix = ".png"; break;
+            case 3u: suffix = ".jpg"; break;
+            case 4u: suffix = "_COV2.png"; break;
+            case 5u: suffix = "_COV2.jpg"; break;
+            /* OPL cover art is the final icon fallback; the decoder center-crops it. */
+            case 6u: suffix = "_COV.png"; break;
+            case 7u: suffix = "_COV.jpg"; break;
             default: return 0;
         }
     }
@@ -725,6 +729,8 @@ static void TitanAssetService_PromoteExternalPrefetchLocked(void)
     g_assets.external_decode_candidate = g_assets.external_prefetch_candidate;
     g_assets.external_decode_startup_hash = g_assets.external_prefetch_startup_hash;
     g_assets.external_decode_catalog_generation = g_assets.external_prefetch_catalog_generation;
+    g_assets.external_decode_session_generation = g_assets.manual_session_generation;
+    g_assets.external_decode_wizard_import = g_assets.artwork_wizard_active;
     TitanAssetService_CopyText(g_assets.external_decode_path,
         sizeof(g_assets.external_decode_path), g_assets.external_prefetch_path);
     g_assets.external_prefetch_buffer = 0;
@@ -1264,6 +1270,7 @@ const char *TitanAssetService_GetManualPhaseName(TitanAssetManualPhase phase)
         case TITAN_ASSET_MANUAL_RECOVERING: return "Recuperando operacao anterior";
         case TITAN_ASSET_MANUAL_COMPLETE: return "Concluido";
         case TITAN_ASSET_MANUAL_CANCELLED: return "Cancelado";
+        case TITAN_ASSET_MANUAL_IMPORT_ARTWORK: return "Convertendo artwork para TIMG";
         case TITAN_ASSET_MANUAL_IDLE:
         default: return "Aguardando";
     }
@@ -1357,11 +1364,24 @@ static void TitanAssetService_UpdateManualPhaseLocked(void)
             g_assets.manual_session_active = 0;
             g_assets.manual_cancel_requested = 0;
             g_assets.manual_clear_cache = 0;
+            g_assets.artwork_wizard_active = 0;
 #if defined(__EE__) || defined(_EE)
             TitanHttpClient_ResetSession();
 #endif
             TitanAssetService_SetManualPhaseLocked(TITAN_ASSET_MANUAL_CANCELLED);
             TitanAssetService_LogSessionEnd(-1);
+        }
+        return;
+    }
+    if (g_assets.artwork_wizard_active)
+    {
+        if (g_assets.artwork_wizard_cursor >= g_assets.artwork_wizard_asset_count &&
+            TitanAssetService_ManualPipelineDrainedLocked())
+        {
+            g_assets.manual_session_active = 0;
+            g_assets.artwork_wizard_active = 0;
+            TitanAssetService_SetManualPhaseLocked(TITAN_ASSET_MANUAL_COMPLETE);
+            TitanAssetService_LogSessionEnd(g_assets.session_failed_assets == 0u ? 0 : -1);
         }
         return;
     }
@@ -1458,6 +1478,98 @@ int TitanAssetService_StartManualDownload(int refresh_existing)
         g_assets.session_games, refresh_existing ? 1u : 0u,
         g_assets.session_total_assets, g_assets.selected_game_index);
     return 1;
+}
+
+int TitanAssetService_StartArtworkWizard(int all_games, unsigned int selected_game,
+    TitanAssetKind kind)
+{
+    unsigned int count;
+    unsigned int built;
+    unsigned int i;
+    unsigned int valid_count = 0u;
+    if (!g_assets.initialized ||
+        (kind != 0 && !TitanAssetService_IsValidKind(kind))) return 0;
+    count = TitanNeutrino_GetGameCount();
+    if (count > TITAN_NEUTRINO_GAME_CAPACITY) count = TITAN_NEUTRINO_GAME_CAPACITY;
+    if (!all_games)
+    {
+        const TitanNeutrinoGame *game = TitanNeutrino_GetGame(selected_game);
+        if (selected_game >= count || game == 0 || game->startup[0] == '\0') return 0;
+    }
+#if defined(__EE__) || defined(_EE)
+    /* The low-priority worker owns cooperative PNG/JPEG decoding. Conversion
+     * is local and does not require an online network connection. */
+    if (!TitanAssetService_EnsureNetworkWorker()) return 0;
+#endif
+    TitanAssetService_Lock();
+    if (g_assets.manual_session_active || g_assets.manual_start_queued ||
+        g_assets.net_busy || g_assets.download_ready_for_storage ||
+        g_assets.storage_stage_ready || g_assets.storage_job.op != TITAN_ASSET_STORAGE_NONE ||
+        g_assets.external_decode_ready || g_assets.external_decode_busy)
+    {
+        TitanAssetService_Unlock();
+        return 0;
+    }
+    g_assets.manual_session_generation++;
+    if (g_assets.manual_session_generation == 0u) g_assets.manual_session_generation = 1u;
+    g_assets.manual_session_active = 1;
+    g_assets.manual_start_queued = 0;
+    g_assets.manual_refresh_existing = 0;
+    g_assets.manual_clear_cache = 0;
+    g_assets.manual_cancel_requested = 0;
+    g_assets.watchdog_abort_requested = 0;
+    g_assets.artwork_wizard_active = 1;
+    g_assets.artwork_wizard_kind = kind;
+    g_assets.artwork_wizard_cursor = 0u;
+    g_assets.pipeline_last_progress_frame = g_assets.frame_index;
+    g_assets.current_game_index = TITAN_ASSET_INVALID_GAME;
+    g_assets.current_game_ordinal = 0u;
+    g_assets.current_kind = kind == TITAN_ASSET_KIND_BACKGROUND
+        ? TITAN_ASSET_KIND_BACKGROUND : TITAN_ASSET_KIND_ICON;
+    if (all_games)
+    {
+        built = TitanAssetService_BuildManualOrderLocked(count);
+        for (i = 0u; i < built; i++)
+        {
+            unsigned int game_index = g_assets.manual_order[i];
+            const TitanNeutrinoGame *game = TitanNeutrino_GetGame(game_index);
+            if (game == 0 || game->startup[0] == '\0') continue;
+            TitanAssetService_SyncGameIdentityLocked(game_index);
+            g_assets.manual_order[valid_count++] = game_index;
+        }
+    }
+    else
+    {
+        TitanAssetService_SyncGameIdentityLocked(selected_game);
+        g_assets.manual_order[0] = selected_game;
+        valid_count = 1u;
+    }
+    if (valid_count == 0u)
+    {
+        g_assets.manual_session_active = 0;
+        g_assets.artwork_wizard_active = 0;
+        TitanAssetService_Unlock();
+        return 0;
+    }
+    g_assets.session_games = valid_count;
+    g_assets.artwork_wizard_asset_count = valid_count * (kind == 0 ? 2u : 1u);
+    g_assets.manual_probe_cursor = 0u;
+    g_assets.manual_icon_download_cursor = 0u;
+    g_assets.manual_background_download_cursor = 0u;
+    g_assets.session_total_assets = g_assets.artwork_wizard_asset_count;
+    g_assets.session_completed_assets = 0u;
+    g_assets.session_failed_assets = 0u;
+    g_assets.session_unavailable_assets = 0u;
+    g_assets.manual_completed_icon_count = 0u;
+    g_assets.manual_completed_background_count = 0u;
+    TitanAssetService_CopyText(g_assets.last_provider, sizeof(g_assets.last_provider),
+        "Asset Wizard");
+    TitanAssetService_SetManualPhaseLocked(TITAN_ASSET_MANUAL_IMPORT_ARTWORK);
+    TitanAssetService_Unlock();
+    TitanDiagnostics_Event(TITAN_DIAG_INFO, TITAN_DIAG_ASSET,
+        TITAN_ASSET_DIAG_SESSION_BEGIN, 0, valid_count,
+        (uint32_t)kind, valid_count * (kind == 0 ? 2u : 1u), all_games ? 1u : selected_game);
+    return valid_count != 0u;
 }
 
 int TitanAssetService_StartClearCache(void)
@@ -1608,6 +1720,7 @@ static void TitanAssetService_RefreshStatus(void)
     g_assets.status.recovery_count = g_assets.manual_recovery_count;
     g_assets.status.manual_refresh_existing = g_assets.manual_refresh_existing;
     g_assets.status.manual_clear_cache = g_assets.manual_clear_cache;
+    g_assets.status.artwork_wizard_active = g_assets.artwork_wizard_active;
     g_assets.status.manual_phase = g_assets.manual_phase;
     g_assets.status.current_game_index = g_assets.current_game_index;
     g_assets.status.current_game_ordinal = g_assets.current_game_ordinal;
@@ -1914,6 +2027,38 @@ static int TitanAssetService_SelectProbeLocked(
 {
     unsigned int i;
 
+    if (g_assets.artwork_wizard_active && !g_assets.manual_cancel_requested)
+    {
+        while (g_assets.artwork_wizard_cursor < g_assets.artwork_wizard_asset_count)
+        {
+            unsigned int item = g_assets.artwork_wizard_cursor++;
+            unsigned int ordinal;
+            unsigned int game;
+            TitanAssetKind selected_kind;
+            if (g_assets.artwork_wizard_kind == 0)
+            {
+                ordinal = item / 2u;
+                selected_kind = (item & 1u) == 0u
+                    ? TITAN_ASSET_KIND_ICON : TITAN_ASSET_KIND_BACKGROUND;
+            }
+            else
+            {
+                ordinal = item;
+                selected_kind = g_assets.artwork_wizard_kind;
+            }
+            if (ordinal >= g_assets.session_games) continue;
+            game = g_assets.manual_order[ordinal];
+            TitanAssetService_SyncGameIdentityLocked(game);
+            g_assets.current_game_index = game;
+            g_assets.current_game_ordinal = ordinal + 1u;
+            g_assets.current_kind = selected_kind;
+            *game_index = game;
+            *kind = selected_kind;
+            return 1;
+        }
+        return 0;
+    }
+
     if (g_assets.manual_session_active && !g_assets.manual_refresh_existing &&
         !g_assets.manual_clear_cache)
     {
@@ -2121,6 +2266,22 @@ static void TitanAssetService_MarkStorageFailureLocked(
     state = &g_assets.games[job->game_index];
     {
         int manual = TitanAssetService_StorageJobBelongsToManualSessionLocked(job);
+        if (manual && g_assets.artwork_wizard_active)
+        {
+            /* Import mode never falls through to Internet download retries. */
+            if (job->kind == TITAN_ASSET_KIND_ICON)
+            {
+                state->icon_presence = TITAN_ASSET_PRESENCE_MISSING;
+                state->icon_download_pending = 0u;
+            }
+            else
+            {
+                state->background_presence = TITAN_ASSET_PRESENCE_MISSING;
+                state->background_download_pending = 0u;
+            }
+            g_assets.session_unavailable_assets++;
+            return;
+        }
         unsigned int retry_frame = allow_retry
             ? (manual ? g_assets.frame_index : g_assets.frame_index + TITAN_ASSET_RETRY_FRAMES)
             : 0u;
@@ -2153,7 +2314,26 @@ static void TitanAssetService_FailStorageWrite(TitanAssetStorageJob *job, int ca
     if (!cancelled)
     {
         int manual = TitanAssetService_StorageJobBelongsToManualSessionLocked(job);
-        if (manual)
+        if (manual && g_assets.artwork_wizard_active)
+        {
+            TitanAssetGameState *state = job->game_index < TITAN_NEUTRINO_GAME_CAPACITY
+                ? &g_assets.games[job->game_index] : 0;
+            if (state != 0)
+            {
+                if (job->kind == TITAN_ASSET_KIND_ICON)
+                {
+                    state->icon_presence = TITAN_ASSET_PRESENCE_MISSING;
+                    state->icon_download_pending = 0u;
+                }
+                else
+                {
+                    state->background_presence = TITAN_ASSET_PRESENCE_MISSING;
+                    state->background_download_pending = 0u;
+                }
+            }
+            g_assets.session_failed_assets++;
+        }
+        else if (manual)
         {
             TitanAssetGameState *state = job->game_index < TITAN_NEUTRINO_GAME_CAPACITY ? &g_assets.games[job->game_index] : 0;
             unsigned int attempts = state == 0 ? TITAN_ASSET_MANUAL_MAX_ATTEMPTS :
@@ -2302,7 +2482,11 @@ int TitanAssetService_HasStorageWork(void)
     /* Missing-only manual sessions drive their cache probes through the
      * serialized Storage Scheduler. Do not depend on the visible/idle probe
      * flags: the manual ordered catalog is its own explicit work queue. */
+    if (g_assets.artwork_wizard_active && !g_assets.manual_cancel_requested &&
+        g_assets.artwork_wizard_cursor < g_assets.artwork_wizard_asset_count)
+        return 1;
     if (g_assets.manual_session_active && !g_assets.manual_refresh_existing &&
+        !g_assets.artwork_wizard_active &&
         g_assets.manual_probe_cursor < g_assets.session_games)
         return 1;
     if (g_assets.storage_job.op != TITAN_ASSET_STORAGE_NONE ||
@@ -2705,13 +2889,10 @@ int TitanAssetService_StorageWorkerPump(void)
     if (job->op == TITAN_ASSET_STORAGE_PROBE_ICON || job->op == TITAN_ASSET_STORAGE_PROBE_BACKGROUND)
     {
         unsigned int expected = TitanAssetService_ExpectedTimgSize(job->kind);
-        int present = TitanStorageIo_PathInfo64(job->path, 0, &size) && size == (TitanStorageIoSize)expected;
-        if (present)
-        {
-            job->op = job->kind == TITAN_ASSET_KIND_ICON ? TITAN_ASSET_STORAGE_LOAD_ICON : TITAN_ASSET_STORAGE_LOAD_BACKGROUND;
-            job->offset = 0u; job->total = expected; g_assets.status.cache_hits++; return 1;
-        }
-        if (TitanStorageIo_PathInfo64(job->path, 0, &size) && size != 0u) (void)TitanStorageIo_Remove(job->path);
+        int wizard_import = g_assets.artwork_wizard_active;
+        /* Raw artwork is deliberately consumed only by the explicit wizard.
+         * Normal navigation reads validated TIMG from the persistent cache. */
+        if (wizard_import)
         {
             unsigned int external_size = 0u;
             unsigned int external_candidate = 0u;
@@ -2750,8 +2931,21 @@ int TitanAssetService_StorageWorkerPump(void)
                 return 1;
             }
         }
-        TitanDiagnostics_ReportOperation("ASSET", TITAN_DIAG_INFO,
-            "NOT FOUND", job->serial, -1);
+        {
+            int present = TitanStorageIo_PathInfo64(job->path, 0, &size) &&
+                size == (TitanStorageIoSize)expected;
+            if (present)
+            {
+                job->op = job->kind == TITAN_ASSET_KIND_ICON
+                    ? TITAN_ASSET_STORAGE_LOAD_ICON : TITAN_ASSET_STORAGE_LOAD_BACKGROUND;
+                job->offset = 0u;
+                job->total = expected;
+                g_assets.status.cache_hits++;
+                return 1;
+            }
+        }
+        if (TitanStorageIo_PathInfo64(job->path, 0, &size) && size != 0u)
+            (void)TitanStorageIo_Remove(job->path);
         TitanAssetService_Lock();
         TitanAssetService_MarkStorageFailureLocked(job, 0, 1);
         g_assets.status.cache_misses++;
@@ -2833,6 +3027,8 @@ int TitanAssetService_StorageWorkerPump(void)
                     g_assets.external_decode_candidate = job->external_candidate;
                     g_assets.external_decode_startup_hash = job->startup_hash;
                     g_assets.external_decode_catalog_generation = job->catalog_generation;
+                    g_assets.external_decode_session_generation = g_assets.manual_session_generation;
+                    g_assets.external_decode_wizard_import = g_assets.artwork_wizard_active;
                     TitanAssetService_CopyText(g_assets.external_decode_path,
                         sizeof(g_assets.external_decode_path), job->path);
                     g_assets.external_decode_queued_ms = TitanTime_NowMilliseconds();
@@ -3108,7 +3304,11 @@ static int TitanAssetService_SelectDownload(
     if (!g_assets.download_ready_for_storage && !g_assets.storage_stage_ready &&
         g_assets.storage_job.op == TITAN_ASSET_STORAGE_NONE)
     {
-        if (g_assets.manual_session_active && !g_assets.manual_clear_cache)
+        if (g_assets.artwork_wizard_active)
+        {
+            /* Local conversion never enters the HTTP provider pipeline. */
+        }
+        else if (g_assets.manual_session_active && !g_assets.manual_clear_cache)
         {
             TitanAssetKind wanted =
                 (g_assets.manual_phase == TITAN_ASSET_MANUAL_PROBE_ICONS ||
@@ -3408,7 +3608,9 @@ typedef struct TitanAssetExternalDecodeContext
     TitanAssetKind kind;
     unsigned int catalog_generation;
     unsigned int candidate;
+    unsigned int session_generation;
     uint32_t startup_hash;
+    int wizard_import;
 } TitanAssetExternalDecodeContext;
 
 static int TitanAssetService_ShouldAbortExternalDecode(void *user_data)
@@ -3424,7 +3626,12 @@ static int TitanAssetService_ShouldAbortExternalDecode(void *user_data)
         TitanPackageInstaller_IsActive() || TitanSystemUpdate_IsActive() ||
         TitanAppRuntime_IsActive() || TitanStorageScheduler_IsForegroundBusy())
         return 1;
-    if (context->kind == TITAN_ASSET_KIND_BACKGROUND &&
+    if (context->wizard_import &&
+        (!g_assets.artwork_wizard_active || !g_assets.manual_session_active ||
+         g_assets.manual_cancel_requested ||
+         context->session_generation != g_assets.manual_session_generation))
+        return 1;
+    if (!context->wizard_import && context->kind == TITAN_ASSET_KIND_BACKGROUND &&
         g_assets.selected_game_index != context->game_index)
         return 1;
     return 0;
@@ -3444,6 +3651,8 @@ static int TitanAssetService_ProcessExternalDecode(void)
     char path[TITAN_ASSET_EXTERNAL_PATH_CAPACITY];
     char decode_stage[32];
     char dispatch_stage[32];
+    char serial[24] = {0};
+    int have_serial = 0;
     int ok;
 
     TitanAssetService_Lock();
@@ -3460,14 +3669,19 @@ static int TitanAssetService_ProcessExternalDecode(void)
     context.kind = g_assets.external_decode_kind;
     context.catalog_generation = g_assets.external_decode_catalog_generation;
     context.candidate = g_assets.external_decode_candidate;
+    context.session_generation = g_assets.external_decode_session_generation;
     context.startup_hash = g_assets.external_decode_startup_hash;
+    context.wizard_import = g_assets.external_decode_wizard_import;
     source = g_assets.external_source_buffer;
     source_size = g_assets.external_source_size;
     decode_queued_ms = g_assets.external_decode_queued_ms;
     TitanAssetService_CopyText(path, sizeof(path), g_assets.external_decode_path);
     TitanAssetService_CopyText(g_assets.last_provider, sizeof(g_assets.last_provider),
-        "External OPL/PS2 Launcher ART");
+        context.wizard_import ? "Asset Wizard" : "External OPL/PS2 Launcher ART");
     TitanAssetService_Unlock();
+    if (context.wizard_import)
+        have_serial = TitanAssetService_NormalizeSerial(context.game_index, serial,
+            sizeof(serial));
 
     memset(&options, 0, sizeof(options));
     options.should_cancel = TitanAssetService_ShouldAbortExternalDecode;
@@ -3515,42 +3729,60 @@ static int TitanAssetService_ProcessExternalDecode(void)
     {
         int aborted = TitanAssetService_ShouldAbortExternalDecode(&context);
         TitanAssetService_Lock();
-        if (ok && !aborted)
+        if (ok && !aborted && context.wizard_import &&
+            g_assets.artwork_wizard_active &&
+            context.session_generation == g_assets.manual_session_generation && have_serial)
         {
-        g_assets.storage_buffer_size = timg_size;
-        g_assets.storage_stage_kind = context.kind;
-        g_assets.storage_stage_game = context.game_index;
-        g_assets.storage_stage_startup_hash = context.startup_hash;
-        g_assets.storage_stage_ready = 1;
-        g_assets.storage_stage_ready_ms = TitanTime_NowMilliseconds();
-        if (context.kind == TITAN_ASSET_KIND_ICON)
-            g_assets.games[context.game_index].icon_external_candidate = 0u;
-        else
-            g_assets.games[context.game_index].background_external_candidate = 0u;
-        if (g_assets.manual_session_active && !g_assets.manual_refresh_existing)
-            g_assets.session_completed_assets++;
-    }
+            memcpy(g_assets.download_buffer, g_assets.storage_buffer, timg_size);
+            g_assets.download_size = timg_size;
+            g_assets.download_kind = context.kind;
+            g_assets.download_game = context.game_index;
+            g_assets.download_startup_hash = context.startup_hash;
+            g_assets.download_session_generation = context.session_generation;
+            g_assets.download_manual_owner = 1u;
+            TitanAssetService_CopyText(g_assets.download_serial,
+                sizeof(g_assets.download_serial), serial);
+            g_assets.download_ready_for_storage = 1;
+        }
+        else if (ok && !aborted)
+        {
+            g_assets.storage_buffer_size = timg_size;
+            g_assets.storage_stage_kind = context.kind;
+            g_assets.storage_stage_game = context.game_index;
+            g_assets.storage_stage_startup_hash = context.startup_hash;
+            g_assets.storage_stage_ready = 1;
+            g_assets.storage_stage_ready_ms = TitanTime_NowMilliseconds();
+        }
         else if (context.game_index < TITAN_NEUTRINO_GAME_CAPACITY &&
             g_assets.games[context.game_index].startup_hash == context.startup_hash)
         {
             TitanAssetGameState *state = &g_assets.games[context.game_index];
-            if (aborted)
+            if (context.wizard_import && g_assets.artwork_wizard_active &&
+                context.session_generation == g_assets.manual_session_generation)
             {
-            /* A foreground operation or selection change pre-empted local
-             * decode. Re-probe later; never misclassify an existing ART file as
-             * missing and never start an Internet fetch because of preemption. */
-            if (context.kind == TITAN_ASSET_KIND_ICON)
-            {
-                state->icon_presence = TITAN_ASSET_PRESENCE_UNKNOWN;
-                state->icon_probe_pending = 1u;
+                if (aborted && !g_assets.manual_cancel_requested &&
+                    context.catalog_generation == g_assets.catalog_generation &&
+                    g_assets.artwork_wizard_cursor > 0u)
+                    g_assets.artwork_wizard_cursor--;
+                else if (!aborted)
+                    g_assets.session_failed_assets++;
             }
-            else
+            else if (aborted)
             {
-                state->background_presence = TITAN_ASSET_PRESENCE_UNKNOWN;
-                state->background_probe_pending = 1u;
+                /* Navigation decode was pre-empted; leave it eligible for a
+                 * later visible-window request without treating it as missing. */
+                if (context.kind == TITAN_ASSET_KIND_ICON)
+                {
+                    state->icon_presence = TITAN_ASSET_PRESENCE_UNKNOWN;
+                    state->icon_probe_pending = 1u;
+                }
+                else
+                {
+                    state->background_presence = TITAN_ASSET_PRESENCE_UNKNOWN;
+                    state->background_probe_pending = 1u;
+                }
             }
-        }
-            else if (context.candidate < 7u)
+            else if (!context.wizard_import && context.candidate < 7u)
             {
                 TitanDiagnostics_ReportOperation("ASSET", TITAN_DIAG_WARN,
                     "FALLBACK", "Imagem recusada; tentando proxima", -1);
@@ -3585,6 +3817,7 @@ static int TitanAssetService_ProcessExternalDecode(void)
         g_assets.external_decode_ready = 0;
         g_assets.external_decode_busy = 0;
         g_assets.external_decode_path[0] = '\0';
+        g_assets.external_decode_wizard_import = 0;
         g_assets.pipeline_last_progress_frame = g_assets.frame_index;
         TitanAssetService_FreeExternalSource();
         TitanAssetService_PromoteExternalPrefetchLocked();
@@ -3878,6 +4111,8 @@ void TitanAssetService_NotifyCatalogChanged(void)
     TitanAssetService_Lock();
     g_assets.catalog_generation++;
     if (g_assets.catalog_generation == 0u) g_assets.catalog_generation = 1u;
+    if (g_assets.artwork_wizard_active)
+        g_assets.manual_cancel_requested = 1;
     g_assets.idle_icon_cursor = 0u;
     g_assets.idle_background_cursor = 0u;
     g_assets.last_visible_change_frame = g_assets.frame_index;
@@ -3914,7 +4149,8 @@ void TitanAssetService_NotifyCatalogChanged(void)
      * Cache files and startup hashes are the durable truth. Rebind the fresh
      * catalog, remember identities that already completed in this session, and
      * continue icons-first without making the user restart the operation. */
-    if (g_assets.manual_session_active && !g_assets.manual_clear_cache)
+    if (g_assets.manual_session_active && !g_assets.manual_clear_cache &&
+        !g_assets.artwork_wizard_active)
     {
         recovering = 1;
         g_assets.manual_recovering_previous_state = 1;
