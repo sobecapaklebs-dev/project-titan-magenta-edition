@@ -24,6 +24,7 @@ checks = {
     'opl-screenshot-fallback': '"_SCR_00.png"' in service and '"_SCR.png"' in service,
     'bounded-source-size': 'size > TITAN_ASSET_SOURCE_MAX_SIZE' in service,
     'serialized-filexio': 'TitanStorageIo_AsyncRead' in read_external and 'fileXioSetBlockMode(FXIO_NOWAIT)' in storage_io and 'fileXioWaitAsync(FXIO_NOWAIT' in storage_io,
+    'async-read-retains-buffer-while-offset-zero': 'if (!job->external_buffer_allocated)' in read_external and read_external.index('if (!job->external_buffer_allocated)') < read_external.index('TitanStorageIo_AsyncRead'),
     'storage-io-iop-flags-header-order': storage_io.index('#define NEWLIB_PORT_AWARE') < storage_io.index('#include <io_common.h>') < storage_io.index('#include <fileXio_rpc.h>') < storage_io.index('#undef NEWLIB_PORT_AWARE'),
     'bounded-io-quantums': ('TITAN_ASSET_IO_QUANTUM (8u * 1024u)' in service and 'TITAN_ASSET_EXTERNAL_IO_QUANTUM (32u * 1024u)' in service and 'quantum = remaining > TITAN_ASSET_EXTERNAL_IO_QUANTUM' in service),
     'separate-prefetch-buffer': 'external_prefetch_buffer' in service and 'external_source_buffer' in service and 'external_prefetch_capacity' in service,

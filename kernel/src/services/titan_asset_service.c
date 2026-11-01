@@ -2739,7 +2739,10 @@ static int TitanAssetService_ReadExternalStorageChunk(TitanAssetStorageJob *job)
         job->external_io_elapsed_us += TitanTime_NowMicroseconds() - io_started_us;
         job->external_path_checked = 1u;
     }
-    if (job->offset == 0u)
+    /* Async open/read takes several scheduler turns while offset is still 0.
+     * Allocate the destination only once; otherwise every pending frame sees
+     * the existing buffer as owned and returns before polling the FileXio RPC. */
+    if (!job->external_buffer_allocated)
     {
         unsigned char *allocated = (unsigned char *)malloc(job->total);
         int defer = 0;
