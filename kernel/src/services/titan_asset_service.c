@@ -62,6 +62,11 @@ extern int DeleteThread(int thread_id);
 #define TITAN_ASSET_STORAGE_STALL_FRAMES 900u /* 15 s without storage progress; network owns its own deadline */
 #define TITAN_ASSET_CACHE_ROOT TITAN_STORAGE_DEVICE_ROOT "/cache"
 #define TITAN_ASSET_CACHE_DIR TITAN_ASSET_CACHE_ROOT "/assets"
+#define TITAN_ASSET_CACHE_PACKAGE_PATH TITAN_ASSET_CACHE_DIR "/ASSETS.TPK"
+#define TITAN_ASSET_CACHE_PACKAGE_TEMP_PATH TITAN_ASSET_CACHE_PACKAGE_PATH ".part"
+#define TITAN_ASSET_CACHE_PACKAGE_HEADER_SIZE 32u
+#define TITAN_ASSET_CACHE_PACKAGE_ENTRY_SIZE 28u
+#define TITAN_ASSET_CACHE_PACKAGE_MAX_ENTRIES (TITAN_NEUTRINO_GAME_CAPACITY * 2u)
 #define TITAN_ASSET_EXTERNAL_ART_DIR "mass:/ART"
 #define TITAN_ASSET_EXTERNAL_PATH_CAPACITY 256u
 #define TITAN_ASSET_EXTERNAL_ROOT_CAPACITY 32u
@@ -145,10 +150,26 @@ typedef enum TitanAssetStorageOp
     TITAN_ASSET_STORAGE_PROBE_BACKGROUND,
     TITAN_ASSET_STORAGE_LOAD_ICON,
     TITAN_ASSET_STORAGE_LOAD_BACKGROUND,
+    TITAN_ASSET_STORAGE_LOAD_PACKAGE,
     TITAN_ASSET_STORAGE_LOAD_EXTERNAL_ICON,
     TITAN_ASSET_STORAGE_LOAD_EXTERNAL_BACKGROUND,
     TITAN_ASSET_STORAGE_WRITE_DOWNLOAD
 } TitanAssetStorageOp;
+
+typedef enum TitanAssetPackageBuildPhase
+{
+    TITAN_ASSET_PACKAGE_BUILD_IDLE = 0,
+    TITAN_ASSET_PACKAGE_BUILD_SCAN,
+    TITAN_ASSET_PACKAGE_BUILD_WRITE_HEADER,
+    TITAN_ASSET_PACKAGE_BUILD_WRITE_INDEX,
+    TITAN_ASSET_PACKAGE_BUILD_LOAD_ASSET,
+    TITAN_ASSET_PACKAGE_BUILD_CLOSE_SOURCE,
+    TITAN_ASSET_PACKAGE_BUILD_WRITE_ASSET,
+    TITAN_ASSET_PACKAGE_BUILD_FLUSH,
+    TITAN_ASSET_PACKAGE_BUILD_CLOSE,
+    TITAN_ASSET_PACKAGE_BUILD_PUBLISH,
+    TITAN_ASSET_PACKAGE_BUILD_ABORT
+} TitanAssetPackageBuildPhase;
 
 typedef struct TitanAssetStorageJob
 {
@@ -157,6 +178,7 @@ typedef struct TitanAssetStorageJob
     unsigned int game_index;
     unsigned int offset;
     unsigned int total;
+    uint32_t package_offset;
     uint32_t startup_hash;
     uint64_t stage_started_ms;
     uint64_t external_io_elapsed_us;
@@ -180,6 +202,27 @@ typedef struct TitanAssetStorageJob
 typedef struct TitanAssetServiceState
 {
     int initialized;
+    int cache_package_fd;
+    unsigned int cache_package_entry_count;
+    uint32_t cache_package_size;
+    unsigned char cache_package_state; /* 0 unknown, 1 mounted, 2 unavailable */
+    unsigned char cache_package_index_bytes[TITAN_ASSET_CACHE_PACKAGE_MAX_ENTRIES * TITAN_ASSET_CACHE_PACKAGE_ENTRY_SIZE];
+    TitanStorageIoAsyncFile package_build_file;
+    TitanStorageIoAsyncFile package_build_source_file;
+    char package_build_source_path[256];
+    uint32_t package_build_source_size;
+    int package_build_active;
+    int package_build_failed;
+    TitanAssetPackageBuildPhase package_build_phase;
+    unsigned int package_build_scan_cursor;
+    unsigned int package_build_entry_count;
+    unsigned int package_build_asset_cursor;
+    unsigned int package_build_index_size;
+    uint32_t package_build_data_offset;
+    uint32_t package_build_total_size;
+    uint32_t package_build_bytes_written;
+    unsigned char package_build_header[TITAN_ASSET_CACHE_PACKAGE_HEADER_SIZE];
+    char package_build_temporary_path[256];
     volatile unsigned int frame_index;
     volatile unsigned int selected_game_index;
     unsigned int visible_games[TITAN_ASSET_VISIBLE_GAME_CAPACITY];
@@ -373,6 +416,7 @@ static unsigned int TitanAssetService_ExpectedTimgSize(TitanAssetKind kind)
 }
 
 static int TitanAssetService_StorageJobBelongsToManualSessionLocked(const TitanAssetStorageJob *job);
+static int TitanAssetService_StorageJobIsValid(const TitanAssetStorageJob *job);
 static void TitanAssetService_MarkStorageFailureLocked(
     const TitanAssetStorageJob *job, int count_manual_failure, int allow_retry);
 static void TitanAssetService_SetManualPhaseLocked(TitanAssetManualPhase phase);
@@ -423,6 +467,139 @@ static uint32_t TitanAssetService_ReadLe32(const unsigned char *p)
         ((uint32_t)p[1] << 8u) |
         ((uint32_t)p[2] << 16u) |
         ((uint32_t)p[3] << 24u);
+}
+
+static void TitanAssetService_DisableCachePackage(int remove_file)
+{
+    if (g_assets.cache_package_fd >= 0)
+    {
+        (void)TitanStorageIo_Close(g_assets.cache_package_fd);
+        g_assets.cache_package_fd = -1;
+    }
+    g_assets.cache_package_state = 2u;
+    g_assets.cache_package_entry_count = 0u;
+    g_assets.cache_package_size = 0u;
+    if (remove_file) (void)TitanStorageIo_Remove(TITAN_ASSET_CACHE_PACKAGE_PATH);
+}
+
+static int TitanAssetService_EnsureCachePackage(void)
+{
+    unsigned char header[TITAN_ASSET_CACHE_PACKAGE_HEADER_SIZE];
+    TitanStorageIoSize file_size = 0;
+    uint32_t count, index_size, data_offset, package_size;
+    unsigned int i;
+    int fd;
+    if (g_assets.cache_package_state != 0u) return g_assets.cache_package_state == 1u;
+    if (!TitanStorageIo_PathInfo64(TITAN_ASSET_CACHE_PACKAGE_PATH, 0, &file_size) ||
+        file_size < TITAN_ASSET_CACHE_PACKAGE_HEADER_SIZE || file_size > 0xffffffffu)
+    {
+        g_assets.cache_package_state = 2u;
+        return 0;
+    }
+    fd = TitanStorageIo_Open(TITAN_ASSET_CACHE_PACKAGE_PATH, TITAN_STORAGE_IO_READ);
+    if (fd < 0 || !TitanStorageIo_ReadExact(fd, header, sizeof(header)))
+    {
+        if (fd >= 0) (void)TitanStorageIo_Close(fd);
+        TitanAssetService_DisableCachePackage(1);
+        return 0;
+    }
+    count = TitanAssetService_ReadLe32(&header[8]);
+    index_size = count * TITAN_ASSET_CACHE_PACKAGE_ENTRY_SIZE;
+    data_offset = TitanAssetService_ReadLe32(&header[20]);
+    package_size = TitanAssetService_ReadLe32(&header[24]);
+    if (memcmp(header, "TAPK", 4u) != 0 ||
+        TitanAssetService_ReadLe16(&header[4]) != 1u ||
+        TitanAssetService_ReadLe16(&header[6]) != TITAN_ASSET_CACHE_PACKAGE_HEADER_SIZE ||
+        count == 0u || count > TITAN_ASSET_CACHE_PACKAGE_MAX_ENTRIES ||
+        TitanAssetService_ReadLe32(&header[12]) != TITAN_ASSET_CACHE_PACKAGE_ENTRY_SIZE ||
+        TitanAssetService_ReadLe32(&header[16]) != TITAN_ASSET_CACHE_PACKAGE_HEADER_SIZE ||
+        data_offset != TITAN_ASSET_CACHE_PACKAGE_HEADER_SIZE + index_size ||
+        package_size != (uint32_t)file_size ||
+        TitanAssetService_ReadLe32(&header[28]) != 0u || data_offset > package_size ||
+        !TitanStorageIo_ReadExact(fd, g_assets.cache_package_index_bytes, index_size))
+    {
+        (void)TitanStorageIo_Close(fd);
+        TitanAssetService_DisableCachePackage(1);
+        return 0;
+    }
+    for (i = 0u; i < count; ++i)
+    {
+        const unsigned char *raw = &g_assets.cache_package_index_bytes[i * TITAN_ASSET_CACHE_PACKAGE_ENTRY_SIZE];
+        const unsigned char *terminator = (const unsigned char *)memchr(raw, 0, 16u);
+        uint32_t kind, offset, size, expected;
+        unsigned int j;
+        if (terminator == 0 || terminator == raw ||
+            (raw[16] != 1u && raw[16] != 2u) || raw[17] != 0u || raw[18] != 0u || raw[19] != 0u)
+        {
+            (void)TitanStorageIo_Close(fd);
+            TitanAssetService_DisableCachePackage(1);
+            return 0;
+        }
+        kind = TitanAssetService_ReadLe32(&raw[16]);
+        offset = TitanAssetService_ReadLe32(&raw[20]);
+        size = TitanAssetService_ReadLe32(&raw[24]);
+        expected = TitanAssetService_ExpectedTimgSize((TitanAssetKind)kind);
+        if (expected == 0u || size != expected || offset < data_offset ||
+            (uint64_t)offset + size > package_size)
+        {
+            (void)TitanStorageIo_Close(fd);
+            TitanAssetService_DisableCachePackage(1);
+            return 0;
+        }
+        for (j = 0u; j < i; ++j)
+        {
+            const unsigned char *previous = &g_assets.cache_package_index_bytes[
+                j * TITAN_ASSET_CACHE_PACKAGE_ENTRY_SIZE];
+            if (TitanAssetService_ReadLe32(&previous[16]) == kind &&
+                strcmp((const char *)previous, (const char *)raw) == 0) break;
+        }
+        if (j != i)
+        {
+            (void)TitanStorageIo_Close(fd);
+            TitanAssetService_DisableCachePackage(1);
+            return 0;
+        }
+    }
+    g_assets.cache_package_fd = fd;
+    g_assets.cache_package_entry_count = count;
+    g_assets.cache_package_size = package_size;
+    g_assets.cache_package_state = 1u;
+    return 1;
+}
+
+static int TitanAssetService_FindCachePackageEntry(
+    const char *serial, TitanAssetKind kind, uint32_t *offset, uint32_t *size)
+{
+    unsigned int i;
+    if (serial == 0 || offset == 0 || size == 0 || !TitanAssetService_EnsureCachePackage()) return 0;
+    for (i = 0u; i < g_assets.cache_package_entry_count; ++i)
+    {
+        const unsigned char *entry = &g_assets.cache_package_index_bytes[
+            i * TITAN_ASSET_CACHE_PACKAGE_ENTRY_SIZE];
+        if (TitanAssetService_ReadLe32(&entry[16]) == (uint32_t)kind &&
+            strcmp((const char *)entry, serial) == 0)
+        {
+            *offset = TitanAssetService_ReadLe32(&entry[20]);
+            *size = TitanAssetService_ReadLe32(&entry[24]);
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static int TitanAssetService_ReadCachePackageEntry(TitanAssetStorageJob *job)
+{
+    if (!TitanAssetService_StorageJobIsValid(job) || g_assets.cache_package_state != 1u ||
+        g_assets.cache_package_fd < 0 || job->total == 0u ||
+        (uint64_t)job->package_offset + job->total > g_assets.cache_package_size)
+        return 0;
+    if (TitanStorageIo_Seek64(g_assets.cache_package_fd, job->package_offset,
+            TITAN_STORAGE_IO_SEEK_SET) != (TitanStorageIoOffset)job->package_offset ||
+        !TitanStorageIo_ReadExact(g_assets.cache_package_fd, g_assets.storage_buffer, job->total))
+        return 0;
+    job->offset = job->total;
+    g_assets.storage_buffer_size = job->total;
+    return 1;
 }
 
 static int TitanAssetService_ValidateTimg(
@@ -1679,6 +1856,8 @@ const char *TitanAssetService_GetManualPhaseName(TitanAssetManualPhase phase)
         case TITAN_ASSET_MANUAL_COMPLETE: return "Concluido";
         case TITAN_ASSET_MANUAL_CANCELLED: return "Cancelado";
         case TITAN_ASSET_MANUAL_IMPORT_ARTWORK: return "Convertendo artwork para TIMG";
+        case TITAN_ASSET_MANUAL_PACKAGING_ARTWORK: return "Empacotando cache de artworks";
+        case TITAN_ASSET_MANUAL_PACKAGE_FAILED: return "Pacote falhou; usando cache TIMG";
         case TITAN_ASSET_MANUAL_IDLE:
         default: return "Aguardando";
     }
@@ -1755,7 +1934,7 @@ static int TitanAssetService_ManualPipelineDrainedLocked(void)
 {
     if (g_assets.net_busy) return 0;
     if (g_assets.download_ready_for_storage) return 0;
-    if (g_assets.storage_job.op != TITAN_ASSET_STORAGE_NONE) return 0;
+    if (g_assets.storage_job.op != TITAN_ASSET_STORAGE_NONE || g_assets.package_build_active) return 0;
     if (g_assets.storage_stage_ready || g_assets.external_decode_ready ||
         g_assets.external_decode_busy || g_assets.external_prefetch_ready ||
         g_assets.external_prefetch_buffer != 0) return 0;
@@ -1790,10 +1969,24 @@ static void TitanAssetService_UpdateManualPhaseLocked(void)
         if (g_assets.artwork_wizard_cursor >= g_assets.artwork_wizard_asset_count &&
             TitanAssetService_ManualPipelineDrainedLocked())
         {
-            g_assets.manual_session_active = 0;
-            g_assets.artwork_wizard_active = 0;
-            TitanAssetService_SetManualPhaseLocked(TITAN_ASSET_MANUAL_COMPLETE);
-            TitanAssetService_LogSessionEnd(g_assets.session_failed_assets == 0u ? 0 : -1);
+            g_assets.package_build_active = 1;
+            g_assets.package_build_failed = 0;
+            g_assets.package_build_phase = TITAN_ASSET_PACKAGE_BUILD_SCAN;
+            g_assets.package_build_scan_cursor = 0u;
+            g_assets.package_build_entry_count = 0u;
+            g_assets.package_build_asset_cursor = 0u;
+            g_assets.package_build_bytes_written = 0u;
+            g_assets.current_game_index = TITAN_ASSET_INVALID_GAME;
+            g_assets.status.current_asset_progress_percent = 0u;
+            TitanAssetService_CopyText(g_assets.status.current_asset_stage,
+                sizeof(g_assets.status.current_asset_stage), "Indexing cached TIMG files");
+            TitanStorageIo_AsyncReset(&g_assets.package_build_file);
+            TitanStorageIo_AsyncReset(&g_assets.package_build_source_file);
+            g_assets.package_build_source_path[0] = '\0';
+            g_assets.package_build_source_size = 0u;
+            (void)snprintf(g_assets.package_build_temporary_path,
+                sizeof(g_assets.package_build_temporary_path), "%s", TITAN_ASSET_CACHE_PACKAGE_TEMP_PATH);
+            TitanAssetService_SetManualPhaseLocked(TITAN_ASSET_MANUAL_PACKAGING_ARTWORK);
         }
         return;
     }
@@ -1977,7 +2170,7 @@ int TitanAssetService_StartArtworkWizard(int all_games, unsigned int selected_ga
     g_assets.manual_probe_cursor = 0u;
     g_assets.manual_icon_download_cursor = 0u;
     g_assets.manual_background_download_cursor = 0u;
-    g_assets.session_total_assets = g_assets.artwork_wizard_asset_count;
+    g_assets.session_total_assets = g_assets.artwork_wizard_asset_count + 1u;
     g_assets.session_completed_assets = 0u;
     g_assets.session_failed_assets = 0u;
     g_assets.session_unavailable_assets = 0u;
@@ -2772,6 +2965,9 @@ static int TitanAssetService_StorageJobIsValid(const TitanAssetStorageJob *job)
         job->op == TITAN_ASSET_STORAGE_LOAD_EXTERNAL_BACKGROUND)
         return job->total > 0u && job->total <= TITAN_ASSET_SOURCE_MAX_SIZE &&
             job->offset <= job->total;
+    if (job->op == TITAN_ASSET_STORAGE_LOAD_PACKAGE)
+        return job->total == expected && job->package_offset != 0u &&
+            (uint64_t)job->package_offset + job->total <= g_assets.cache_package_size;
     if (job->total != expected || job->total > sizeof(g_assets.storage_buffer)) return 0;
     if (job->op == TITAN_ASSET_STORAGE_WRITE_DOWNLOAD)
     {
@@ -3019,6 +3215,7 @@ int TitanAssetService_HasStorageWork(void)
           g_assets.storage_job.op != TITAN_ASSET_STORAGE_LOAD_EXTERNAL_BACKGROUND)))
         return 0;
     if (g_assets.manual_session_active && g_assets.manual_clear_cache) return 1;
+    if (g_assets.package_build_active) return 1;
     /* Missing-only manual sessions drive their cache probes through the
      * serialized Storage Scheduler. Do not depend on the visible/idle probe
      * flags: the manual ordered catalog is its own explicit work queue. */
@@ -3050,6 +3247,312 @@ int TitanAssetService_HasStorageWork(void)
         if (g_assets.idle_icon_cursor < count || g_assets.idle_background_cursor < count) return 1;
     }
     return 0;
+}
+
+static void TitanAssetService_WriteLe16(unsigned char *p, uint16_t value)
+{
+    p[0] = (unsigned char)value; p[1] = (unsigned char)(value >> 8u);
+}
+static void TitanAssetService_WriteLe32(unsigned char *p, uint32_t value)
+{
+    p[0] = (unsigned char)value; p[1] = (unsigned char)(value >> 8u);
+    p[2] = (unsigned char)(value >> 16u); p[3] = (unsigned char)(value >> 24u);
+}
+static int TitanAssetService_ParseCacheAssetName(const char *name, char serial[16], TitanAssetKind *kind)
+{
+    unsigned int n, suffix, i;
+    if (name == 0 || serial == 0 || kind == 0) return 0;
+    n = (unsigned int)strlen(name);
+    if (n >= 10u && strcmp(name + n - 10u, ".icon.timg") == 0) {
+        suffix = 10u; *kind = TITAN_ASSET_KIND_ICON;
+    } else if (n >= 8u && strcmp(name + n - 8u, ".bg.timg") == 0) {
+        suffix = 8u; *kind = TITAN_ASSET_KIND_BACKGROUND;
+    } else return 0;
+    if (n - suffix != 10u || name[4] != '-') return 0;
+    for (i = 0u; i < 10u; ++i) {
+        unsigned char c = (unsigned char)name[i];
+        if (i == 4u) continue;
+        if (i < 4u ? !isalpha(c) : !isdigit(c)) return 0;
+        serial[i] = (char)toupper(c);
+    }
+    serial[4] = '-'; serial[10] = '\0';
+    return 1;
+}
+static int TitanAssetService_PackageBuildBeginAbort(int failed)
+{
+    g_assets.package_build_failed = failed;
+    g_assets.package_build_phase = TITAN_ASSET_PACKAGE_BUILD_ABORT;
+    return 1;
+}
+static int TitanAssetService_PackageBuildAbortPump(void)
+{
+    int result = TitanStorageIo_AsyncClose(&g_assets.package_build_source_file);
+    if (result == TITAN_STORAGE_IO_ASYNC_PENDING) return 1;
+    result = TitanStorageIo_AsyncClose(&g_assets.package_build_file);
+    if (result == TITAN_STORAGE_IO_ASYNC_PENDING) return 1;
+    if (g_assets.package_build_temporary_path[0] != '\0')
+        (void)TitanStorageIo_Remove(g_assets.package_build_temporary_path);
+    g_assets.package_build_active = 0;
+    g_assets.package_build_phase = TITAN_ASSET_PACKAGE_BUILD_IDLE;
+    if (g_assets.package_build_failed && !g_assets.manual_cancel_requested) {
+        TitanAssetService_Lock();
+        g_assets.session_failed_assets++;
+        g_assets.manual_session_active = 0;
+        g_assets.artwork_wizard_active = 0;
+        g_assets.status.current_asset_progress_percent = 0u;
+        TitanAssetService_CopyText(g_assets.status.current_asset_stage,
+            sizeof(g_assets.status.current_asset_stage), "Package failed; using TIMG fallback");
+        TitanAssetService_SetManualPhaseLocked(TITAN_ASSET_MANUAL_PACKAGE_FAILED);
+        TitanAssetService_Unlock();
+        TitanAssetService_LogSessionEnd(-1);
+    }
+    return 1;
+}
+static void TitanAssetService_PackageBuildSetProgress(unsigned int percent, const char *stage)
+{
+    if (percent > 100u) percent = 100u;
+    TitanAssetService_Lock();
+    g_assets.status.current_asset_progress_percent = percent;
+    TitanAssetService_CopyText(g_assets.status.current_asset_stage,
+        sizeof(g_assets.status.current_asset_stage), stage);
+    TitanAssetService_Unlock();
+}
+static void TitanAssetService_PackageBuildComplete(void)
+{
+    TitanAssetService_Lock();
+    g_assets.package_build_active = 0;
+    g_assets.package_build_phase = TITAN_ASSET_PACKAGE_BUILD_IDLE;
+    g_assets.session_completed_assets++;
+    g_assets.status.current_asset_progress_percent = 100u;
+    TitanAssetService_CopyText(g_assets.status.current_asset_stage,
+        sizeof(g_assets.status.current_asset_stage), "Indexed package ready");
+    g_assets.manual_session_active = 0;
+    g_assets.artwork_wizard_active = 0;
+    g_assets.cache_package_state = 0u;
+    g_assets.cache_package_entry_count = 0u;
+    g_assets.cache_package_size = 0u;
+    g_assets.cache_package_fd = -1;
+    TitanAssetService_SetManualPhaseLocked(TITAN_ASSET_MANUAL_COMPLETE);
+    TitanAssetService_Unlock();
+    TitanAssetService_LogSessionEnd(g_assets.session_failed_assets == 0u ? 0 : -1);
+}
+static int TitanAssetService_PackageBuildPump(void)
+{
+    TitanAssetPackageBuildPhase phase = g_assets.package_build_phase;
+    if (!g_assets.package_build_active) return 0;
+    if (g_assets.manual_cancel_requested && phase != TITAN_ASSET_PACKAGE_BUILD_ABORT) {
+        g_assets.package_build_failed = 0;
+        g_assets.package_build_phase = TITAN_ASSET_PACKAGE_BUILD_ABORT;
+        phase = TITAN_ASSET_PACKAGE_BUILD_ABORT;
+    }
+    if (phase == TITAN_ASSET_PACKAGE_BUILD_ABORT) return TitanAssetService_PackageBuildAbortPump();
+    if (phase == TITAN_ASSET_PACKAGE_BUILD_SCAN) {
+        TitanStorageIoEntry item;
+        int count;
+        memset(&item, 0, sizeof(item));
+        count = TitanStorageIo_ListDirectory(TITAN_ASSET_CACHE_DIR,
+            g_assets.package_build_scan_cursor, &item, 1u);
+        if (count < 0) return TitanAssetService_PackageBuildBeginAbort(1);
+        if (count == 0) {
+            uint64_t end;
+            unsigned int i;
+            unsigned char temp[TITAN_ASSET_CACHE_PACKAGE_ENTRY_SIZE];
+            if (g_assets.package_build_entry_count == 0u)
+                return TitanAssetService_PackageBuildBeginAbort(1);
+            for (i = 1u; i < g_assets.package_build_entry_count; ++i) {
+                unsigned int at = i;
+                memcpy(temp, &g_assets.cache_package_index_bytes[i * TITAN_ASSET_CACHE_PACKAGE_ENTRY_SIZE], sizeof(temp));
+                while (at > 0u) {
+                    unsigned char *prev = &g_assets.cache_package_index_bytes[(at - 1u) * TITAN_ASSET_CACHE_PACKAGE_ENTRY_SIZE];
+                    int cmp = strcmp((const char *)temp, (const char *)prev);
+                    if (cmp == 0) {
+                        uint32_t a = TitanAssetService_ReadLe32(&temp[16]);
+                        uint32_t b = TitanAssetService_ReadLe32(&prev[16]);
+                        cmp = a < b ? -1 : (a > b ? 1 : 0);
+                    }
+                    if (cmp >= 0) break;
+                    memcpy(&g_assets.cache_package_index_bytes[at * TITAN_ASSET_CACHE_PACKAGE_ENTRY_SIZE], prev, sizeof(temp));
+                    --at;
+                }
+                memcpy(&g_assets.cache_package_index_bytes[at * TITAN_ASSET_CACHE_PACKAGE_ENTRY_SIZE], temp, sizeof(temp));
+            }
+            g_assets.package_build_index_size = g_assets.package_build_entry_count * TITAN_ASSET_CACHE_PACKAGE_ENTRY_SIZE;
+            g_assets.package_build_data_offset = TITAN_ASSET_CACHE_PACKAGE_HEADER_SIZE + g_assets.package_build_index_size;
+            end = g_assets.package_build_data_offset;
+            for (i = 0u; i < g_assets.package_build_entry_count; ++i) {
+                unsigned char *rec = &g_assets.cache_package_index_bytes[i * TITAN_ASSET_CACHE_PACKAGE_ENTRY_SIZE];
+                uint32_t length = TitanAssetService_ReadLe32(&rec[24]);
+                if (end + length > 0xffffffffu) return TitanAssetService_PackageBuildBeginAbort(1);
+                TitanAssetService_WriteLe32(&rec[20], (uint32_t)end);
+                end += length;
+            }
+            g_assets.package_build_total_size = (uint32_t)end;
+            memset(g_assets.package_build_header, 0, sizeof(g_assets.package_build_header));
+            memcpy(g_assets.package_build_header, "TAPK", 4u);
+            TitanAssetService_WriteLe16(&g_assets.package_build_header[4], 1u);
+            TitanAssetService_WriteLe16(&g_assets.package_build_header[6], TITAN_ASSET_CACHE_PACKAGE_HEADER_SIZE);
+            TitanAssetService_WriteLe32(&g_assets.package_build_header[8], g_assets.package_build_entry_count);
+            TitanAssetService_WriteLe32(&g_assets.package_build_header[12], TITAN_ASSET_CACHE_PACKAGE_ENTRY_SIZE);
+            TitanAssetService_WriteLe32(&g_assets.package_build_header[16], TITAN_ASSET_CACHE_PACKAGE_HEADER_SIZE);
+            TitanAssetService_WriteLe32(&g_assets.package_build_header[20], g_assets.package_build_data_offset);
+            TitanAssetService_WriteLe32(&g_assets.package_build_header[24], g_assets.package_build_total_size);
+            TitanAssetService_DisableCachePackage(1);
+            (void)TitanStorageIo_Remove(TITAN_ASSET_CACHE_PACKAGE_TEMP_PATH);
+            TitanStorageIo_AsyncReset(&g_assets.package_build_file);
+            g_assets.package_build_phase = TITAN_ASSET_PACKAGE_BUILD_WRITE_HEADER;
+            TitanAssetService_PackageBuildSetProgress(1u, "Writing package index");
+            return 1;
+        }
+        g_assets.package_build_scan_cursor++;
+        if ((item.flags & TITAN_STORAGE_IO_ENTRY_DIRECTORY) == 0u) {
+            char serial[16], path[256];
+            TitanAssetKind kind;
+            unsigned char header[TITAN_ASSET_TIMG_HEADER_SIZE];
+            int n;
+            if (TitanAssetService_ParseCacheAssetName(item.name, serial, &kind)) {
+                unsigned int length = TitanAssetService_ExpectedTimgSize(kind);
+                n = snprintf(path, sizeof(path), "%s/%s", TITAN_ASSET_CACHE_DIR, item.name);
+                if (n >= 0 && (unsigned int)n < sizeof(path) && item.size == length &&
+                    length <= sizeof(g_assets.download_buffer)) {
+                    int fd = TitanStorageIo_Open(path, TITAN_STORAGE_IO_READ);
+                    if (fd < 0 || !TitanStorageIo_ReadExact(fd, header, sizeof(header))) {
+                        if (fd >= 0) (void)TitanStorageIo_Close(fd);
+                        return TitanAssetService_PackageBuildBeginAbort(1);
+                    }
+                    (void)TitanStorageIo_Close(fd);
+                    if (TitanAssetService_ValidateTimgHeader(header, length, kind, 0)) {
+                        unsigned char *rec;
+                        if (g_assets.package_build_entry_count >= TITAN_ASSET_CACHE_PACKAGE_MAX_ENTRIES)
+                            return TitanAssetService_PackageBuildBeginAbort(1);
+                        rec = &g_assets.cache_package_index_bytes[g_assets.package_build_entry_count * TITAN_ASSET_CACHE_PACKAGE_ENTRY_SIZE];
+                        memset(rec, 0, TITAN_ASSET_CACHE_PACKAGE_ENTRY_SIZE);
+                        memcpy(rec, serial, strlen(serial));
+                        TitanAssetService_WriteLe32(&rec[16], (uint32_t)kind);
+                        TitanAssetService_WriteLe32(&rec[24], length);
+                        g_assets.package_build_entry_count++;
+                    }
+                }
+            }
+        }
+        {
+            unsigned int p = (unsigned int)(((uint64_t)g_assets.package_build_scan_cursor * 20u) /
+                TITAN_ASSET_CACHE_PACKAGE_MAX_ENTRIES);
+            if (p > 20u) p = 20u;
+            TitanAssetService_PackageBuildSetProgress(p, "Indexing cached TIMG files");
+        }
+        return 1;
+    }
+    if (phase == TITAN_ASSET_PACKAGE_BUILD_WRITE_HEADER || phase == TITAN_ASSET_PACKAGE_BUILD_WRITE_INDEX) {
+        const void *buffer = phase == TITAN_ASSET_PACKAGE_BUILD_WRITE_HEADER
+            ? (const void *)g_assets.package_build_header : (const void *)g_assets.cache_package_index_bytes;
+        size_t size = phase == TITAN_ASSET_PACKAGE_BUILD_WRITE_HEADER
+            ? sizeof(g_assets.package_build_header) : g_assets.package_build_index_size;
+        int flags = TITAN_STORAGE_IO_WRITE | TITAN_STORAGE_IO_CREATE;
+        int result;
+        if (phase == TITAN_ASSET_PACKAGE_BUILD_WRITE_HEADER) flags |= TITAN_STORAGE_IO_TRUNCATE;
+        result = TitanStorageIo_AsyncWrite(&g_assets.package_build_file,
+            TITAN_ASSET_CACHE_PACKAGE_TEMP_PATH, flags, buffer, size);
+        if (result == TITAN_STORAGE_IO_ASYNC_PENDING) return 1;
+        if (result != TITAN_STORAGE_IO_ASYNC_DONE) return TitanAssetService_PackageBuildBeginAbort(1);
+        if (phase == TITAN_ASSET_PACKAGE_BUILD_WRITE_HEADER) {
+            g_assets.package_build_bytes_written = TITAN_ASSET_CACHE_PACKAGE_HEADER_SIZE;
+            g_assets.package_build_phase = TITAN_ASSET_PACKAGE_BUILD_WRITE_INDEX;
+        } else {
+            g_assets.package_build_bytes_written = g_assets.package_build_data_offset;
+            g_assets.package_build_asset_cursor = 0u;
+            g_assets.package_build_phase = TITAN_ASSET_PACKAGE_BUILD_LOAD_ASSET;
+        }
+        TitanAssetService_PackageBuildSetProgress(5u, "Writing package index");
+        return 1;
+    }
+    if (phase == TITAN_ASSET_PACKAGE_BUILD_LOAD_ASSET) {
+        unsigned char *rec;
+        char serial[16];
+        uint32_t kind, length;
+        int n, result;
+        if (g_assets.package_build_asset_cursor >= g_assets.package_build_entry_count) {
+            g_assets.package_build_phase = TITAN_ASSET_PACKAGE_BUILD_FLUSH;
+            return 1;
+        }
+        rec = &g_assets.cache_package_index_bytes[g_assets.package_build_asset_cursor * TITAN_ASSET_CACHE_PACKAGE_ENTRY_SIZE];
+        memcpy(serial, rec, sizeof(serial));
+        kind = TitanAssetService_ReadLe32(&rec[16]);
+        length = TitanAssetService_ReadLe32(&rec[24]);
+        if (g_assets.package_build_source_path[0] == '\0') {
+            n = snprintf(g_assets.package_build_source_path, sizeof(g_assets.package_build_source_path),
+                "%s/%s.%s.timg", TITAN_ASSET_CACHE_DIR, serial,
+                kind == TITAN_ASSET_KIND_ICON ? "icon" : "bg");
+            if (n < 0 || (unsigned int)n >= sizeof(g_assets.package_build_source_path) ||
+                length == 0u || length > sizeof(g_assets.download_buffer))
+                return TitanAssetService_PackageBuildBeginAbort(1);
+            g_assets.package_build_source_size = length;
+        }
+        result = TitanStorageIo_AsyncRead(&g_assets.package_build_source_file,
+            g_assets.package_build_source_path, g_assets.download_buffer, g_assets.package_build_source_size);
+        if (result == TITAN_STORAGE_IO_ASYNC_PENDING) return 1;
+        if (result != TITAN_STORAGE_IO_ASYNC_DONE) return TitanAssetService_PackageBuildBeginAbort(1);
+        g_assets.package_build_phase = TITAN_ASSET_PACKAGE_BUILD_CLOSE_SOURCE;
+        TitanAssetService_PackageBuildSetProgress(5u, "Reading cached artwork");
+        return 1;
+    }
+    if (phase == TITAN_ASSET_PACKAGE_BUILD_CLOSE_SOURCE) {
+        unsigned char *rec = &g_assets.cache_package_index_bytes[g_assets.package_build_asset_cursor * TITAN_ASSET_CACHE_PACKAGE_ENTRY_SIZE];
+        uint32_t kind = TitanAssetService_ReadLe32(&rec[16]);
+        int result = TitanStorageIo_AsyncClose(&g_assets.package_build_source_file);
+        if (result == TITAN_STORAGE_IO_ASYNC_PENDING) return 1;
+        if (result != TITAN_STORAGE_IO_ASYNC_DONE ||
+            !TitanAssetService_ValidateTimgHeader(g_assets.download_buffer,
+                g_assets.package_build_source_size, (TitanAssetKind)kind, 0))
+            return TitanAssetService_PackageBuildBeginAbort(1);
+        g_assets.package_build_source_path[0] = '\0';
+        g_assets.package_build_source_size = 0u;
+        g_assets.package_build_phase = TITAN_ASSET_PACKAGE_BUILD_WRITE_ASSET;
+        TitanAssetService_PackageBuildSetProgress(5u, "Packing cached artwork");
+        return 1;
+    }
+    if (phase == TITAN_ASSET_PACKAGE_BUILD_WRITE_ASSET) {
+        unsigned char *rec = &g_assets.cache_package_index_bytes[g_assets.package_build_asset_cursor * TITAN_ASSET_CACHE_PACKAGE_ENTRY_SIZE];
+        uint32_t length = TitanAssetService_ReadLe32(&rec[24]);
+        int result = TitanStorageIo_AsyncWrite(&g_assets.package_build_file,
+            TITAN_ASSET_CACHE_PACKAGE_TEMP_PATH, TITAN_STORAGE_IO_WRITE, g_assets.download_buffer, length);
+        if (result == TITAN_STORAGE_IO_ASYNC_PENDING) return 1;
+        if (result != TITAN_STORAGE_IO_ASYNC_DONE) return TitanAssetService_PackageBuildBeginAbort(1);
+        g_assets.package_build_bytes_written += length;
+        g_assets.package_build_asset_cursor++;
+        g_assets.package_build_phase = TITAN_ASSET_PACKAGE_BUILD_LOAD_ASSET;
+        {
+            unsigned int p = g_assets.package_build_total_size > 0u
+                ? 5u + (unsigned int)(((uint64_t)g_assets.package_build_bytes_written * 90u) /
+                    g_assets.package_build_total_size) : 95u;
+            if (p > 95u) p = 95u;
+            TitanAssetService_PackageBuildSetProgress(p, "Packing cached artwork");
+        }
+        return 1;
+    }
+    if (phase == TITAN_ASSET_PACKAGE_BUILD_FLUSH) {
+        if (g_assets.package_build_file.descriptor < 0 ||
+            !TitanStorageIo_Flush(g_assets.package_build_file.descriptor))
+            return TitanAssetService_PackageBuildBeginAbort(1);
+        g_assets.package_build_phase = TITAN_ASSET_PACKAGE_BUILD_CLOSE;
+        return 1;
+    }
+    if (phase == TITAN_ASSET_PACKAGE_BUILD_CLOSE) {
+        int result = TitanStorageIo_AsyncClose(&g_assets.package_build_file);
+        if (result == TITAN_STORAGE_IO_ASYNC_PENDING) return 1;
+        if (result != TITAN_STORAGE_IO_ASYNC_DONE) return TitanAssetService_PackageBuildBeginAbort(1);
+        g_assets.package_build_phase = TITAN_ASSET_PACKAGE_BUILD_PUBLISH;
+        return 1;
+    }
+    if (phase == TITAN_ASSET_PACKAGE_BUILD_PUBLISH) {
+        int result = TitanStorageIo_AsyncAtomicReplace(&g_assets.package_build_file,
+            TITAN_ASSET_CACHE_PACKAGE_TEMP_PATH, TITAN_ASSET_CACHE_PACKAGE_PATH);
+        if (result == TITAN_STORAGE_IO_ASYNC_PENDING) return 1;
+        if (result != TITAN_STORAGE_IO_ASYNC_DONE) return TitanAssetService_PackageBuildBeginAbort(1);
+        TitanAssetService_PackageBuildSetProgress(100u, "Indexed package ready");
+        TitanAssetService_PackageBuildComplete();
+        return 1;
+    }
+    return TitanAssetService_PackageBuildBeginAbort(1);
 }
 
 static int TitanAssetService_ReadStorageChunk(TitanAssetStorageJob *job)
@@ -3397,6 +3900,12 @@ publish:
         job->io_publish_started = 0u;
     }
 published:
+    {
+        uint32_t stale_offset = 0u, stale_size = 0u;
+        if (TitanAssetService_FindCachePackageEntry(job->serial, job->kind,
+                &stale_offset, &stale_size))
+            TitanAssetService_DisableCachePackage(1);
+    }
     TitanAssetService_Lock();
     if (TitanAssetService_StorageJobIdentityMatchesLocked(job))
     {
@@ -3486,6 +3995,7 @@ int TitanAssetService_StorageWorkerPump(void)
           g_assets.storage_job.op != TITAN_ASSET_STORAGE_LOAD_EXTERNAL_ICON &&
           g_assets.storage_job.op != TITAN_ASSET_STORAGE_LOAD_EXTERNAL_BACKGROUND)))
         return 0;
+    if (g_assets.package_build_active) return TitanAssetService_PackageBuildPump();
     if (g_assets.manual_session_active && g_assets.manual_clear_cache)
     {
         TitanStorageIoEntry entry;
@@ -3505,6 +4015,8 @@ int TitanAssetService_StorageWorkerPump(void)
         }
         skip = g_assets.manual_clear_cursor;
         TitanAssetService_Unlock();
+        if (g_assets.cache_package_state != 2u)
+            TitanAssetService_DisableCachePackage(0);
         if (!TitanAssetService_EnsureCacheDirs())
         {
             TitanAssetService_Lock();
@@ -3614,6 +4126,20 @@ int TitanAssetService_StorageWorkerPump(void)
     {
         unsigned int expected = TitanAssetService_ExpectedTimgSize(job->kind);
         int wizard_import = g_assets.artwork_wizard_active;
+        if (!wizard_import)
+        {
+            uint32_t package_offset = 0u, package_size = 0u;
+            if (TitanAssetService_FindCachePackageEntry(job->serial, job->kind,
+                    &package_offset, &package_size))
+            {
+                job->op = TITAN_ASSET_STORAGE_LOAD_PACKAGE;
+                job->package_offset = package_offset;
+                job->offset = 0u;
+                job->total = package_size;
+                g_assets.status.cache_hits++;
+                return 1;
+            }
+        }
         /* Raw artwork is deliberately consumed only by the explicit wizard.
          * Normal navigation reads validated TIMG from the persistent cache. */
         if (wizard_import)
@@ -3683,6 +4209,34 @@ int TitanAssetService_StorageWorkerPump(void)
         g_assets.status.cache_misses++;
         TitanAssetService_Unlock();
         memset(job, 0, sizeof(*job));
+        return 1;
+    }
+    if (job->op == TITAN_ASSET_STORAGE_LOAD_PACKAGE)
+    {
+        if (TitanAssetService_ReadCachePackageEntry(job) &&
+            TitanAssetService_ValidateTimgHeader(g_assets.storage_buffer,
+                g_assets.storage_buffer_size, job->kind, 0))
+        {
+            TitanAssetService_Lock();
+            if (TitanAssetService_StorageJobIdentityMatchesLocked(job))
+            {
+                g_assets.storage_stage_kind = job->kind;
+                g_assets.storage_stage_game = job->game_index;
+                g_assets.storage_stage_startup_hash = job->startup_hash;
+                g_assets.storage_stage_ready = 1;
+                g_assets.storage_stage_ready_ms = TitanTime_NowMilliseconds();
+            }
+            TitanAssetService_Unlock();
+            memset(job, 0, sizeof(*job));
+            return 1;
+        }
+        TitanAssetService_DisableCachePackage(1);
+        job->op = job->kind == TITAN_ASSET_KIND_ICON
+            ? TITAN_ASSET_STORAGE_LOAD_ICON : TITAN_ASSET_STORAGE_LOAD_BACKGROUND;
+        job->package_offset = 0u;
+        job->offset = 0u;
+        job->total = TitanAssetService_ExpectedTimgSize(job->kind);
+        job->external_path_checked = 0u;
         return 1;
     }
     if (job->op == TITAN_ASSET_STORAGE_LOAD_ICON || job->op == TITAN_ASSET_STORAGE_LOAD_BACKGROUND)
@@ -4859,6 +5413,9 @@ void TitanAssetService_Initialize(void)
     unsigned int startup_visible_count = 0u;
     unsigned int startup_selected = TITAN_ASSET_INVALID_GAME;
     memset(&g_assets, 0, sizeof(g_assets));
+    g_assets.cache_package_fd = -1;
+    TitanStorageIo_AsyncReset(&g_assets.package_build_file);
+    TitanStorageIo_AsyncReset(&g_assets.package_build_source_file);
     g_assets.selected_game_index = TITAN_ASSET_INVALID_GAME;
     g_assets.active_background_game = TITAN_ASSET_INVALID_GAME;
     g_assets.status.selected_game_index = TITAN_ASSET_INVALID_GAME;

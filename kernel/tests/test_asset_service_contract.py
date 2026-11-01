@@ -50,6 +50,13 @@ checks={
  'timg-psm16-ready':'TitanAssetService_ReadLe32(&data[12]) != 1u' in service and 'TitanAssetImage_PackPsm16' in image,
  'renderer-direct-psm16':'TitanVideo_UploadTransientAtlasPsm16' in video and 'TitanVideo_DrawAdaptiveImagePsm16' in video,
  'timg-bg-256x128':'TITAN_ASSET_BACKGROUND_WIDTH 256u' in header and 'TITAN_ASSET_BACKGROUND_HEIGHT 128u' in header,
+ 'indexed-cache-package-path':'TITAN_ASSET_CACHE_PACKAGE_PATH TITAN_ASSET_CACHE_DIR "/ASSETS.TPK"' in service,
+ 'package-index-mounted-once':'TitanAssetService_EnsureCachePackage' in service and 'TitanStorageIo_ReadExact(fd, g_assets.cache_package_index_bytes, index_size)' in service,
+ 'package-read-falls-back-to-timg':'TITAN_ASSET_STORAGE_LOAD_PACKAGE' in service and 'TitanAssetService_DisableCachePackage(1)' in service,
+ 'package-loader-uses-persistent-file':'TitanStorageIo_Seek64(g_assets.cache_package_fd' in service and 'TitanStorageIo_ReadExact(g_assets.cache_package_fd, g_assets.storage_buffer' in service,
+ 'wizard-auto-builds-package':'TITAN_ASSET_MANUAL_PACKAGING_ARTWORK' in service and 'TitanAssetService_PackageBuildPump' in service,
+ 'wizard-builder-atomic-publish':'TitanStorageIo_AsyncAtomicReplace(&g_assets.package_build_file' in service and 'TITAN_ASSET_CACHE_PACKAGE_TEMP_PATH' in service,
+ 'package-build-included-in-storage-scheduler':'if (g_assets.package_build_active) return 1;' in service and 'if (g_assets.package_build_active) return TitanAssetService_PackageBuildPump();' in service,
  'status-direct-internet':'direct_internet' in header and 'Internet direto' in service,
 }
 failed=[]

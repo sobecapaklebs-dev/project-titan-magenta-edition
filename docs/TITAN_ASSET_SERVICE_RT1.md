@@ -53,15 +53,37 @@ Installer or System Update becomes active, Titan App runtime owns foreground
 resources, the Storage Scheduler reports foreground work, or a background is no
 longer for the selected game.
 
-Cache reads during startup/runtime are serialized through TitanStorageScheduler and read one complete, size-bounded TIMG (at most 65,568 bytes) per open/read/close; the cache probe's exact-size stat is reused rather than repeated. Cache writes retain their smaller scheduling quanta. During the explicit Artwork Wizard, the ART directory is indexed once per session rather than probing up to eight candidate paths for every asset. One next-source read may overlap the active decode in a separate buffer; the converted asset is still atomically published and committed before the prefetched source is decoded. Wizard transfers use bounded 64 KiB chunks. CRC generation uses a lookup table, while runtime payload CRC verification remains disabled; TIMG header, kind, dimensions, and exact payload length are still checked.
+Cache reads are serialized through TitanStorageScheduler and read one complete,
+size-bounded TIMG per operation. The legacy per-file probe's exact-size stat is
+reused rather than repeated. Cache writes retain their smaller scheduling
+quanta. During the explicit Artwork Wizard, the ART directory is indexed once
+per session rather than probing up to eight candidate paths for every asset.
+One next-source read may overlap the active decode in a separate buffer; the
+converted asset is still atomically published and committed before the
+prefetched source is decoded. Wizard transfers use bounded 64 KiB chunks. CRC
+generation uses a lookup table, while runtime payload CRC verification remains
+disabled; TIMG header, kind, dimensions, and exact payload length are still
+checked.
 
-## Cache
+## Indexed startup cache package
 
-`mass:/TITAN/cache/assets/`
+`mass:/TITAN/cache/assets/ASSETS.TPK` stores a fixed-size index (serial, asset
+kind, byte offset and length) followed by the existing TIMG records. At startup,
+the storage worker validates and reads the index once, then keeps one package
+file open and seeks directly to each requested TIMG. This removes per-artwork
+path stat/open/close traffic while preserving complete catalog coverage. The
+original `*.icon.timg` and `*.bg.timg` files are retained; absent or incomplete
+package entries transparently use the individual TIMG cache.
 
-The renderer performs no socket, HTTP, filesystem or PNG/JPEG work. Cached tiles
-remain visible off-focus; missing tiles use the normal placeholder until their
-asset is committed on the main thread.
+The Asset Wizard creates or refreshes this package automatically after an
+artwork-conversion session, including **Convert all artworks**. It scans the
+cache directory, validates each TIMG header, writes the index and records to a
+temporary package, then atomically publishes `ASSETS.TPK`. The progress screen
+stays active for indexing, packing and publishing. If packing fails or is
+cancelled, individual TIMG files remain intact as fallback; no PC-side packaging
+step is required. Replacing an artwork already in the package invalidates the
+old package so stale data is never served. Clearing the asset cache removes the
+package and the individual files.
 
 ## Build dependencies
 
