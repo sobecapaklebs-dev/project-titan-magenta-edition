@@ -131,11 +131,17 @@ static int TitanStorageIo_TranslateFlags(int flags)
 
 enum
 {
+    TITAN_STORAGE_IO_ASYNC_OP_RENAME = 3u
+};
+
+enum
+{
     TITAN_STORAGE_IO_ASYNC_CLOSED = 0,
     TITAN_STORAGE_IO_ASYNC_OPEN_PENDING,
     TITAN_STORAGE_IO_ASYNC_OPEN,
     TITAN_STORAGE_IO_ASYNC_TRANSFER_PENDING,
-    TITAN_STORAGE_IO_ASYNC_CLOSE_PENDING
+    TITAN_STORAGE_IO_ASYNC_CLOSE_PENDING,
+    TITAN_STORAGE_IO_ASYNC_RENAME_PENDING
 };
 
 #if defined(__EE__) || defined(_EE)
@@ -173,7 +179,8 @@ int TitanStorageIo_AsyncPending(const TitanStorageIoAsyncFile *file)
     if (file == 0) return 0;
     return file->state == TITAN_STORAGE_IO_ASYNC_OPEN_PENDING ||
         file->state == TITAN_STORAGE_IO_ASYNC_TRANSFER_PENDING ||
-        file->state == TITAN_STORAGE_IO_ASYNC_CLOSE_PENDING;
+        file->state == TITAN_STORAGE_IO_ASYNC_CLOSE_PENDING ||
+        file->state == TITAN_STORAGE_IO_ASYNC_RENAME_PENDING;
 }
 
 #if defined(__EE__) || defined(_EE)
@@ -376,11 +383,104 @@ int TitanStorageIo_AsyncWrite(TitanStorageIoAsyncFile *file, const char *path,
 #endif
 }
 
+#if defined(__EE__) || defined(_EE)
+static int TitanStorageIo_AsyncStartRename(TitanStorageIoAsyncFile *file)
+{
+    char source_alias[TITAN_STORAGE_IO_PATH_CAPACITY];
+    char destination_alias[TITAN_STORAGE_IO_PATH_CAPACITY];
+    const char *source = file->path;
+    const char *destination = file->path2;
+    int result;
+    if (file->alias_index != 0u) {
+        unsigned int alias = file->alias_index - 1u;
+        if (!TitanStorageIo_BuildAliasPath(file->path, alias, source_alias, sizeof(source_alias)) ||
+            !TitanStorageIo_BuildAliasPath(file->path2, alias, destination_alias,
+                                           sizeof(destination_alias))) return -1;
+        source = source_alias;
+        destination = destination_alias;
+    }
+    fileXioSetBlockMode(FXIO_NOWAIT);
+    result = fileXioRename(source, destination);
+    if (result < 0) {
+        fileXioSetBlockMode(FXIO_WAIT);
+        return -1;
+    }
+    file->state = TITAN_STORAGE_IO_ASYNC_RENAME_PENDING;
+    return 0;
+}
+
+static int TitanStorageIo_AsyncPollRename(TitanStorageIoAsyncFile *file)
+{
+    int result = 0;
+    int state = fileXioWaitAsync(FXIO_NOWAIT, &result);
+    if (state == FXIO_INCOMPLETE) return TITAN_STORAGE_IO_ASYNC_PENDING;
+    fileXioSetBlockMode(FXIO_WAIT);
+    if (state == FXIO_COMPLETE && result >= 0) {
+        TitanStorageIo_AsyncReset(file);
+        return TITAN_STORAGE_IO_ASYNC_DONE;
+    }
+    file->state = TITAN_STORAGE_IO_ASYNC_CLOSED;
+    while (file->alias_index < TITAN_STORAGE_IO_ALIAS_COUNT) {
+        ++file->alias_index;
+        if (TitanStorageIo_AsyncStartRename(file) == 0)
+            return TITAN_STORAGE_IO_ASYNC_PENDING;
+    }
+    TitanStorageIo_AsyncReset(file);
+    return TITAN_STORAGE_IO_ASYNC_ERROR;
+}
+#endif
+
+int TitanStorageIo_AsyncAtomicReplace(TitanStorageIoAsyncFile *file,
+                                      const char *temporary_path,
+                                      const char *target_path)
+{
+    if (file == 0 || temporary_path == 0 || target_path == 0 ||
+        temporary_path[0] == '\0' || target_path[0] == '\0')
+        return TITAN_STORAGE_IO_ASYNC_ERROR;
+#if defined(__EE__) || defined(_EE)
+    if (file->state == TITAN_STORAGE_IO_ASYNC_RENAME_PENDING) {
+        if (file->operation != TITAN_STORAGE_IO_ASYNC_OP_RENAME || strcmp(file->path, temporary_path) != 0 ||
+            strcmp(file->path2, target_path) != 0) return TITAN_STORAGE_IO_ASYNC_ERROR;
+        return TitanStorageIo_AsyncPollRename(file);
+    }
+    if (file->state != TITAN_STORAGE_IO_ASYNC_CLOSED) return TITAN_STORAGE_IO_ASYNC_ERROR;
+    {
+        size_t source_size = strlen(temporary_path);
+        size_t target_size = strlen(target_path);
+        if (source_size >= sizeof(file->path) || target_size >= sizeof(file->path2))
+            return TITAN_STORAGE_IO_ASYNC_ERROR;
+        if (TitanStorageIo_PathInfo64(target_path, 0, 0)) {
+            errno = EEXIST;
+            return TITAN_STORAGE_IO_ASYNC_ERROR;
+        }
+        memcpy(file->path, temporary_path, source_size + 1u);
+        memcpy(file->path2, target_path, target_size + 1u);
+        file->operation = TITAN_STORAGE_IO_ASYNC_OP_RENAME;
+        file->alias_index = 0u;
+        if (TitanStorageIo_AsyncStartRename(file) == 0)
+            return TITAN_STORAGE_IO_ASYNC_PENDING;
+        while (file->alias_index < TITAN_STORAGE_IO_ALIAS_COUNT) {
+            ++file->alias_index;
+            if (TitanStorageIo_AsyncStartRename(file) == 0)
+                return TITAN_STORAGE_IO_ASYNC_PENDING;
+        }
+        TitanStorageIo_AsyncReset(file);
+        return TITAN_STORAGE_IO_ASYNC_ERROR;
+    }
+#else
+    (void)file;
+    return TitanStorageIo_AtomicReplace(temporary_path, target_path, 0)
+        ? TITAN_STORAGE_IO_ASYNC_DONE : TITAN_STORAGE_IO_ASYNC_ERROR;
+#endif
+}
+
 int TitanStorageIo_AsyncClose(TitanStorageIoAsyncFile *file)
 {
     if (file == 0) return TITAN_STORAGE_IO_ASYNC_ERROR;
 #if defined(__EE__) || defined(_EE)
     if (file->state == TITAN_STORAGE_IO_ASYNC_CLOSED) return TITAN_STORAGE_IO_ASYNC_DONE;
+    if (file->state == TITAN_STORAGE_IO_ASYNC_RENAME_PENDING)
+        return TitanStorageIo_AsyncPollRename(file);
     if (file->state == TITAN_STORAGE_IO_ASYNC_CLOSE_PENDING) {
         int result = 0;
         int state = fileXioWaitAsync(FXIO_NOWAIT, &result);

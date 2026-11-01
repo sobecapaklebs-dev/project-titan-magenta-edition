@@ -39,6 +39,7 @@ typedef struct TitanStorageIoAsyncFile
     unsigned char *read_buffer;
     const unsigned char *write_buffer;
     char path[512];
+    char path2[512];
 } TitanStorageIoAsyncFile;
 
 #define TITAN_STORAGE_IO_ASYNC_PENDING 0
@@ -51,6 +52,11 @@ int TitanStorageIo_AsyncRead(TitanStorageIoAsyncFile *file, const char *path,
                              void *buffer, size_t size);
 int TitanStorageIo_AsyncWrite(TitanStorageIoAsyncFile *file, const char *path,
                               int flags, const void *buffer, size_t size);
+/* Asynchronous equivalent of AtomicReplace(temp, target, NULL). It refuses to
+ * replace an existing target and submits the final rename as FileXio NOWAIT. */
+int TitanStorageIo_AsyncAtomicReplace(TitanStorageIoAsyncFile *file,
+                                      const char *temporary_path,
+                                      const char *target_path);
 int TitanStorageIo_AsyncClose(TitanStorageIoAsyncFile *file);
 
 int TitanStorageIo_Open(

@@ -26,6 +26,8 @@ checks = {
     'serialized-filexio': 'TitanStorageIo_AsyncRead' in read_external and 'fileXioSetBlockMode(FXIO_NOWAIT)' in storage_io and 'fileXioWaitAsync(FXIO_NOWAIT' in storage_io,
     'async-read-retains-buffer-while-offset-zero': 'if (!job->external_buffer_allocated)' in read_external and read_external.index('if (!job->external_buffer_allocated)') < read_external.index('TitanStorageIo_AsyncRead'),
     'storage-io-iop-flags-header-order': storage_io.index('#define NEWLIB_PORT_AWARE') < storage_io.index('#include <io_common.h>') < storage_io.index('#include <fileXio_rpc.h>') < storage_io.index('#undef NEWLIB_PORT_AWARE'),
+    'cache-publish-rename-async': 'TitanStorageIo_AsyncAtomicReplace(&job->io_file' in service and 'fileXioRename(source, destination)' in storage_io and 'TITAN_STORAGE_IO_ASYNC_RENAME_PENDING' in storage_io,
+    'cache-crc-validation-cooperative': 'TITAN_ASSET_VALIDATE_QUANTUM 1024u' in service and 'TitanAssetService_ValidateWriteChunk(job)' in service and 'TitanAssetService_ValidateTimg(g_assets.download_buffer, job->total' not in service,
     'bounded-io-quantums': ('TITAN_ASSET_IO_QUANTUM (8u * 1024u)' in service and 'TITAN_ASSET_EXTERNAL_IO_QUANTUM (32u * 1024u)' in service and 'quantum = remaining > TITAN_ASSET_EXTERNAL_IO_QUANTUM' in service),
     'separate-prefetch-buffer': 'external_prefetch_buffer' in service and 'external_source_buffer' in service and 'external_prefetch_capacity' in service,
     'prefetch-memory-pressure-falls-back-serial': 'decoder_owns_stage' in read_external and 'if (decoder_owns_stage) return 1' in read_external,
@@ -53,7 +55,7 @@ checks = {
     'wizard-does-not-advance-during-decode': 'if (g_assets.artwork_wizard_active && g_assets.external_decode_busy) return 0;' in service and service.count('if (g_assets.artwork_wizard_active && g_assets.external_decode_busy) return 0;') == 2,
     'wizard-retries-transient-external-reads': 'job->retry_count < TITAN_ASSET_WIZARD_IO_RETRIES' in service and 'job->external_path_checked = 0u;' in service,
     'wizard-retries-transient-cache-writes': 'TITAN_ASSET_DIAG_CACHE_WRITE_FAIL, -2' in service and 'job->offset = 0u;' in service,
-    'persistent-atomic-timg-cache': 'g_assets.download_ready_for_storage = 1' in service and 'TitanStorageIo_AtomicReplace(job->temporary_path, job->path, 0)' in service,
+    'persistent-atomic-timg-cache': 'g_assets.download_ready_for_storage = 1' in service and 'TitanStorageIo_AsyncAtomicReplace(&job->io_file' in service,
     'no-runtime-raw-art-fallback': 'if (wizard_import)' in service and 'FindExternalArt(job->serial' in service,
     'asset-wizard-settings-content': 'TITAN_SETTINGS_CONTENT' in scene and '"Asset Wizard"' in scene,
     'single-and-library-modes': '"Convert selected icon"' in scene and '"Convert selected background"' in scene and '"Convert all artwork"' in scene,
@@ -76,7 +78,7 @@ section = section.split('static void TitanAssetService_NetworkWorker', 1)[0]
 checks['wizard-publishes-timg'] = all(x in section for x in (
     'context.wizard_import', 'g_assets.download_buffer',
     'g_assets.download_ready_for_storage = 1'
-)) and 'TitanStorageIo_AtomicReplace(job->temporary_path, job->path, 0)' in service
+)) and 'TitanStorageIo_AsyncAtomicReplace(&job->io_file' in service
 
 failed = []
 for name, ok in checks.items():

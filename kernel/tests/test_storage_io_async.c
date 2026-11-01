@@ -11,7 +11,7 @@
 #define MOCK_CAPACITY 128u
 #define MOCK_FD 7
 
-typedef enum MockOperation { MOCK_NONE, MOCK_OPEN, MOCK_READ, MOCK_WRITE, MOCK_CLOSE } MockOperation;
+typedef enum MockOperation { MOCK_NONE, MOCK_OPEN, MOCK_READ, MOCK_WRITE, MOCK_CLOSE, MOCK_RENAME } MockOperation;
 static unsigned char g_bytes[MOCK_CAPACITY];
 static size_t g_length;
 static size_t g_cursor;
@@ -49,6 +49,7 @@ int fileXioWaitAsync(int mode, int *result)
             g_result = g_size;
             break;
         case MOCK_CLOSE: g_result = 0; break;
+        case MOCK_RENAME: g_result = 0; break;
         default: assert(0); break;
     }
     g_operation = MOCK_NONE;
@@ -79,7 +80,10 @@ int fileXioWrite(int fd, const void *buffer, int size)
 }
 int fileXioRemove(const char *name) { (void)name; return -1; }
 int fileXioRename(const char *source, const char *destination)
-{ (void)source; (void)destination; return -1; }
+{
+    assert(source != NULL && destination != NULL && g_block_mode == FXIO_NOWAIT);
+    g_operation = MOCK_RENAME; g_pending_polls = 0; return 0;
+}
 
 static int finish_write(TitanStorageIoAsyncFile *file, const char *path,
                         const void *buffer, size_t size, int flags)
@@ -104,6 +108,13 @@ static int finish_close(TitanStorageIoAsyncFile *file)
     while (result == TITAN_STORAGE_IO_ASYNC_PENDING);
     return result;
 }
+static int finish_replace(TitanStorageIoAsyncFile *file, const char *source, const char *target)
+{
+    int result;
+    do { result = TitanStorageIo_AsyncAtomicReplace(file, source, target); }
+    while (result == TITAN_STORAGE_IO_ASYNC_PENDING);
+    return result;
+}
 
 int main(void)
 {
@@ -125,6 +136,11 @@ int main(void)
     assert(finish_write(&file, "mass:/test.bin", b, sizeof(b) - 1u,
         TITAN_STORAGE_IO_WRITE | TITAN_STORAGE_IO_CREATE) == TITAN_STORAGE_IO_ASYNC_DONE);
     assert(finish_close(&file) == TITAN_STORAGE_IO_ASYNC_DONE);
+    state = TitanStorageIo_AsyncAtomicReplace(&file, "mass:/temp.bin", "mass:/test.bin");
+    assert(state == TITAN_STORAGE_IO_ASYNC_PENDING);
+    assert(TitanStorageIo_AsyncPending(&file));
+    assert(finish_replace(&file, "mass:/temp.bin", "mass:/test.bin")
+        == TITAN_STORAGE_IO_ASYNC_DONE);
 
     g_cursor = 0u;
     state = TitanStorageIo_AsyncRead(&file, "mass:/test.bin", out_a, sizeof(a) - 1u);
