@@ -4530,6 +4530,9 @@ static int TitanAssetService_EnsureNetworkWorker(void)
 
 void TitanAssetService_Initialize(void)
 {
+    unsigned int startup_visible[TITAN_ASSET_VISIBLE_GAME_CAPACITY];
+    unsigned int startup_visible_count = 0u;
+    unsigned int startup_selected = TITAN_ASSET_INVALID_GAME;
     memset(&g_assets, 0, sizeof(g_assets));
     g_assets.selected_game_index = TITAN_ASSET_INVALID_GAME;
     g_assets.active_background_game = TITAN_ASSET_INVALID_GAME;
@@ -4555,6 +4558,26 @@ void TitanAssetService_Initialize(void)
     TitanAssetService_CopyText(
         g_assets.status.detail, sizeof(g_assets.status.detail), "Internet direto pronto; downloads aguardam comando manual"
     );
+
+    /* Warm the first Home viewport from persistent TIMG cache during the boot
+     * animation, rather than waiting until the first render has already drawn
+     * empty icon slots. The live scene replaces this seed with its exact visible
+     * game list on its first frame; only the bounded RAM-resident window is
+     * prefetched, never the full catalog. */
+    {
+        unsigned int count = TitanNeutrino_GetGameCount();
+        unsigned int i;
+        if (count > TITAN_NEUTRINO_GAME_CAPACITY) count = TITAN_NEUTRINO_GAME_CAPACITY;
+        for (i = 0u; i < count && startup_visible_count < 16u; ++i) {
+            const TitanNeutrinoGame *game = TitanNeutrino_GetGame(i);
+            if (game == 0 || game->startup[0] == '\0') continue;
+            if (startup_selected == TITAN_ASSET_INVALID_GAME) startup_selected = i;
+            startup_visible[startup_visible_count++] = i;
+        }
+        if (startup_selected != TITAN_ASSET_INVALID_GAME)
+            TitanAssetService_SetVisibleGames(startup_selected, startup_visible,
+                startup_visible_count, 0u);
+    }
 }
 
 void TitanAssetService_NotifyCatalogChanged(void)

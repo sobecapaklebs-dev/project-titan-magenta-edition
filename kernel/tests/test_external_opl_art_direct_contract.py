@@ -28,6 +28,7 @@ checks = {
     'storage-io-iop-flags-header-order': storage_io.index('#define NEWLIB_PORT_AWARE') < storage_io.index('#include <io_common.h>') < storage_io.index('#include <fileXio_rpc.h>') < storage_io.index('#undef NEWLIB_PORT_AWARE'),
     'cache-publish-rename-async': 'TitanStorageIo_AsyncAtomicReplace(&job->io_file' in service and 'fileXioRename(source, destination)' in storage_io and 'TITAN_STORAGE_IO_ASYNC_RENAME_PENDING' in storage_io,
     'cache-crc-validation-cooperative': 'TITAN_ASSET_VALIDATE_QUANTUM 1024u' in service and 'TitanAssetService_ValidateWriteChunk(job)' in service and 'TitanAssetService_ValidateTimg(g_assets.download_buffer, job->total' not in service,
+    'startup-prewarms-persistent-cache': 'Warm the first Home viewport from persistent TIMG cache' in service and 'TitanAssetService_SetVisibleGames(startup_selected, startup_visible' in service and 'startup_visible_count < 16u' in service,
     'bounded-io-quantums': ('TITAN_ASSET_IO_QUANTUM (8u * 1024u)' in service and 'TITAN_ASSET_EXTERNAL_IO_QUANTUM (32u * 1024u)' in service and 'quantum = remaining > TITAN_ASSET_EXTERNAL_IO_QUANTUM' in service),
     'separate-prefetch-buffer': 'external_prefetch_buffer' in service and 'external_source_buffer' in service and 'external_prefetch_capacity' in service,
     'prefetch-memory-pressure-falls-back-serial': 'decoder_owns_stage' in read_external and 'if (decoder_owns_stage) return 1' in read_external,
