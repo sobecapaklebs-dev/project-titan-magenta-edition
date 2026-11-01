@@ -54,7 +54,7 @@ resources, the Storage Scheduler reports foreground work, or a background is no
 longer for the selected game.
 
 Storage remains serialized through TitanStorageScheduler in <=8 KiB quanta.
-Downloads publish as `.part` -> CRC-valid TIMG -> atomic replacement.
+Downloads publish as `.part` -> structurally valid TIMG -> atomic replacement. Runtime checks the TIMG header, kind, dimensions, and exact payload length; it does not scan payload bytes to verify CRC. The CRC field remains in the TIMG format for compatibility.
 
 ## Cache
 

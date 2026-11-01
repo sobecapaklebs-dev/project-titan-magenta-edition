@@ -44,7 +44,6 @@ extern int DeleteThread(int thread_id);
 #define TITAN_ASSET_NETWORK_STABLE_FRAMES 1800u /* 30 s @ 60 Hz, automatic mode only */
 #define TITAN_ASSET_AUTOMATIC_IDLE_FRAMES 120u /* 2 s of no user input on Home */
 #define TITAN_ASSET_IO_QUANTUM (8u * 1024u)
-#define TITAN_ASSET_VALIDATE_QUANTUM 1024u
 /* OPL ART reads reopen/seek each quantum. A larger but still bounded local-file
  * slice cuts FileXio RPC churn without changing cache-write fairness. */
 #define TITAN_ASSET_EXTERNAL_IO_QUANTUM (32u * 1024u)
@@ -168,11 +167,6 @@ typedef struct TitanAssetStorageJob
     unsigned char io_failed;
     unsigned char io_dirs_checked;
     unsigned char io_publish_started;
-    unsigned char io_validate_started;
-    unsigned int io_validate_offset;
-    unsigned int io_validate_payload_size;
-    uint32_t io_validate_crc;
-    uint32_t io_validate_expected_crc;
     TitanStorageIoAsyncFile io_file;
     char serial[24];
     char path[256];
@@ -423,28 +417,6 @@ static uint32_t TitanAssetService_ReadLe32(const unsigned char *p)
         ((uint32_t)p[3] << 24u);
 }
 
-static uint32_t TitanAssetService_Crc32Update(
-    uint32_t crc, const unsigned char *data, unsigned int size)
-{
-    unsigned int i;
-    for (i = 0u; i < size; i++)
-    {
-        unsigned int bit;
-        crc ^= data[i];
-        for (bit = 0u; bit < 8u; bit++)
-        {
-            uint32_t mask = (uint32_t)-(int)(crc & 1u);
-            crc = (crc >> 1u) ^ (0xedb88320u & mask);
-        }
-    }
-    return crc;
-}
-
-static uint32_t TitanAssetService_Crc32(const unsigned char *data, unsigned int size)
-{
-    return ~TitanAssetService_Crc32Update(0xffffffffu, data, size);
-}
-
 static int TitanAssetService_ValidateTimg(
     const unsigned char *data,
     unsigned int size,
@@ -457,7 +429,6 @@ static int TitanAssetService_ValidateTimg(
     unsigned int height;
     unsigned int expected_payload;
     unsigned int declared_payload;
-    uint32_t declared_crc;
 
     if (data == 0 || size < TITAN_ASSET_TIMG_HEADER_SIZE ||
         !TitanAssetService_IsValidKind(expected_kind)) return 0;
@@ -468,7 +439,6 @@ static int TitanAssetService_ValidateTimg(
     height = TitanAssetService_ReadLe16(&data[10]);
     if (TitanAssetService_ReadLe32(&data[12]) != 1u) return 0;
     declared_payload = TitanAssetService_ReadLe32(&data[16]);
-    declared_crc = TitanAssetService_ReadLe32(&data[20]);
 
     if (expected_kind == TITAN_ASSET_KIND_ICON)
     {
@@ -485,9 +455,6 @@ static int TitanAssetService_ValidateTimg(
 
     if (declared_payload != expected_payload ||
         size != TITAN_ASSET_TIMG_HEADER_SIZE + declared_payload) return 0;
-    if (TitanAssetService_Crc32(
-            &data[TITAN_ASSET_TIMG_HEADER_SIZE], declared_payload) != declared_crc)
-        return 0;
 
     if (payload_offset != 0) *payload_offset = TITAN_ASSET_TIMG_HEADER_SIZE;
     if (payload_size != 0) *payload_size = declared_payload;
@@ -496,7 +463,7 @@ static int TitanAssetService_ValidateTimg(
 
 static int TitanAssetService_ValidateTimgHeader(
     const unsigned char *data, unsigned int size, TitanAssetKind expected_kind,
-    unsigned int *payload_size, uint32_t *expected_crc)
+    unsigned int *payload_size)
 {
     unsigned int width, height, expected_payload;
     if (data == 0 || size < TITAN_ASSET_TIMG_HEADER_SIZE ||
@@ -516,70 +483,7 @@ static int TitanAssetService_ValidateTimgHeader(
     if (TitanAssetService_ReadLe32(&data[16]) != expected_payload ||
         size != TITAN_ASSET_TIMG_HEADER_SIZE + expected_payload) return 0;
     if (payload_size != 0) *payload_size = expected_payload;
-    if (expected_crc != 0) *expected_crc = TitanAssetService_ReadLe32(&data[20]);
     return 1;
-}
-
-static int TitanAssetService_ValidateWriteChunk(TitanAssetStorageJob *job)
-{
-    unsigned int remaining, quantum;
-    const unsigned char *payload;
-    if (job == 0 || job->total > sizeof(g_assets.download_buffer)) return -1;
-    if (!job->io_validate_started) {
-        if (!TitanAssetService_ValidateTimgHeader(g_assets.download_buffer, job->total,
-                job->kind, &job->io_validate_payload_size, &job->io_validate_expected_crc))
-            return -1;
-        job->io_validate_started = 1u;
-        job->io_validate_offset = 0u;
-        job->io_validate_crc = 0xffffffffu;
-    }
-    remaining = job->io_validate_payload_size - job->io_validate_offset;
-    quantum = remaining > TITAN_ASSET_VALIDATE_QUANTUM
-        ? TITAN_ASSET_VALIDATE_QUANTUM : remaining;
-    payload = &g_assets.download_buffer[TITAN_ASSET_TIMG_HEADER_SIZE + job->io_validate_offset];
-    job->io_validate_crc = TitanAssetService_Crc32Update(job->io_validate_crc, payload, quantum);
-    job->io_validate_offset += quantum;
-    if (job->io_validate_offset < job->io_validate_payload_size) return 0;
-    return ~job->io_validate_crc == job->io_validate_expected_crc ? 1 : -1;
-}
-
-static int TitanAssetService_ValidateCacheReadChunk(TitanAssetStorageJob *job)
-{
-    unsigned int remaining, quantum;
-    const unsigned char *payload;
-    if (job == 0 || g_assets.storage_buffer_size > sizeof(g_assets.storage_buffer)) return -1;
-    if (!job->io_validate_started)
-    {
-        if (!TitanAssetService_ValidateTimgHeader(g_assets.storage_buffer,
-                g_assets.storage_buffer_size, job->kind,
-                &job->io_validate_payload_size, &job->io_validate_expected_crc))
-            return -1;
-        job->io_validate_started = 1u;
-        job->io_validate_offset = 0u;
-        job->io_validate_crc = 0xffffffffu;
-    }
-    remaining = job->io_validate_payload_size - job->io_validate_offset;
-    /* CRC work stays on the low-priority Storage Scheduler in 8 KiB slices,
-     * with an audio/realtime yield between chunks. */
-    quantum = remaining > TITAN_ASSET_IO_QUANTUM
-        ? TITAN_ASSET_IO_QUANTUM : remaining;
-    payload = &g_assets.storage_buffer[TITAN_ASSET_TIMG_HEADER_SIZE + job->io_validate_offset];
-    job->io_validate_crc = TitanAssetService_Crc32Update(job->io_validate_crc, payload, quantum);
-    job->io_validate_offset += quantum;
-    if (job->io_validate_offset < job->io_validate_payload_size) return 0;
-    return ~job->io_validate_crc == job->io_validate_expected_crc ? 1 : -1;
-}
-
-static void TitanAssetService_ReportStorageVerify(TitanAssetStorageJob *job)
-{
-    TitanAssetService_Lock();
-    if (g_assets.artwork_wizard_active &&
-        TitanAssetService_StorageJobBelongsToManualSessionLocked(job)) {
-        g_assets.status.current_asset_progress_percent = 99u;
-        TitanAssetService_CopyText(g_assets.status.current_asset_stage,
-            sizeof(g_assets.status.current_asset_stage), "Verifying cache");
-    }
-    TitanAssetService_Unlock();
 }
 
 static int TitanAssetService_NormalizeSerial(
@@ -2291,12 +2195,11 @@ void TitanAssetService_UpdateMainThread(unsigned int frame_index)
         (void)snprintf(ready_stage, sizeof(ready_stage), "%s WAIT %ums",
             kind == TITAN_ASSET_KIND_ICON ? "READY" : "READY BG",
             (unsigned int)ready_handoff_ms);
-        /* Cache reads are CRC-validated in bounded 8 KiB quanta by the low-
-         * priority storage worker; cache writes are validated before atomic
-         * publish. Main thread rechecks only the cheap TIMG header and identity. */
+        /* Payload CRC is intentionally not validated at runtime. Keep the
+         * structural TIMG header and asset identity checks before committing. */
         valid = identity_matches && TitanAssetService_IsValidKind(kind) &&
             TitanAssetService_ValidateTimgHeader(g_assets.storage_buffer, stage_size,
-                kind, &payload_size, 0);
+                kind, &payload_size);
         if (valid) payload_offset = TITAN_ASSET_TIMG_HEADER_SIZE;
         if (valid)
         {
@@ -3294,25 +3197,6 @@ static int TitanAssetService_WriteStorageChunk(TitanAssetStorageJob *job)
         job->io_publish_started = 0u;
         goto published;
     }
-    if (job->io_validate_started) {
-        int validation = TitanAssetService_ValidateWriteChunk(job);
-        if (validation == 0) {
-            TitanAssetService_ReportStorageVerify(job);
-            return 1;
-        }
-        if (validation < 0) goto fail;
-        job->io_publish_started = 1u;
-        {
-            int replace_state = g_assets.artwork_wizard_active
-                ? TitanStorageIo_AsyncAtomicReplace(&job->io_file, job->temporary_path, job->path)
-                : (TitanStorageIo_AtomicReplace(job->temporary_path, job->path, 0)
-                    ? TITAN_STORAGE_IO_ASYNC_DONE : TITAN_STORAGE_IO_ASYNC_ERROR);
-            if (replace_state == TITAN_STORAGE_IO_ASYNC_PENDING) return 1;
-            if (replace_state != TITAN_STORAGE_IO_ASYNC_DONE) goto fail;
-            job->io_publish_started = 0u;
-        }
-        goto published;
-    }
     if ((!job->io_dirs_checked && !TitanAssetService_EnsureCacheDirs()) || job->offset > job->total) goto fail;
     job->io_dirs_checked = 1u;
     remaining = job->total - job->offset;
@@ -3361,14 +3245,8 @@ static int TitanAssetService_WriteStorageChunk(TitanAssetStorageJob *job)
         if (close_state != TITAN_STORAGE_IO_ASYNC_DONE) goto fail;
     }
 publish:
-    {
-        int validation = TitanAssetService_ValidateWriteChunk(job);
-        if (validation == 0) {
-            TitanAssetService_ReportStorageVerify(job);
-            return 1;
-        }
-        if (validation < 0) goto fail;
-    }
+    if (!TitanAssetService_ValidateTimgHeader(g_assets.download_buffer, job->total,
+            job->kind, 0)) goto fail;
     job->io_publish_started = 1u;
     {
         int replace_state = g_assets.artwork_wizard_active
@@ -3427,11 +3305,6 @@ fail:
         job->offset = 0u;
         job->io_failed = 0u;
         job->io_publish_started = 0u;
-        job->io_validate_started = 0u;
-        job->io_validate_offset = 0u;
-        job->io_validate_crc = 0xffffffffu;
-        job->io_validate_payload_size = 0u;
-        job->io_validate_expected_crc = 0u;
         g_assets.status.current_asset_progress_percent = 90u;
         g_assets.pipeline_last_progress_frame = g_assets.frame_index;
     }
@@ -3670,9 +3543,9 @@ int TitanAssetService_StorageWorkerPump(void)
         result = TitanAssetService_ReadStorageChunk(job);
         if (result == 2)
         {
-            int validation = TitanAssetService_ValidateCacheReadChunk(job);
-            if (validation == 0) return 1;
-            if (validation > 0)
+            int validation = TitanAssetService_ValidateTimgHeader(g_assets.storage_buffer,
+                g_assets.storage_buffer_size, job->kind, 0);
+            if (validation)
             {
                 TitanAssetService_Lock();
                 if (TitanAssetService_StorageJobIdentityMatchesLocked(job))

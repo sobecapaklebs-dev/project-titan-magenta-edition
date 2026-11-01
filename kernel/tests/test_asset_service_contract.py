@@ -26,7 +26,7 @@ checks={
  '8k-storage-quantum':'TITAN_ASSET_IO_QUANTUM (8u * 1024u)' in service,
  'larger-bounded-opl-art-reads':('TITAN_ASSET_EXTERNAL_IO_QUANTUM (32u * 1024u)' in service and 'quantum = remaining > TITAN_ASSET_EXTERNAL_IO_QUANTUM' in service and 'quantum = remaining > TITAN_ASSET_IO_QUANTUM' in service),
  'atomic-part':'"%s.part"' in service and 'TitanStorageIo_AtomicReplace' in service,
- 'crc-validation':'TitanAssetService_Crc32' in service and 'declared_crc' in service,
+ 'runtime-payload-crc-validation-removed':'TitanAssetService_Crc32' not in service and 'Crc32Update' not in service and 'ValidateTimgHeader' in service,
  'storage-scheduler-owner':'TitanAssetService_StorageWorkerPump' in scheduler,
  'scan-fairness':'asset_scan_turn' in scheduler,
  'package-pause':'TitanPackageInstaller_IsActive()' in service,
