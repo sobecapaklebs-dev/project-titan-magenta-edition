@@ -49,15 +49,21 @@ static void TitanAssetImage_WriteLe32(unsigned char *p, uint32_t v)
 
 static uint32_t TitanAssetImage_Crc32(const unsigned char *data, unsigned int size)
 {
+    uint32_t table[256];
     uint32_t crc = 0xffffffffu;
     unsigned int i;
-    for (i = 0u; i < size; i++)
+    /* The cache format retains CRC32 for backward compatibility, but avoid
+     * eight branch/shift rounds per byte on the PS2 while preparing artwork. */
+    for (i = 0u; i < 256u; i++)
     {
+        uint32_t value = i;
         unsigned int bit;
-        crc ^= data[i];
         for (bit = 0u; bit < 8u; bit++)
-            crc = (crc >> 1u) ^ (0xedb88320u & (0u - (crc & 1u)));
+            value = (value >> 1u) ^ (0xedb88320u & (0u - (value & 1u)));
+        table[i] = value;
     }
+    for (i = 0u; i < size; i++)
+        crc = (crc >> 8u) ^ table[(crc ^ data[i]) & 0xffu];
     return ~crc;
 }
 

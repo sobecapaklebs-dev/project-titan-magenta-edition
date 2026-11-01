@@ -53,8 +53,7 @@ Installer or System Update becomes active, Titan App runtime owns foreground
 resources, the Storage Scheduler reports foreground work, or a background is no
 longer for the selected game.
 
-Storage remains serialized through TitanStorageScheduler in <=8 KiB quanta.
-Downloads publish as `.part` -> structurally valid TIMG -> atomic replacement. Runtime checks the TIMG header, kind, dimensions, and exact payload length; it does not scan payload bytes to verify CRC. The CRC field remains in the TIMG format for compatibility.
+Normal background cache I/O remains serialized through TitanStorageScheduler in <=8 KiB quanta. During the explicit Artwork Wizard, the ART directory is indexed once per session rather than probing up to eight candidate paths for every asset. One next-source read may overlap the active decode in a separate buffer; the converted asset is still atomically published and committed before the prefetched source is decoded. Wizard transfers use bounded 64 KiB chunks. CRC generation uses a lookup table, while runtime payload CRC verification remains disabled; TIMG header, kind, dimensions, and exact payload length are still checked.
 
 ## Cache
 

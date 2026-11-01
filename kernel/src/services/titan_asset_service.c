@@ -19,6 +19,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 
 #if defined(__EE__) || defined(_EE)
 #include <delaythread.h>
@@ -44,9 +45,12 @@ extern int DeleteThread(int thread_id);
 #define TITAN_ASSET_NETWORK_STABLE_FRAMES 1800u /* 30 s @ 60 Hz, automatic mode only */
 #define TITAN_ASSET_AUTOMATIC_IDLE_FRAMES 120u /* 2 s of no user input on Home */
 #define TITAN_ASSET_IO_QUANTUM (8u * 1024u)
+#define TITAN_ASSET_WIZARD_IO_QUANTUM (64u * 1024u)
+#define TITAN_ASSET_ART_INDEX_PAGE_SIZE 16u
+#define TITAN_ASSET_ART_INDEX_MAX_ENTRIES 4096u
 /* OPL ART reads reopen/seek each quantum. A larger but still bounded local-file
  * slice cuts FileXio RPC churn without changing cache-write fairness. */
-#define TITAN_ASSET_EXTERNAL_IO_QUANTUM (32u * 1024u)
+#define TITAN_ASSET_EXTERNAL_IO_QUANTUM (64u * 1024u)
 #define TITAN_ASSET_SOURCE_MAX_SIZE (1536u * 1024u)
 #define TITAN_ASSET_PROVIDER_URL_CAPACITY 768u
 #define TITAN_ASSET_BACKGROUND_DEBOUNCE_FRAMES 10u
@@ -270,6 +274,10 @@ typedef struct TitanAssetServiceState
     unsigned char *external_source_buffer;
     int external_art_root_checked;
     char external_art_root[TITAN_ASSET_EXTERNAL_ROOT_CAPACITY];
+    /* ART filenames and sizes are indexed once per Wizard session. This turns
+     * up to eight path-stat RPCs per asset into one directory pass. */
+    unsigned char external_art_index_state; /* 0=unbuilt, 1=complete, 2=fallback */
+    uint32_t external_art_sizes[TITAN_NEUTRINO_GAME_CAPACITY][2][8];
     unsigned int external_source_size;
     unsigned int external_source_capacity;
     volatile int external_decode_ready;
@@ -721,6 +729,35 @@ static int TitanAssetService_ResolveExternalArtRoot(
     return 1;
 }
 
+static const char *TitanAssetService_ExternalArtSuffix(TitanAssetKind kind,
+    unsigned int candidate)
+{
+    static const char *const icon_suffixes[8] = {
+        "_ICO.png", "_ICO.jpg", ".png", ".jpg",
+        "_COV2.png", "_COV2.jpg", "_COV.png", "_COV.jpg"
+    };
+    static const char *const background_suffixes[8] = {
+        "_BG_00.png", "_BG_00.jpg", "_BG.png", "_BG.jpg",
+        "_SCR_00.png", "_SCR_00.jpg", "_SCR.png", "_SCR.jpg"
+    };
+    if (candidate >= 8u) return 0;
+    if (kind == TITAN_ASSET_KIND_ICON) return icon_suffixes[candidate];
+    if (kind == TITAN_ASSET_KIND_BACKGROUND) return background_suffixes[candidate];
+    return 0;
+}
+
+static int TitanAssetService_AsciiCaseEqual(const char *a, const char *b)
+{
+    if (a == 0 || b == 0) return 0;
+    while (*a != '\0' && *b != '\0')
+    {
+        if (tolower((unsigned char)*a) != tolower((unsigned char)*b)) return 0;
+        a++;
+        b++;
+    }
+    return *a == '\0' && *b == '\0';
+}
+
 static int TitanAssetService_BuildExternalArtPath(
     const char *serial,
     TitanAssetKind kind,
@@ -731,54 +768,99 @@ static int TitanAssetService_BuildExternalArtPath(
 )
 {
     char opl_serial[24];
-    const char *suffix = 0;
+    const char *suffix = TitanAssetService_ExternalArtSuffix(kind, candidate);
     int n;
-    if (serial == 0 || art_root == 0 || art_root[0] == '\0' ||
+    if (serial == 0 || art_root == 0 || art_root[0] == '\0' || suffix == 0 ||
         path == 0 || capacity == 0u ||
-        !TitanAssetService_IsValidKind(kind) ||
         !TitanAssetService_BuildOplSerial(serial, opl_serial, sizeof(opl_serial)))
         return 0;
-
-    /* OPL's canonical ART naming is the primary compatibility contract. PS2
-     * Launcher shares the same ART ecosystem and its square images can also
-     * appear as a bare Game ID. Background screenshots are bounded fallbacks. */
-    if (kind == TITAN_ASSET_KIND_ICON)
-    {
-        switch (candidate)
-        {
-            case 0u: suffix = "_ICO.png"; break;
-            case 1u: suffix = "_ICO.jpg"; break;
-            case 2u: suffix = ".png"; break;
-            case 3u: suffix = ".jpg"; break;
-            case 4u: suffix = "_COV2.png"; break;
-            case 5u: suffix = "_COV2.jpg"; break;
-            /* OPL cover art is the final icon fallback; the decoder center-crops it. */
-            case 6u: suffix = "_COV.png"; break;
-            case 7u: suffix = "_COV.jpg"; break;
-            default: return 0;
-        }
-    }
-    else
-    {
-        switch (candidate)
-        {
-            case 0u: suffix = "_BG_00.png"; break;
-            case 1u: suffix = "_BG_00.jpg"; break;
-            case 2u: suffix = "_BG.png"; break;
-            case 3u: suffix = "_BG.jpg"; break;
-            case 4u: suffix = "_SCR_00.png"; break;
-            case 5u: suffix = "_SCR_00.jpg"; break;
-            case 6u: suffix = "_SCR.png"; break;
-            case 7u: suffix = "_SCR.jpg"; break;
-            default: return 0;
-        }
-    }
-    n = snprintf(path, capacity, "%s/%s%s", art_root,
-        opl_serial, suffix);
+    n = snprintf(path, capacity, "%s/%s%s", art_root, opl_serial, suffix);
     return n >= 0 && (unsigned int)n < capacity;
 }
 
+static int TitanAssetService_BuildExternalArtIndex(const char *art_root)
+{
+    TitanStorageIoEntry entries[TITAN_ASSET_ART_INDEX_PAGE_SIZE];
+    char opl_serials[TITAN_NEUTRINO_GAME_CAPACITY][24];
+    unsigned char serial_valid[TITAN_NEUTRINO_GAME_CAPACITY];
+    unsigned int game_count = TitanNeutrino_GetGameCount();
+    unsigned int game;
+    unsigned int start = 0u;
+    unsigned int total = 0u;
+    unsigned int i;
+    if (game_count > TITAN_NEUTRINO_GAME_CAPACITY)
+        game_count = TITAN_NEUTRINO_GAME_CAPACITY;
+    memset(g_assets.external_art_sizes, 0, sizeof(g_assets.external_art_sizes));
+    memset(serial_valid, 0, sizeof(serial_valid));
+    for (game = 0u; game < game_count; game++)
+    {
+        char normalized[24];
+        serial_valid[game] = TitanAssetService_NormalizeSerial(game,
+            normalized, sizeof(normalized)) &&
+            TitanAssetService_BuildOplSerial(normalized, opl_serials[game],
+                sizeof(opl_serials[game]));
+    }
+
+    TitanAssetService_Lock();
+    if (g_assets.artwork_wizard_active)
+    {
+        g_assets.status.current_asset_progress_percent = 2u;
+        TitanAssetService_CopyText(g_assets.status.current_asset_stage,
+            sizeof(g_assets.status.current_asset_stage), "Indexing local ART");
+    }
+    TitanAssetService_Unlock();
+
+    for (;;)
+    {
+        int count;
+        if (g_assets.manual_cancel_requested) return 0;
+        count = TitanStorageIo_ListDirectory(art_root, start, entries,
+            TITAN_ASSET_ART_INDEX_PAGE_SIZE);
+        if (count < 0) return 0;
+        if (count == 0) break;
+        for (i = 0u; i < (unsigned int)count; i++)
+        {
+            unsigned int name_len;
+            if ((entries[i].flags & TITAN_STORAGE_IO_ENTRY_DIRECTORY) != 0u ||
+                entries[i].size == 0u || entries[i].size > TITAN_ASSET_SOURCE_MAX_SIZE)
+                continue;
+            name_len = (unsigned int)strlen(entries[i].name);
+            for (game = 0u; game < game_count; game++)
+            {
+                unsigned int serial_len;
+                unsigned int kind_index;
+                if (!serial_valid[game]) continue;
+                serial_len = (unsigned int)strlen(opl_serials[game]);
+                if (name_len <= serial_len ||
+                    strncasecmp(entries[i].name, opl_serials[game], serial_len) != 0)
+                    continue;
+                for (kind_index = 0u; kind_index < 2u; kind_index++)
+                {
+                    unsigned int candidate;
+                    TitanAssetKind kind = kind_index == 0u
+                        ? TITAN_ASSET_KIND_ICON : TITAN_ASSET_KIND_BACKGROUND;
+                    for (candidate = 0u; candidate < 8u; candidate++)
+                    {
+                        const char *suffix = TitanAssetService_ExternalArtSuffix(kind, candidate);
+                        if (TitanAssetService_AsciiCaseEqual(entries[i].name + serial_len,
+                                suffix) && g_assets.external_art_sizes[game][kind_index][candidate] == 0u)
+                            g_assets.external_art_sizes[game][kind_index][candidate] =
+                                (uint32_t)entries[i].size;
+                    }
+                }
+            }
+        }
+        start += (unsigned int)count;
+        total += (unsigned int)count;
+        if (total >= TITAN_ASSET_ART_INDEX_MAX_ENTRIES)
+            return 0; /* incomplete index: preserve the legacy per-path fallback */
+    }
+    g_assets.external_art_index_state = 1u;
+    return 1;
+}
+
 static int TitanAssetService_FindExternalArt(
+    unsigned int game_index,
     const char *serial,
     TitanAssetKind kind,
     unsigned int first_candidate,
@@ -790,6 +872,7 @@ static int TitanAssetService_FindExternalArt(
 {
     unsigned int candidate;
     unsigned int candidate_count = 8u;
+    unsigned int kind_index = kind == TITAN_ASSET_KIND_BACKGROUND ? 1u : 0u;
     char art_root[TITAN_ASSET_EXTERNAL_ROOT_CAPACITY];
     TitanStorageIoSize size = 0;
     int is_directory = 0;
@@ -799,13 +882,32 @@ static int TitanAssetService_FindExternalArt(
     if (first_candidate >= candidate_count ||
         !TitanAssetService_ResolveExternalArtRoot(art_root, sizeof(art_root)))
         return 0;
+    if (g_assets.external_art_index_state == 0u)
+    {
+        if (!TitanAssetService_BuildExternalArtIndex(art_root))
+            g_assets.external_art_index_state = 2u;
+    }
+    if (g_assets.external_art_index_state == 1u &&
+        game_index < TITAN_NEUTRINO_GAME_CAPACITY)
+    {
+        for (candidate = first_candidate; candidate < candidate_count; candidate++)
+        {
+            size = g_assets.external_art_sizes[game_index][kind_index][candidate];
+            if (size == 0u) continue;
+            if (!TitanAssetService_BuildExternalArtPath(serial, kind, candidate,
+                    art_root, path, capacity)) continue;
+            *size_out = (unsigned int)size;
+            *candidate_out = candidate;
+            return 1;
+        }
+        return 0;
+    }
+    /* A failed/oversized directory scan falls back to the old candidate-by-
+     * candidate stat path so unusual storage layouts remain compatible. */
     for (candidate = first_candidate; candidate < candidate_count; candidate++)
     {
         if (!TitanAssetService_BuildExternalArtPath(serial, kind, candidate,
-                art_root, path, capacity))
-            continue;
-        is_directory = 0;
-        size = 0;
+                art_root, path, capacity)) continue;
         if (g_assets.artwork_wizard_active)
         {
             unsigned int searched = candidate - first_candidate;
@@ -814,7 +916,7 @@ static int TitanAssetService_FindExternalArt(
                 ? (searched * 4u) / (remaining_candidates - 1u) : 0u);
             if (progress > 5u) progress = 5u;
             TitanAssetService_Lock();
-            if (g_assets.artwork_wizard_active)
+            if (g_assets.artwork_wizard_active && !g_assets.external_decode_busy)
             {
                 g_assets.status.current_asset_progress_percent = progress;
                 (void)snprintf(g_assets.status.current_asset_stage,
@@ -823,6 +925,8 @@ static int TitanAssetService_FindExternalArt(
             }
             TitanAssetService_Unlock();
         }
+        is_directory = 0;
+        size = 0;
         if (!TitanStorageIo_PathInfo64(path, &is_directory, &size) ||
             is_directory || size == 0u || size > TITAN_ASSET_SOURCE_MAX_SIZE)
             continue;
@@ -858,8 +962,15 @@ static void TitanAssetService_FreeExternalPrefetchLocked(void)
  * only after the current decoder has released its buffer. */
 static void TitanAssetService_PromoteExternalPrefetchLocked(void)
 {
+    if (g_assets.manual_cancel_requested && g_assets.external_prefetch_ready)
+    {
+        TitanAssetService_FreeExternalPrefetchLocked();
+        return;
+    }
     if (!g_assets.external_prefetch_ready || g_assets.external_decode_busy ||
-        g_assets.external_decode_ready || g_assets.external_source_buffer != 0)
+        g_assets.external_decode_ready || g_assets.external_source_buffer != 0 ||
+        g_assets.download_ready_for_storage || g_assets.storage_stage_ready ||
+        g_assets.manual_cancel_requested)
         return;
     if (g_assets.external_prefetch_catalog_generation != g_assets.catalog_generation ||
         g_assets.external_prefetch_game >= TITAN_NEUTRINO_GAME_CAPACITY ||
@@ -874,6 +985,18 @@ static void TitanAssetService_PromoteExternalPrefetchLocked(void)
     g_assets.external_source_capacity = g_assets.external_prefetch_capacity;
     g_assets.external_decode_kind = g_assets.external_prefetch_kind;
     g_assets.external_decode_game = g_assets.external_prefetch_game;
+    if (g_assets.artwork_wizard_active)
+    {
+        unsigned int ordinal;
+        for (ordinal = 0u; ordinal < g_assets.session_games; ordinal++)
+            if (g_assets.manual_order[ordinal] == g_assets.external_prefetch_game) break;
+        g_assets.current_game_index = g_assets.external_prefetch_game;
+        g_assets.current_game_ordinal = ordinal < g_assets.session_games ? ordinal + 1u : 0u;
+        g_assets.current_kind = g_assets.external_prefetch_kind;
+        g_assets.status.current_asset_progress_percent = 10u;
+        TitanAssetService_CopyText(g_assets.status.current_asset_stage,
+            sizeof(g_assets.status.current_asset_stage), "Artwork ready to decode");
+    }
     g_assets.external_decode_candidate = g_assets.external_prefetch_candidate;
     g_assets.external_decode_startup_hash = g_assets.external_prefetch_startup_hash;
     g_assets.external_decode_catalog_generation = g_assets.external_prefetch_catalog_generation;
@@ -1813,6 +1936,8 @@ int TitanAssetService_StartArtworkWizard(int all_games, unsigned int selected_ga
     g_assets.watchdog_abort_requested = 0;
     g_assets.artwork_wizard_active = 1;
     g_assets.external_art_root_checked = 0;
+    g_assets.external_art_index_state = 0u;
+    memset(g_assets.external_art_sizes, 0, sizeof(g_assets.external_art_sizes));
     g_assets.external_art_root[0] = '\0';
     g_assets.artwork_wizard_kind = kind;
     g_assets.artwork_wizard_cursor = 0u;
@@ -2256,6 +2381,7 @@ void TitanAssetService_UpdateMainThread(unsigned int frame_index)
         g_assets.storage_stage_ready_ms = 0u;
         g_assets.storage_stage_startup_hash = 0u;
         g_assets.pipeline_last_progress_frame = g_assets.frame_index;
+        TitanAssetService_PromoteExternalPrefetchLocked();
         TitanAssetService_Unlock();
     }
     TitanAssetService_Lock();
@@ -2413,12 +2539,17 @@ static int TitanAssetService_SelectProbeLocked(
             if (ordinal >= g_assets.session_games) continue;
             game = g_assets.manual_order[ordinal];
             TitanAssetService_SyncGameIdentityLocked(game);
-            g_assets.current_game_index = game;
-            g_assets.current_game_ordinal = ordinal + 1u;
-            g_assets.current_kind = selected_kind;
-            g_assets.status.current_asset_progress_percent = 0u;
-            TitanAssetService_CopyText(g_assets.status.current_asset_stage,
-                sizeof(g_assets.status.current_asset_stage), "Searching local ART");
+            /* A read-ahead probe must not replace the in-progress asset's
+             * visible identity/progress while its image is decoding. */
+            if (!g_assets.external_decode_busy)
+            {
+                g_assets.current_game_index = game;
+                g_assets.current_game_ordinal = ordinal + 1u;
+                g_assets.current_kind = selected_kind;
+                g_assets.status.current_asset_progress_percent = 0u;
+                TitanAssetService_CopyText(g_assets.status.current_asset_stage,
+                    sizeof(g_assets.status.current_asset_stage), "Searching local ART");
+            }
             *game_index = game;
             *kind = selected_kind;
             return 1;
@@ -2754,6 +2885,7 @@ static void TitanAssetService_FailStorageWrite(TitanAssetStorageJob *job, int ca
         }
         else TitanAssetService_MarkStorageFailureLocked(job, 0, 1);
     }
+    TitanAssetService_PromoteExternalPrefetchLocked();
     TitanAssetService_Unlock();
     TitanDiagnostics_Event(TITAN_DIAG_ERROR, TITAN_DIAG_ASSET,
         TITAN_ASSET_DIAG_CACHE_WRITE_FAIL, -1, job->game_index, (uint32_t)job->kind,
@@ -2873,14 +3005,11 @@ int TitanAssetService_HasStorageWork(void)
 {
     unsigned int i;
     if (!g_assets.initialized) return 0;
-    /* The wizard is deliberately strict in-order: do not advance its cursor or
-     * start the next ART read while the current source is decoding. Runtime
-     * navigation may retain the one-slot prefetch optimization below. */
-    if (g_assets.artwork_wizard_active && g_assets.external_decode_busy) return 0;
-    /* Ready slots are immutable until consumed. While decoding, storage may
-     * read ahead only when the active job is an external ART read (or no job
-     * exists yet); cached TIMG reads share the decoder output buffer and wait. */
-    if (g_assets.external_decode_ready || g_assets.external_prefetch_ready) return 0;
+    /* Keep one local ART read in flight during decode. The separate prefetch
+     * buffer avoids touching the decoder's source/output; publication remains
+     * serialized before that prefetched image is promoted for decoding. */
+    if (g_assets.external_decode_ready) return 0;
+    if (g_assets.external_prefetch_ready && !g_assets.download_ready_for_storage) return 0;
     if (g_assets.external_decode_busy &&
         (g_assets.manual_clear_cache || g_assets.download_ready_for_storage ||
          (g_assets.storage_job.op != TITAN_ASSET_STORAGE_NONE &&
@@ -2964,7 +3093,8 @@ static int TitanAssetService_ReadStorageChunk(TitanAssetStorageJob *job)
         return io_result == TITAN_STORAGE_IO_ASYNC_DONE ? 2 :
             (io_result == TITAN_STORAGE_IO_ASYNC_PENDING ? 1 : 0);
     }
-    quantum = remaining > TITAN_ASSET_IO_QUANTUM ? TITAN_ASSET_IO_QUANTUM : remaining;
+    quantum = remaining > TITAN_ASSET_WIZARD_IO_QUANTUM
+        ? TITAN_ASSET_WIZARD_IO_QUANTUM : remaining;
     io_result = TitanStorageIo_AsyncRead(&job->io_file, job->path,
         &g_assets.storage_buffer[job->offset], quantum);
     if (io_result == TITAN_STORAGE_IO_ASYNC_PENDING) return 1;
@@ -3181,7 +3311,9 @@ static int TitanAssetService_WriteStorageChunk(TitanAssetStorageJob *job)
     }
     if (job->offset == 0u)
         TitanDiagnostics_Event(TITAN_DIAG_INFO, TITAN_DIAG_ASSET, TITAN_ASSET_DIAG_CACHE_BEGIN, 0,
-            job->game_index, (uint32_t)job->kind, job->total, TITAN_ASSET_IO_QUANTUM);
+            job->game_index, (uint32_t)job->kind, job->total,
+            g_assets.artwork_wizard_active ? TITAN_ASSET_WIZARD_IO_QUANTUM
+                : TITAN_ASSET_IO_QUANTUM);
     if (job->io_failed) {
         int close_state = TitanStorageIo_AsyncClose(&job->io_file);
         if (close_state == TITAN_STORAGE_IO_ASYNC_PENDING) return 1;
@@ -3206,7 +3338,11 @@ static int TitanAssetService_WriteStorageChunk(TitanAssetStorageJob *job)
         if (close_state != TITAN_STORAGE_IO_ASYNC_DONE) goto fail;
         goto publish;
     }
-    quantum = remaining > TITAN_ASSET_IO_QUANTUM ? TITAN_ASSET_IO_QUANTUM : remaining;
+    quantum = g_assets.artwork_wizard_active
+        ? (remaining > TITAN_ASSET_WIZARD_IO_QUANTUM
+            ? TITAN_ASSET_WIZARD_IO_QUANTUM : remaining)
+        : (remaining > TITAN_ASSET_IO_QUANTUM
+            ? TITAN_ASSET_IO_QUANTUM : remaining);
     flags = TITAN_STORAGE_IO_WRITE | TITAN_STORAGE_IO_CREATE;
     if (job->offset == 0u) flags |= TITAN_STORAGE_IO_TRUNCATE;
     if (g_assets.artwork_wizard_active) {
@@ -3337,8 +3473,8 @@ int TitanAssetService_StorageWorkerPump(void)
     TitanStorageIoSize size = 0;
 
     if (!g_assets.initialized) return 0;
-    if (g_assets.artwork_wizard_active && g_assets.external_decode_busy) return 0;
-    if (g_assets.external_decode_ready || g_assets.external_prefetch_ready) return 0;
+    if (g_assets.external_decode_ready) return 0;
+    if (g_assets.external_prefetch_ready && !g_assets.download_ready_for_storage) return 0;
     if (g_assets.external_decode_busy &&
         (g_assets.manual_clear_cache || g_assets.download_ready_for_storage ||
          (g_assets.storage_job.op != TITAN_ASSET_STORAGE_NONE &&
@@ -3485,8 +3621,9 @@ int TitanAssetService_StorageWorkerPump(void)
             uint64_t probe_elapsed_us;
             char external_path[TITAN_ASSET_EXTERNAL_PATH_CAPACITY];
             char probe_stage[32];
-            int external_found = TitanAssetService_FindExternalArt(job->serial, job->kind,
-                job->external_candidate, external_path, sizeof(external_path),
+            int external_found = TitanAssetService_FindExternalArt(job->game_index,
+                job->serial, job->kind, job->external_candidate,
+                external_path, sizeof(external_path),
                 &external_size, &external_candidate);
             probe_elapsed_us = TitanTime_NowMicroseconds() - probe_started_us;
             (void)snprintf(probe_stage, sizeof(probe_stage), "%s %ums",
@@ -3501,6 +3638,10 @@ int TitanAssetService_StorageWorkerPump(void)
             if (external_found)
             {
                 job->external_candidate = external_candidate;
+                /* Directory enumeration already obtained the file size, so skip
+                 * another FileXio stat before beginning the sequential read. */
+                job->external_path_checked =
+                    g_assets.external_art_index_state == 1u ? 1u : 0u;
                 TitanAssetService_CopyText(job->path, sizeof(job->path), external_path);
                 job->op = job->kind == TITAN_ASSET_KIND_ICON
                     ? TITAN_ASSET_STORAGE_LOAD_EXTERNAL_ICON
@@ -4320,7 +4461,7 @@ static int TitanAssetService_ProcessExternalDecode(void)
     /* Local artwork is streamed concurrently with the next storage read through
      * a second buffer. Yield less often here to avoid millisecond sleep tax per
      * tiny row group, while foreground cancellation still checks every row. */
-    options.yield_every_rows = 32u;
+    options.yield_every_rows = 128u;
     /* OPL ICO art is commonly 64x64, while OPL covers are portrait images.
      * Accept both local conventions; this lower bound applies only to the
      * local ART reader, not to downloaded provider assets. */
