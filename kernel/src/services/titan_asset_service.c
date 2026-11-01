@@ -3076,7 +3076,10 @@ static int TitanAssetService_ReadStorageChunk(TitanAssetStorageJob *job)
     if (!g_assets.artwork_wizard_active) {
         int fd;
         if (remaining == 0u) return 2;
-        quantum = remaining > TITAN_ASSET_IO_QUANTUM ? TITAN_ASSET_IO_QUANTUM : remaining;
+        /* Startup/cache mounts are capped at one 65 KiB TIMG. Read it in one
+         * open/read/close instead of reopening and seeking every 8 KiB slice;
+         * the storage worker is low priority and keeps the UI/audio responsive. */
+        quantum = remaining;
         fd = TitanStorageIo_Open(job->path, TITAN_STORAGE_IO_READ);
         if (fd < 0) return 0;
         if ((job->offset > 0u && TitanStorageIo_Seek64(fd, job->offset,
@@ -3666,6 +3669,9 @@ int TitanAssetService_StorageWorkerPump(void)
                     ? TITAN_ASSET_STORAGE_LOAD_ICON : TITAN_ASSET_STORAGE_LOAD_BACKGROUND;
                 job->offset = 0u;
                 job->total = expected;
+                /* This PathInfo already verified exact TIMG size; avoid doing
+                 * the same stat again immediately before reading the payload. */
+                job->external_path_checked = 1u;
                 g_assets.status.cache_hits++;
                 return 1;
             }
