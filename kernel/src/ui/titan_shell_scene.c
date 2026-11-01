@@ -4706,6 +4706,33 @@ static void TitanShellScene_DrawStartupSequence(
 
         TitanShellScene_DrawStartupProfiles(reveal, exit_progress);
     }
+    else if (g_scene.startup_phase == TITAN_STARTUP_PHASE_HOME_PAUSE &&
+        !TitanAssetService_StartupCacheReady())
+    {
+        const TitanAssetServiceStatus *assets = TitanAssetService_GetStatus();
+        unsigned int done = assets != 0 ? assets->startup_cache_done : 0u;
+        unsigned int total = assets != 0 ? assets->startup_cache_total : 0u;
+        unsigned int percent = total != 0u ? (done * 100u) / total : 0u;
+        if (percent > 100u) percent = 100u;
+        {
+            float panel_x = ((float)TITAN_UI_WIDTH - 508.0f) * 0.5f;
+            float panel_y = (float)TITAN_UI_HEIGHT - 84.0f;
+            TitanVideo_DrawRoundedRectAlpha(panel_x, panel_y, 508.0f, 62.0f,
+                8.0f, 8u, 10u, 17u, 220u);
+            TitanShellScene_DrawOutline(panel_x, panel_y, 508.0f, 62.0f,
+                1.4f, 231u, 43u, 82u, 210u);
+            TitanFont_DrawTextAlpha(panel_x + 22.0f, panel_y + 10.0f, 0.52f,
+                "Preparing cached game artwork", 245u, 246u, 250u, 255u);
+            TitanFont_DrawTextAlpha(panel_x + 22.0f, panel_y + 34.0f, 0.43f,
+                "Icons and backgrounds are being mounted before Home", 173u, 180u, 194u, 255u);
+            TitanVideo_DrawRoundedRectAlpha(panel_x + 22.0f, panel_y + 52.0f, 464.0f, 3.0f,
+                1.5f, 52u, 55u, 67u, 230u);
+            if (percent != 0u)
+                TitanVideo_DrawRoundedRectAlpha(panel_x + 22.0f, panel_y + 52.0f,
+                    464.0f * ((float)percent / 100.0f), 3.0f,
+                    1.5f, 231u, 43u, 82u, 255u);
+        }
+    }
 }
 
 
@@ -18092,9 +18119,15 @@ static void TitanShellScene_UpdateFixedStep(
         }
         else if (g_scene.startup_phase == TITAN_STARTUP_PHASE_HOME_PAUSE)
         {
-            g_scene.startup_phase_frames++;
+            if (g_scene.startup_phase_frames < TITAN_STARTUP_HOME_PAUSE_FRAMES)
+                g_scene.startup_phase_frames++;
 
-            if (g_scene.startup_phase_frames >= TITAN_STARTUP_HOME_PAUSE_FRAMES)
+            /* Keep the Home scene behind the startup surface until every
+             * cached icon/background has been checked and its compact PSM16
+             * thumbnail is resident. The storage worker remains cooperative,
+             * so audio, input, and the startup animation continue normally. */
+            if (g_scene.startup_phase_frames >= TITAN_STARTUP_HOME_PAUSE_FRAMES &&
+                TitanAssetService_StartupCacheReady())
             {
                 g_scene.startup_phase = TITAN_STARTUP_PHASE_HOME_ENTER;
                 g_scene.startup_phase_frames = 0u;

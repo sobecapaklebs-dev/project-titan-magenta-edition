@@ -29,6 +29,11 @@ extern int DeleteThread(int thread_id);
 
 #define TITAN_ASSET_INVALID_GAME 0xffffffffu
 #define TITAN_ASSET_ICON_SLOT_CAPACITY 24u
+/* Keep the entire 256-game catalog's boot artwork resident as compact PSM16
+ * thumbnails (about 1.5 MiB total). Full-resolution surfaces remain bounded
+ * to the existing 24 icon slots and one selected background. */
+#define TITAN_ASSET_BACKGROUND_THUMBNAIL_WIDTH 64u
+#define TITAN_ASSET_BACKGROUND_THUMBNAIL_HEIGHT 32u
 #define TITAN_ASSET_NET_STACK_SIZE (48u * 1024u)
 #define TITAN_ASSET_NET_STACK_GUARD_WORDS 16u
 #define TITAN_ASSET_NET_STACK_GUARD_VALUE 0x5449544eu /* TITN */
@@ -116,6 +121,20 @@ typedef struct TitanAssetIconSlot
     unsigned short pixels[TITAN_ASSET_ICON_RUNTIME_SIZE * TITAN_ASSET_ICON_RUNTIME_SIZE];
 } TitanAssetIconSlot;
 
+typedef struct TitanAssetIconThumbnail
+{
+    uint32_t startup_hash;
+    unsigned char valid;
+    unsigned short pixels[TITAN_ASSET_ICON_THUMBNAIL_SIZE * TITAN_ASSET_ICON_THUMBNAIL_SIZE];
+} TitanAssetIconThumbnail;
+
+typedef struct TitanAssetBackgroundThumbnail
+{
+    uint32_t startup_hash;
+    unsigned char valid;
+    unsigned short pixels[TITAN_ASSET_BACKGROUND_THUMBNAIL_WIDTH * TITAN_ASSET_BACKGROUND_THUMBNAIL_HEIGHT];
+} TitanAssetBackgroundThumbnail;
+
 typedef enum TitanAssetStorageOp
 {
     TITAN_ASSET_STORAGE_NONE = 0,
@@ -173,6 +192,9 @@ typedef struct TitanAssetServiceState
     unsigned int last_visible_change_frame;
     unsigned int idle_icon_cursor;
     unsigned int idle_background_cursor;
+    unsigned int startup_preload_cursor;
+    unsigned int startup_preload_count;
+    int startup_preload_active;
     volatile unsigned int last_user_activity_frame;
 
     volatile int automatic_download_enabled;
@@ -216,6 +238,8 @@ typedef struct TitanAssetServiceState
 
     TitanAssetGameState games[TITAN_NEUTRINO_GAME_CAPACITY];
     TitanAssetIconSlot icon_slots[TITAN_ASSET_ICON_SLOT_CAPACITY];
+    TitanAssetIconThumbnail icon_thumbnails[TITAN_NEUTRINO_GAME_CAPACITY];
+    TitanAssetBackgroundThumbnail background_thumbnails[TITAN_NEUTRINO_GAME_CAPACITY];
     unsigned short transient_strip[
         TITAN_ASSET_TRANSIENT_ATLAS_WIDTH * TITAN_ASSET_TRANSIENT_ATLAS_HEIGHT
     ] __attribute__((aligned(64)));
@@ -302,6 +326,11 @@ typedef struct TitanAssetServiceState
 } TitanAssetServiceState;
 
 static TitanAssetServiceState g_assets;
+
+static TitanAssetIconThumbnail *TitanAssetService_FindIconThumbnailByHash(uint32_t startup_hash);
+static TitanAssetBackgroundThumbnail *TitanAssetService_FindBackgroundThumbnailByHash(uint32_t startup_hash);
+static void TitanAssetService_StoreIconThumbnail(unsigned int game_index, const unsigned short *pixels);
+static void TitanAssetService_StoreBackgroundThumbnail(unsigned int game_index, const unsigned short *pixels);
 
 #if defined(__EE__) || defined(_EE)
 typedef struct TitanAssetNetStackArena
@@ -514,6 +543,33 @@ static int TitanAssetService_ValidateWriteChunk(TitanAssetStorageJob *job)
     return ~job->io_validate_crc == job->io_validate_expected_crc ? 1 : -1;
 }
 
+static int TitanAssetService_ValidateCacheReadChunk(TitanAssetStorageJob *job)
+{
+    unsigned int remaining, quantum;
+    const unsigned char *payload;
+    if (job == 0 || g_assets.storage_buffer_size > sizeof(g_assets.storage_buffer)) return -1;
+    if (!job->io_validate_started)
+    {
+        if (!TitanAssetService_ValidateTimgHeader(g_assets.storage_buffer,
+                g_assets.storage_buffer_size, job->kind,
+                &job->io_validate_payload_size, &job->io_validate_expected_crc))
+            return -1;
+        job->io_validate_started = 1u;
+        job->io_validate_offset = 0u;
+        job->io_validate_crc = 0xffffffffu;
+    }
+    remaining = job->io_validate_payload_size - job->io_validate_offset;
+    /* CRC work stays on the low-priority Storage Scheduler in 8 KiB slices,
+     * with an audio/realtime yield between chunks. */
+    quantum = remaining > TITAN_ASSET_IO_QUANTUM
+        ? TITAN_ASSET_IO_QUANTUM : remaining;
+    payload = &g_assets.storage_buffer[TITAN_ASSET_TIMG_HEADER_SIZE + job->io_validate_offset];
+    job->io_validate_crc = TitanAssetService_Crc32Update(job->io_validate_crc, payload, quantum);
+    job->io_validate_offset += quantum;
+    if (job->io_validate_offset < job->io_validate_payload_size) return 0;
+    return ~job->io_validate_crc == job->io_validate_expected_crc ? 1 : -1;
+}
+
 static void TitanAssetService_ReportStorageVerify(TitanAssetStorageJob *job)
 {
     TitanAssetService_Lock();
@@ -604,8 +660,10 @@ static void TitanAssetService_SyncGameIdentityLocked(unsigned int game_index)
     /* Library scan may reorder indices. Never let an icon/background cached in
      * RAM for the old occupant of this index flash on the newly indexed game. */
     state->startup_hash = hash;
-    state->icon_presence = TITAN_ASSET_PRESENCE_UNKNOWN;
-    state->background_presence = TITAN_ASSET_PRESENCE_UNKNOWN;
+    state->icon_presence = TitanAssetService_FindIconThumbnailByHash(hash) != 0
+        ? TITAN_ASSET_PRESENCE_PRESENT : TITAN_ASSET_PRESENCE_UNKNOWN;
+    state->background_presence = TitanAssetService_FindBackgroundThumbnailByHash(hash) != 0
+        ? TITAN_ASSET_PRESENCE_PRESENT : TITAN_ASSET_PRESENCE_UNKNOWN;
     state->icon_retry_frame = 0u;
     state->background_retry_frame = 0u;
     state->icon_probe_pending = 0u;
@@ -955,6 +1013,56 @@ static TitanAssetIconSlot *TitanAssetService_FindIconSlot(unsigned int game_inde
     return 0;
 }
 
+static TitanAssetIconThumbnail *TitanAssetService_FindIconThumbnailByHash(uint32_t startup_hash)
+{
+    unsigned int i;
+    if (startup_hash == 0u) return 0;
+    for (i = 0u; i < TITAN_NEUTRINO_GAME_CAPACITY; i++)
+        if (g_assets.icon_thumbnails[i].valid &&
+            g_assets.icon_thumbnails[i].startup_hash == startup_hash)
+            return &g_assets.icon_thumbnails[i];
+    return 0;
+}
+
+static TitanAssetBackgroundThumbnail *TitanAssetService_FindBackgroundThumbnailByHash(uint32_t startup_hash)
+{
+    unsigned int i;
+    if (startup_hash == 0u) return 0;
+    for (i = 0u; i < TITAN_NEUTRINO_GAME_CAPACITY; i++)
+        if (g_assets.background_thumbnails[i].valid &&
+            g_assets.background_thumbnails[i].startup_hash == startup_hash)
+            return &g_assets.background_thumbnails[i];
+    return 0;
+}
+
+static TitanAssetIconThumbnail *TitanAssetService_FindIconThumbnail(unsigned int game_index)
+{
+    uint32_t hash;
+    if (game_index >= TITAN_NEUTRINO_GAME_CAPACITY) return 0;
+    hash = g_assets.games[game_index].startup_hash;
+    if (hash == 0u)
+    {
+        const TitanNeutrinoGame *game = TitanNeutrino_GetGame(game_index);
+        if (game == 0 || game->startup[0] == '\0') return 0;
+        hash = TitanAssetService_HashStartup(game->startup);
+    }
+    return TitanAssetService_FindIconThumbnailByHash(hash);
+}
+
+static TitanAssetBackgroundThumbnail *TitanAssetService_FindBackgroundThumbnail(unsigned int game_index)
+{
+    uint32_t hash;
+    if (game_index >= TITAN_NEUTRINO_GAME_CAPACITY) return 0;
+    hash = g_assets.games[game_index].startup_hash;
+    if (hash == 0u)
+    {
+        const TitanNeutrinoGame *game = TitanNeutrino_GetGame(game_index);
+        if (game == 0 || game->startup[0] == '\0') return 0;
+        hash = TitanAssetService_HashStartup(game->startup);
+    }
+    return TitanAssetService_FindBackgroundThumbnailByHash(hash);
+}
+
 static TitanAssetIconSlot *TitanAssetService_AllocateIconSlot(unsigned int game_index)
 {
     unsigned int i;
@@ -994,14 +1102,17 @@ static TitanAssetIconSlot *TitanAssetService_AllocateIconSlot(unsigned int game_
     {
         unsigned int visible_index;
         TitanAssetGameState *evicted = &g_assets.games[slot->game_index];
-        evicted->icon_presence = TITAN_ASSET_PRESENCE_UNKNOWN;
-        evicted->icon_probe_pending = 0u;
-        for (visible_index = 0u; visible_index < g_assets.visible_count; visible_index++)
+        if (TitanAssetService_FindIconThumbnail(slot->game_index) == 0)
         {
-            if (g_assets.visible_games[visible_index] == slot->game_index)
+            evicted->icon_presence = TITAN_ASSET_PRESENCE_UNKNOWN;
+            evicted->icon_probe_pending = 0u;
+            for (visible_index = 0u; visible_index < g_assets.visible_count; visible_index++)
             {
-                evicted->icon_probe_pending = 1u;
-                break;
+                if (g_assets.visible_games[visible_index] == slot->game_index)
+                {
+                    evicted->icon_probe_pending = 1u;
+                    break;
+                }
             }
         }
         g_assets.strip_generation++;
@@ -1016,8 +1127,15 @@ static void TitanAssetService_CommitIcon(
     const unsigned short *source
 )
 {
-    TitanAssetIconSlot *slot = TitanAssetService_AllocateIconSlot(game_index);
-    if (slot == 0) return;
+    TitanAssetIconSlot *slot;
+    TitanAssetService_StoreIconThumbnail(game_index, source);
+    slot = TitanAssetService_AllocateIconSlot(game_index);
+    if (slot == 0)
+    {
+        g_assets.games[game_index].icon_presence = TITAN_ASSET_PRESENCE_PRESENT;
+        g_assets.games[game_index].icon_probe_pending = 0u;
+        return;
+    }
     memcpy(slot->pixels, source, sizeof(slot->pixels));
     slot->valid = 1;
     slot->last_touch_frame = g_assets.frame_index;
@@ -1050,6 +1168,79 @@ static unsigned short TitanAssetService_DownsampleIconPixel(
         (a * 2u >= count ? 0x8000u : 0u));
 }
 
+static void TitanAssetService_StoreIconThumbnail(
+    unsigned int game_index, const unsigned short *pixels)
+{
+    TitanAssetIconThumbnail *thumbnail;
+    unsigned int i, x, y;
+    uint32_t hash;
+    if (pixels == 0 || game_index >= TITAN_NEUTRINO_GAME_CAPACITY) return;
+    hash = g_assets.games[game_index].startup_hash;
+    if (hash == 0u) return;
+    thumbnail = TitanAssetService_FindIconThumbnailByHash(hash);
+    if (thumbnail == 0)
+    {
+        for (i = 0u; i < TITAN_NEUTRINO_GAME_CAPACITY; i++)
+            if (!g_assets.icon_thumbnails[i].valid)
+            {
+                thumbnail = &g_assets.icon_thumbnails[i];
+                break;
+            }
+    }
+    if (thumbnail == 0) return;
+    for (y = 0u; y < TITAN_ASSET_ICON_THUMBNAIL_SIZE; y++)
+        for (x = 0u; x < TITAN_ASSET_ICON_THUMBNAIL_SIZE; x++)
+            thumbnail->pixels[y * TITAN_ASSET_ICON_THUMBNAIL_SIZE + x] =
+                TitanAssetService_DownsampleIconPixel(pixels, x, y);
+    thumbnail->startup_hash = hash;
+    thumbnail->valid = 1u;
+}
+
+static void TitanAssetService_StoreBackgroundThumbnail(
+    unsigned int game_index, const unsigned short *pixels)
+{
+    TitanAssetBackgroundThumbnail *thumbnail;
+    unsigned int i, x, y, sx, sy;
+    uint32_t hash;
+    if (pixels == 0 || game_index >= TITAN_NEUTRINO_GAME_CAPACITY) return;
+    hash = g_assets.games[game_index].startup_hash;
+    if (hash == 0u) return;
+    thumbnail = TitanAssetService_FindBackgroundThumbnailByHash(hash);
+    if (thumbnail == 0)
+    {
+        for (i = 0u; i < TITAN_NEUTRINO_GAME_CAPACITY; i++)
+            if (!g_assets.background_thumbnails[i].valid)
+            {
+                thumbnail = &g_assets.background_thumbnails[i];
+                break;
+            }
+    }
+    if (thumbnail == 0) return;
+    for (y = 0u; y < TITAN_ASSET_BACKGROUND_THUMBNAIL_HEIGHT; y++)
+    {
+        for (x = 0u; x < TITAN_ASSET_BACKGROUND_THUMBNAIL_WIDTH; x++)
+        {
+            uint32_t r = 0u, g = 0u, b = 0u, a = 0u;
+            for (sy = 0u; sy < 4u; sy++)
+            {
+                for (sx = 0u; sx < 4u; sx++)
+                {
+                    unsigned short pixel = pixels[(y * 4u + sy) * TITAN_ASSET_BACKGROUND_WIDTH + x * 4u + sx];
+                    r += pixel & 0x1fu;
+                    g += (pixel >> 5u) & 0x1fu;
+                    b += (pixel >> 10u) & 0x1fu;
+                    a += (pixel & 0x8000u) != 0u ? 1u : 0u;
+                }
+            }
+            thumbnail->pixels[y * TITAN_ASSET_BACKGROUND_THUMBNAIL_WIDTH + x] =
+                (unsigned short)((r / 16u) | ((g / 16u) << 5u) | ((b / 16u) << 10u) |
+                    (a >= 8u ? 0x8000u : 0u));
+        }
+    }
+    thumbnail->startup_hash = hash;
+    thumbnail->valid = 1u;
+}
+
 static void TitanAssetService_RebuildStrip(void)
 {
     unsigned int i;
@@ -1059,15 +1250,19 @@ static void TitanAssetService_RebuildStrip(void)
     {
         unsigned int game_index = g_assets.visible_games[i];
         TitanAssetIconSlot *slot = TitanAssetService_FindIconSlot(game_index);
+        TitanAssetIconThumbnail *thumbnail = (slot == 0 || !slot->valid)
+            ? TitanAssetService_FindIconThumbnail(game_index) : 0;
         unsigned int cell_x, cell_y, row, column;
-        if (slot == 0 || !slot->valid) continue;
-        slot->last_touch_frame = g_assets.frame_index;
+        if ((slot == 0 || !slot->valid) && thumbnail == 0) continue;
+        if (slot != 0 && slot->valid) slot->last_touch_frame = g_assets.frame_index;
         cell_x = (i % TITAN_ASSET_TRANSIENT_COLUMNS) * TITAN_ASSET_TRANSIENT_CELL_SIZE;
         cell_y = (i / TITAN_ASSET_TRANSIENT_COLUMNS) * TITAN_ASSET_TRANSIENT_CELL_SIZE;
         for (row = 0u; row < TITAN_ASSET_ICON_THUMBNAIL_SIZE; row++)
             for (column = 0u; column < TITAN_ASSET_ICON_THUMBNAIL_SIZE; column++)
                 g_assets.transient_strip[(cell_y + row) * TITAN_ASSET_TRANSIENT_ATLAS_WIDTH + cell_x + column] =
-                    TitanAssetService_DownsampleIconPixel(slot->pixels, column, row);
+                    slot != 0 && slot->valid
+                        ? TitanAssetService_DownsampleIconPixel(slot->pixels, column, row)
+                        : thumbnail->pixels[row * TITAN_ASSET_ICON_THUMBNAIL_SIZE + column];
     }
     g_assets.strip_built_generation = g_assets.strip_generation;
 }
@@ -1477,6 +1672,10 @@ static void TitanAssetService_InvalidateGameRamLocked(unsigned int game_index)
     }
     if (game_index < TITAN_NEUTRINO_GAME_CAPACITY)
     {
+        TitanAssetIconThumbnail *icon_thumbnail = TitanAssetService_FindIconThumbnail(game_index);
+        TitanAssetBackgroundThumbnail *background_thumbnail = TitanAssetService_FindBackgroundThumbnail(game_index);
+        if (icon_thumbnail != 0) icon_thumbnail->valid = 0u;
+        if (background_thumbnail != 0) background_thumbnail->valid = 0u;
         g_assets.games[game_index].icon_presence = TITAN_ASSET_PRESENCE_UNKNOWN;
         g_assets.games[game_index].background_presence = TITAN_ASSET_PRESENCE_UNKNOWN;
         g_assets.games[game_index].icon_probe_pending = 0u;
@@ -1894,10 +2093,27 @@ static void TitanAssetService_RefreshStatus(void)
 {
     unsigned int i;
     unsigned int ready = 0u;
+    unsigned int startup_done = 0u;
+    unsigned int startup_total = g_assets.startup_preload_count * 2u;
     TitanAssetService_Lock();
     for (i = 0u; i < g_assets.visible_count; i++)
     {
-        if (TitanAssetService_FindIconSlot(g_assets.visible_games[i]) != 0) ready++;
+        if (TitanAssetService_FindIconSlot(g_assets.visible_games[i]) != 0 ||
+            TitanAssetService_FindIconThumbnail(g_assets.visible_games[i]) != 0) ready++;
+    }
+    for (i = 0u; i < g_assets.startup_preload_count; i++)
+    {
+        const TitanNeutrinoGame *game = TitanNeutrino_GetGame(i);
+        if (game == 0 || game->startup[0] == '\0')
+        {
+            startup_done += 2u;
+            continue;
+        }
+        TitanAssetService_SyncGameIdentityLocked(i);
+        if (g_assets.games[i].icon_presence != TITAN_ASSET_PRESENCE_UNKNOWN)
+            startup_done++;
+        if (g_assets.games[i].background_presence != TITAN_ASSET_PRESENCE_UNKNOWN)
+            startup_done++;
     }
     g_assets.status.initialized = g_assets.initialized;
     g_assets.status.network_busy = g_assets.net_busy;
@@ -1926,6 +2142,12 @@ static void TitanAssetService_RefreshStatus(void)
     g_assets.status.session_failed_assets = g_assets.session_failed_assets;
     g_assets.status.session_unavailable_assets = g_assets.session_unavailable_assets;
     g_assets.status.icons_ready = ready;
+    g_assets.status.startup_cache_done = startup_done;
+    g_assets.status.startup_cache_total = startup_total;
+    g_assets.status.startup_cache_ready =
+        startup_done >= startup_total &&
+        g_assets.startup_preload_cursor >= startup_total &&
+        !g_assets.startup_preload_active;
     g_assets.status.direct_internet = 1;
     g_assets.status.transfer_bytes_received = g_assets.transfer_bytes_received;
     g_assets.status.transfer_bytes_total = g_assets.transfer_bytes_total;
@@ -2069,8 +2291,13 @@ void TitanAssetService_UpdateMainThread(unsigned int frame_index)
         (void)snprintf(ready_stage, sizeof(ready_stage), "%s WAIT %ums",
             kind == TITAN_ASSET_KIND_ICON ? "READY" : "READY BG",
             (unsigned int)ready_handoff_ms);
+        /* Cache reads are CRC-validated in bounded 8 KiB quanta by the low-
+         * priority storage worker; cache writes are validated before atomic
+         * publish. Main thread rechecks only the cheap TIMG header and identity. */
         valid = identity_matches && TitanAssetService_IsValidKind(kind) &&
-            TitanAssetService_ValidateTimg(g_assets.storage_buffer, stage_size, kind, &payload_offset, &payload_size);
+            TitanAssetService_ValidateTimgHeader(g_assets.storage_buffer, stage_size,
+                kind, &payload_size, 0);
+        if (valid) payload_offset = TITAN_ASSET_TIMG_HEADER_SIZE;
         if (valid)
         {
             if (kind == TITAN_ASSET_KIND_ICON)
@@ -2078,18 +2305,29 @@ void TitanAssetService_UpdateMainThread(unsigned int frame_index)
                 const TitanNeutrinoGame *ready_game = TitanNeutrino_GetGame(game);
                 TitanAssetService_CommitIcon(game,
                     (const unsigned short *)&g_assets.storage_buffer[payload_offset]);
-                TitanDiagnostics_ReportOperation("ASSET", TITAN_DIAG_INFO,
-                    ready_stage, ready_game != 0 ? ready_game->title : "Icon ready", 100);
+                /* Ordinary boot/runtime cache hydration is not an ART search
+                 * and should not raise the DEX operation ribbon. Explicit
+                 * manual sessions may still surface completion status. */
+                if (g_assets.manual_session_active || g_assets.artwork_wizard_active)
+                    TitanDiagnostics_ReportOperation("ASSET", TITAN_DIAG_INFO,
+                        ready_stage, ready_game != 0 ? ready_game->title : "Icon ready", 100);
             }
             else if (payload_size == TITAN_ASSET_BACKGROUND_PAYLOAD)
             {
                 const TitanNeutrinoGame *ready_game = TitanNeutrino_GetGame(game);
-                memcpy(g_assets.active_background, &g_assets.storage_buffer[payload_offset], TITAN_ASSET_BACKGROUND_PAYLOAD);
-                g_assets.active_background_game = game; g_assets.active_background_ready = 1;
+                TitanAssetService_StoreBackgroundThumbnail(game,
+                    (const unsigned short *)&g_assets.storage_buffer[payload_offset]);
+                if (game == g_assets.selected_game_index)
+                {
+                    memcpy(g_assets.active_background, &g_assets.storage_buffer[payload_offset], TITAN_ASSET_BACKGROUND_PAYLOAD);
+                    g_assets.active_background_game = game;
+                    g_assets.active_background_ready = 1;
+                }
                 g_assets.games[game].background_presence = TITAN_ASSET_PRESENCE_PRESENT;
                 g_assets.games[game].background_probe_pending = 0u;
-                TitanDiagnostics_ReportOperation("ASSET", TITAN_DIAG_INFO,
-                    ready_stage, ready_game != 0 ? ready_game->title : "Background ready", 100);
+                if (g_assets.manual_session_active || g_assets.artwork_wizard_active)
+                    TitanDiagnostics_ReportOperation("ASSET", TITAN_DIAG_INFO,
+                        ready_stage, ready_game != 0 ? ready_game->title : "Background ready", 100);
             }
         }
         else
@@ -2144,15 +2382,17 @@ int TitanAssetService_DrawIcon(
     unsigned int source_x;
     unsigned int source_y;
     TitanAssetIconSlot *slot;
+    TitanAssetIconThumbnail *thumbnail;
     if (!g_assets.initialized || alpha == 0u ||
         !TitanAssetService_FindVisibleCell(game_index, &cell))
         return 0;
     slot = TitanAssetService_FindIconSlot(game_index);
-    if (slot == 0 || !slot->valid) return 0;
+    thumbnail = (slot == 0 || !slot->valid)
+        ? TitanAssetService_FindIconThumbnail(game_index) : 0;
+    if ((slot == 0 || !slot->valid) && thumbnail == 0) return 0;
     /* Library rendering uses the shared thumbnail atlas rather than the
-     * selected-tile path; still refresh LRU or idle prefetch can evict visible
-     * artwork while the library is sitting on screen. */
-    slot->last_touch_frame = g_assets.frame_index;
+     * selected-tile path. Catalog-resident thumbnails survive LRU eviction. */
+    if (slot != 0 && slot->valid) slot->last_touch_frame = g_assets.frame_index;
 
     if (TitanVideo_UploadTransientAtlasPsm16(
             g_assets.transient_strip,
@@ -2185,15 +2425,27 @@ int TitanAssetService_DrawIconHighQuality(
 )
 {
     TitanAssetIconSlot *slot;
+    TitanAssetIconThumbnail *thumbnail;
     if (!g_assets.initialized || alpha == 0u) return 0;
     slot = TitanAssetService_FindIconSlot(game_index);
-    if (slot == 0 || !slot->valid) return 0;
-    slot->last_touch_frame = g_assets.frame_index;
+    if (slot != 0 && slot->valid)
+    {
+        slot->last_touch_frame = g_assets.frame_index;
+        return TitanVideo_DrawAdaptiveImagePsm16(
+            slot->pixels,
+            TITAN_ASSET_ICON_RUNTIME_SIZE,
+            TITAN_ASSET_ICON_RUNTIME_SIZE,
+            TITAN_ASSET_ICON_RUNTIME_SIZE,
+            x, y, width, height, alpha
+        ) == TITAN_RESULT_OK;
+    }
+    thumbnail = TitanAssetService_FindIconThumbnail(game_index);
+    if (thumbnail == 0) return 0;
     return TitanVideo_DrawAdaptiveImagePsm16(
-        slot->pixels,
-        TITAN_ASSET_ICON_RUNTIME_SIZE,
-        TITAN_ASSET_ICON_RUNTIME_SIZE,
-        TITAN_ASSET_ICON_RUNTIME_SIZE,
+        thumbnail->pixels,
+        TITAN_ASSET_ICON_THUMBNAIL_SIZE,
+        TITAN_ASSET_ICON_THUMBNAIL_SIZE,
+        TITAN_ASSET_ICON_THUMBNAIL_SIZE,
         x, y, width, height, alpha
     ) == TITAN_RESULT_OK;
 }
@@ -2207,14 +2459,24 @@ int TitanAssetService_DrawBackground(
     unsigned char alpha
 )
 {
-    if (!g_assets.initialized || !g_assets.active_background_ready ||
-        g_assets.active_background_game != game_index || alpha == 0u)
-        return 0;
+    TitanAssetBackgroundThumbnail *thumbnail;
+    if (!g_assets.initialized || alpha == 0u) return 0;
+    if (g_assets.active_background_ready &&
+        g_assets.active_background_game == game_index)
+        return TitanVideo_DrawAdaptiveImagePsm16(
+            g_assets.active_background,
+            TITAN_ASSET_BACKGROUND_WIDTH,
+            TITAN_ASSET_BACKGROUND_HEIGHT,
+            TITAN_ASSET_BACKGROUND_WIDTH,
+            x, y, width, height, alpha
+        ) == TITAN_RESULT_OK;
+    thumbnail = TitanAssetService_FindBackgroundThumbnail(game_index);
+    if (thumbnail == 0) return 0;
     return TitanVideo_DrawAdaptiveImagePsm16(
-        g_assets.active_background,
-        TITAN_ASSET_BACKGROUND_WIDTH,
-        TITAN_ASSET_BACKGROUND_HEIGHT,
-        TITAN_ASSET_BACKGROUND_WIDTH,
+        thumbnail->pixels,
+        TITAN_ASSET_BACKGROUND_THUMBNAIL_WIDTH,
+        TITAN_ASSET_BACKGROUND_THUMBNAIL_HEIGHT,
+        TITAN_ASSET_BACKGROUND_THUMBNAIL_WIDTH,
         x, y, width, height, alpha
     ) == TITAN_RESULT_OK;
 }
@@ -2337,9 +2599,48 @@ static int TitanAssetService_SelectProbeLocked(
         }
     }
 
-    /* P4 enrichment only begins after five seconds with no visible-window
-     * change. It never competes with navigation priorities above. Icons for
-     * the catalog are discovered first; backgrounds follow on later quanta. */
+    /* Startup preloading is a catalog-wide queue. The user-visible tile window
+     * above still wins each scheduler turn; after that, every persisted icon and
+     * background TIMG is hydrated into compact RAM thumbnails before Home opens. */
+    if (g_assets.startup_preload_active)
+    {
+        unsigned int total = g_assets.startup_preload_count * 2u;
+        while (g_assets.startup_preload_cursor < total)
+        {
+            unsigned int item = g_assets.startup_preload_cursor++;
+            unsigned int preload_game = item < g_assets.startup_preload_count
+                ? item : item - g_assets.startup_preload_count;
+            TitanAssetKind preload_kind = item < g_assets.startup_preload_count
+                ? TITAN_ASSET_KIND_ICON : TITAN_ASSET_KIND_BACKGROUND;
+            const TitanNeutrinoGame *game = TitanNeutrino_GetGame(preload_game);
+            TitanAssetGameState *state;
+            if (game == 0 || game->startup[0] == '\0')
+            {
+                if (preload_game < TITAN_NEUTRINO_GAME_CAPACITY)
+                {
+                    if (preload_kind == TITAN_ASSET_KIND_ICON)
+                        g_assets.games[preload_game].icon_presence = TITAN_ASSET_PRESENCE_UNAVAILABLE;
+                    else
+                        g_assets.games[preload_game].background_presence = TITAN_ASSET_PRESENCE_UNAVAILABLE;
+                }
+                continue;
+            }
+            TitanAssetService_SyncGameIdentityLocked(preload_game);
+            state = &g_assets.games[preload_game];
+            if ((preload_kind == TITAN_ASSET_KIND_ICON &&
+                    state->icon_presence != TITAN_ASSET_PRESENCE_UNKNOWN) ||
+                (preload_kind == TITAN_ASSET_KIND_BACKGROUND &&
+                    state->background_presence != TITAN_ASSET_PRESENCE_UNKNOWN))
+                continue;
+            *game_index = preload_game;
+            *kind = preload_kind;
+            return 1;
+        }
+        g_assets.startup_preload_active = 0;
+    }
+
+    /* P4 enrichment remains a fallback for assets added after the startup
+     * catalog snapshot. It never competes with navigation priorities above. */
     if (g_assets.frame_index - g_assets.last_visible_change_frame >=
         TITAN_ASSET_IDLE_PREFETCH_FRAMES)
     {
@@ -2656,8 +2957,9 @@ static int TitanAssetService_StartStorageJob(void)
             return 1;
         }
         TitanAssetService_Unlock();
-        TitanDiagnostics_ReportOperation("ASSET", TITAN_DIAG_INFO,
-            "PROBE", job->serial, -1);
+        if (job->manual_owner || g_assets.artwork_wizard_active)
+            TitanDiagnostics_ReportOperation("ASSET", TITAN_DIAG_INFO,
+                "PROBE", job->serial, -1);
         return 1;
     }
     TitanAssetService_Unlock();
@@ -2708,6 +3010,7 @@ int TitanAssetService_HasStorageWork(void)
         unsigned int game = g_assets.visible_games[i];
         if (game < TITAN_NEUTRINO_GAME_CAPACITY && g_assets.games[game].icon_probe_pending) return 1;
     }
+    if (g_assets.startup_preload_active) return 1;
     if (g_assets.frame_index - g_assets.last_visible_change_frame >=
         TITAN_ASSET_IDLE_PREFETCH_FRAMES)
     {
@@ -3367,7 +3670,9 @@ int TitanAssetService_StorageWorkerPump(void)
         result = TitanAssetService_ReadStorageChunk(job);
         if (result == 2)
         {
-            if (TitanAssetService_ValidateTimg(g_assets.storage_buffer, g_assets.storage_buffer_size, job->kind, 0, 0))
+            int validation = TitanAssetService_ValidateCacheReadChunk(job);
+            if (validation == 0) return 1;
+            if (validation > 0)
             {
                 TitanAssetService_Lock();
                 if (TitanAssetService_StorageJobIdentityMatchesLocked(job))
@@ -4568,6 +4873,9 @@ void TitanAssetService_Initialize(void)
         unsigned int count = TitanNeutrino_GetGameCount();
         unsigned int i;
         if (count > TITAN_NEUTRINO_GAME_CAPACITY) count = TITAN_NEUTRINO_GAME_CAPACITY;
+        g_assets.startup_preload_count = count;
+        g_assets.startup_preload_cursor = 0u;
+        g_assets.startup_preload_active = count != 0u;
         for (i = 0u; i < count && startup_visible_count < 16u; ++i) {
             const TitanNeutrinoGame *game = TitanNeutrino_GetGame(i);
             if (game == 0 || game->startup[0] == '\0') continue;
@@ -4595,6 +4903,9 @@ void TitanAssetService_NotifyCatalogChanged(void)
         g_assets.manual_cancel_requested = 1;
     g_assets.idle_icon_cursor = 0u;
     g_assets.idle_background_cursor = 0u;
+    g_assets.startup_preload_cursor = 0u;
+    g_assets.startup_preload_count = count;
+    g_assets.startup_preload_active = count != 0u;
     g_assets.last_visible_change_frame = g_assets.frame_index;
     for (i = 0u; i < TITAN_NEUTRINO_GAME_CAPACITY; i++)
     {
@@ -4648,6 +4959,11 @@ void TitanAssetService_NotifyCatalogChanged(void)
 const TitanAssetServiceStatus *TitanAssetService_GetStatus(void)
 {
     return &g_assets.status;
+}
+
+int TitanAssetService_StartupCacheReady(void)
+{
+    return !g_assets.initialized || g_assets.status.startup_cache_ready;
 }
 
 int TitanAssetService_IsArtworkWizardSessionActive(void)

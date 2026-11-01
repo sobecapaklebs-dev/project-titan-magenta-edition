@@ -66,6 +66,9 @@ typedef struct TitanAssetServiceStatus
     TitanAssetKind current_kind;
     int automatic_paused_for_activity;
     unsigned int icons_ready;
+    unsigned int startup_cache_done;
+    unsigned int startup_cache_total;
+    int startup_cache_ready;
     unsigned int downloads_completed;
     unsigned int cache_hits;
     unsigned int cache_misses;
@@ -80,6 +83,7 @@ typedef struct TitanAssetServiceStatus
 void TitanAssetService_Initialize(void);
 void TitanAssetService_UpdateMainThread(unsigned int frame_index);
 void TitanAssetService_NotifyCatalogChanged(void);
+int TitanAssetService_StartupCacheReady(void);
 
 /* Feed only games that are actually visible. The renderer never performs
  * network or filesystem I/O; it sees ready RAM slots or the normal placeholder. */
