@@ -6074,6 +6074,9 @@ static void TitanShellScene_DrawFolderOpenRow(
     unsigned int visible_count;
     unsigned int start_index;
     unsigned int index;
+    unsigned int asset_visible_games[TITAN_ASSET_VISIBLE_GAME_CAPACITY];
+    unsigned int asset_visible_count = 0u;
+    unsigned int asset_selected_game = 0xffffffffu;
     float transition;
     float active_transition;
     float preview_size;
@@ -6144,6 +6147,28 @@ static void TitanShellScene_DrawFolderOpenRow(
         start_index =
             (unsigned int)g_scene.folder_open_selected - visible_count + 1u;
     }
+
+    /* Folder children are drawn by this overlay, outside the Home carousel's
+     * normal visibility list. Publish this bounded folder window to the asset
+     * service before drawing tiles so cached TIMG loads start immediately,
+     * instead of waiting for the five-second catalog idle-prefetch pass. */
+    for (index = start_index;
+         index < folder->item_count &&
+             index - start_index < TITAN_ASSET_VISIBLE_GAME_CAPACITY;
+         index++)
+    {
+        TitanHomeEntry folder_entry;
+        if (!TitanShellScene_BuildFolderItemEntry(folder->item_keys[index], &folder_entry) ||
+            folder_entry.type != TITAN_HOME_ENTRY_GAME)
+            continue;
+        asset_visible_games[asset_visible_count++] = folder_entry.game_index;
+        if (asset_selected_game == 0xffffffffu &&
+            index == (g_scene.folder_open && g_scene.folder_open_selected >= 0
+                ? (unsigned int)g_scene.folder_open_selected : start_index))
+            asset_selected_game = folder_entry.game_index;
+    }
+    TitanAssetService_SetVisibleGames(asset_selected_game, asset_visible_games,
+        asset_visible_count, g_scene.local_frame);
 
     preview_size = TITAN_FOLDER_NAV_PREVIEW_SIZE;
     preview_start_x = 145.0f;
