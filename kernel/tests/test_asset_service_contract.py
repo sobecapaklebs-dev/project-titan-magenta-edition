@@ -56,7 +56,10 @@ checks={
  'package-loader-uses-persistent-file':'TitanStorageIo_Seek64(g_assets.cache_package_fd' in service and 'TitanStorageIo_ReadExact(g_assets.cache_package_fd, g_assets.storage_buffer' in service,
  'wizard-auto-builds-package':'TITAN_ASSET_MANUAL_PACKAGING_ARTWORK' in service and 'TitanAssetService_PackageBuildPump' in service,
  'wizard-builder-atomic-publish':'TitanStorageIo_AsyncAtomicReplace(&g_assets.package_build_file' in service and 'TITAN_ASSET_CACHE_PACKAGE_TEMP_PATH' in service,
- 'package-build-included-in-storage-scheduler':'if (g_assets.package_build_active) return 1;' in service and 'if (g_assets.package_build_active) return TitanAssetService_PackageBuildPump();' in service,
+ 'package-build-included-in-storage-scheduler':'TITAN_ASSET_PACKAGE_BUILD_STREAM_READY' in service and 'TitanAssetService_PackageBuildPump();' in service,
+ 'package-build-streams-hot-timg':'TitanAssetService_PackageBuildAppendCurrent(job)' in service and 'g_assets.download_buffer, job->total' in service,
+ 'package-build-avoids-cache-rescan':'TitanStorageIo_ListDirectory' not in service[service.find('static int TitanAssetService_PackageBuildPump'):service.find('static int TitanAssetService_ReadStorageChunk')],
+ 'package-v2-footer':'version == 2u' in service and 'TITAN_ASSET_PACKAGE_BUILD_WRITE_FOOTER' in service,
  'status-direct-internet':'direct_internet' in header and 'Internet direto' in service,
 }
 failed=[]

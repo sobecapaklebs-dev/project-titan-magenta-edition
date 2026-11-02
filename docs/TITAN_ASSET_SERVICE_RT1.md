@@ -67,23 +67,22 @@ checked.
 
 ## Indexed startup cache package
 
-`mass:/TITAN/cache/assets/ASSETS.TPK` stores a fixed-size index (serial, asset
-kind, byte offset and length) followed by the existing TIMG records. At startup,
-the storage worker validates and reads the index once, then keeps one package
-file open and seeks directly to each requested TIMG. This removes per-artwork
-path stat/open/close traffic while preserving complete catalog coverage. The
-original `*.icon.timg` and `*.bg.timg` files are retained; absent or incomplete
-package entries transparently use the individual TIMG cache.
+`mass:/TITAN/cache/assets/ASSETS.TPK` stores concatenated TIMG records followed
+by a fixed-size index (serial, asset kind, byte offset and length) and a v2 footer.
+At startup, the storage worker reads and structurally checks the footer and index
+once, then keeps one package file open and seeks directly to each requested TIMG.
+The original `*.icon.timg` and `*.bg.timg` files are retained; missing entries
+transparently use the individual TIMG cache.
 
-The Asset Wizard creates or refreshes this package automatically after an
-artwork-conversion session, including **Convert all artworks**. It scans the
-cache directory, validates each TIMG header, writes the index and records to a
-temporary package, then atomically publishes `ASSETS.TPK`. The progress screen
-stays active for indexing, packing and publishing. If packing fails or is
-cancelled, individual TIMG files remain intact as fallback; no PC-side packaging
-step is required. Replacing an artwork already in the package invalidates the
-old package so stale data is never served. Clearing the asset cache removes the
-package and the individual files.
+**Convert all artworks** streams each already-validated TIMG from the conversion
+buffer into the temporary package as that cache file is atomically published.
+This avoids a second directory walk, per-file header reads, and a later reread of
+every cached TIMG. After conversion, the Wizard appends the index and footer,
+then atomically publishes `ASSETS.TPK`. Only the final index/footer stage remains
+after the last artwork; ordinary single-artwork imports do not rebuild the
+package. If packing fails or is cancelled, individual TIMG files remain intact
+as fallback; no PC-side packaging step is required. Clearing the asset cache
+removes the package and the individual files.
 
 ## Build dependencies
 
